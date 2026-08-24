@@ -1,0 +1,37 @@
+#!/usr/bin/env sh
+set -eu
+. "$(dirname -- "$0")/ev3-bench-common"
+
+BUILD_DIR=${EV3_BUILD_DIR:-$REPO_ROOT/build/ev3-bench-armel}
+TOOLCHAIN=${EV3_TOOLCHAIN_FILE:-$REPO_ROOT/ev3/bench/cmake/armel-toolchain.cmake}
+DOCKER_IMAGE=${EV3_DOCKER_IMAGE:-ev3dev/debian-stretch-cross:latest}
+
+if [ "${1:-}" = "--docker" ]; then
+    case "$(uname -s)" in
+        MINGW*|MSYS*|CYGWIN*) REPO_MOUNT=$(cygpath -w "$REPO_ROOT") ;;
+        *) REPO_MOUNT=$REPO_ROOT ;;
+    esac
+    LOCAL_UID=$(id -u)
+    LOCAL_GID=$(id -g)
+    MSYS_NO_PATHCONV=1 docker run --rm \
+        --user "$LOCAL_UID:$LOCAL_GID" \
+        -e HOME=/tmp \
+        --mount "type=bind,source=$REPO_MOUNT,target=/workspace" \
+        -w /workspace \
+        "$DOCKER_IMAGE" \
+        sh -lc "mkdir -p /workspace/build/ev3-bench-armel && cd /workspace/build/ev3-bench-armel && cmake -DCMAKE_BUILD_TYPE=Release -DCMAKE_TOOLCHAIN_FILE=/workspace/ev3/bench/cmake/armel-toolchain.cmake /workspace/ev3/bench && cmake --build . -- -j2"
+    echo "Built with $DOCKER_IMAGE: $BUILD_DIR/ev3-bench"
+    exit 0
+fi
+
+if [ "${1:-}" = "--on-brick" ]; then
+    tar -C "$REPO_ROOT/ev3/bench" -cf - CMakeLists.txt cmake include src | \
+        ssh_ev3 "mkdir -p '$EV3_ROOT/src' '$EV3_ROOT/build' '$EV3_ROOT/bin' '$EV3_ROOT/results/ev3/raw' && tar -m -C '$EV3_ROOT/src' -xf - && if command -v cmake >/dev/null 2>&1; then cd '$EV3_ROOT/build' && cmake -DCMAKE_BUILD_TYPE=Release '$EV3_ROOT/src' && cmake --build . -- -j1; elif command -v g++ >/dev/null 2>&1; then g++ -std=c++14 -O2 -DNDEBUG -Wall -Wextra -Wpedantic -I'$EV3_ROOT/src/include' '$EV3_ROOT/src/src/main.cpp' '$EV3_ROOT/src/src/sysfs.cpp' -pthread -o '$EV3_ROOT/build/ev3-bench'; else echo 'Neither cmake nor g++ is installed on the EV3.' >&2; echo 'Install g++ on the brick or use the arm-linux-gnueabi cross-build.' >&2; exit 127; fi && cp '$EV3_ROOT/build/ev3-bench' '$EV3_ROOT/bin/ev3-bench'"
+    echo "Built and installed on EV3: $EV3_ROOT/bin/ev3-bench"
+    exit 0
+fi
+
+cmake -S "$REPO_ROOT/ev3/bench" -B "$BUILD_DIR" \
+    -DCMAKE_BUILD_TYPE=Release -DCMAKE_TOOLCHAIN_FILE="$TOOLCHAIN"
+cmake --build "$BUILD_DIR" -- -j
+echo "Built: $BUILD_DIR/ev3-bench"

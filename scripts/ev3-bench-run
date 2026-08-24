@@ -1,0 +1,70 @@
+#!/usr/bin/env sh
+set -eu
+. "$(dirname -- "$0")/ev3-bench-common"
+
+if [ "$#" -lt 1 ]; then
+    echo "Usage: scripts/ev3-bench-run e0|e1|...|e13 [ev3-bench options]" >&2
+    exit 2
+fi
+
+TEST=$1
+shift
+for argument in "$TEST" "$@"; do
+    case "$argument" in
+        *[!A-Za-z0-9_./:+-]*)
+            echo "Unsafe/unsupported argument characters: $argument" >&2
+            exit 2
+            ;;
+    esac
+done
+case "$TEST" in
+    smoke|e0|e1|e1_5|e1_minimal|e11|e12) ;;
+    e2|e3|e4|e5|e6|e7|e8|e9|e10|e13|c1|c2|c3|c4|c5|c6|c7|d1|d2|d3|d4|d5|d6|d7|d8)
+        case " $* " in
+            *" --arm "*) ;;
+            *)
+                echo "Motion test $TEST requires --arm." >&2
+                echo "Disconnect long/heavy mechanics; use only a free shaft or short light pointer." >&2
+                exit 2
+                ;;
+        esac
+        ;;
+    *) echo "Unknown test: $TEST" >&2; exit 2 ;;
+esac
+
+case "$TEST" in
+    e7)
+        echo "E7: NEVER stop a shaft with fingers. Use a short beam and fixed soft stop."
+        ;;
+    e9)
+        echo "E9 deliberately kills/freezes the controller. Keep physical access to the EV3."
+        ;;
+    c6)
+        echo "C6 repeats controller-fault injections. Keep physical access to the EV3."
+        ;;
+esac
+
+RUN_ID=${EV3_RUN_ID:-$(date -u +%Y%m%dT%H%M%SZ)}
+case "$RUN_ID" in *[!A-Za-z0-9_.-]*) echo "Unsafe EV3_RUN_ID" >&2; exit 2;; esac
+REMOTE_OUTPUT="$EV3_ROOT/results/ev3/raw"
+REMOTE_COMMAND="sudo -n '$EV3_ROOT/bin/ev3-bench' '$TEST' --output '$REMOTE_OUTPUT' --run-id '$RUN_ID' $*"
+if [ "${EV3_DETACH:-0}" = "1" ]; then
+    # Long motion sweeps must not be terminated merely because a Windows SSH
+    # transport is reset.  The binary owns its stop guard and stops after its
+    # finite protocol; stdout/stderr stay on the brick for post-run inspection.
+    REMOTE_LOG="$EV3_ROOT/results/ev3/raw/${TEST}_${RUN_ID}.remote.log"
+    if ! ssh_ev3 "nohup sh -c \"$REMOTE_COMMAND\" </dev/null >'$REMOTE_LOG' 2>&1 &"; then
+        echo "Unable to start detached EV3 run." >&2
+        exit 1
+    fi
+    echo "Started detached EV3 run $TEST ($RUN_ID); log: $REMOTE_LOG"
+    exit 0
+fi
+if ! ssh_ev3_tty "$REMOTE_COMMAND"; then
+    echo "EV3 run needs the restricted sudo rule. Run scripts/ev3-bench-setup-sudo once." >&2
+    exit 1
+fi
+
+if [ "$TEST" = "smoke" ]; then
+    ssh_ev3_tty "latest=\$(ls -1t '$REMOTE_OUTPUT'/smoke_*.csv 2>/dev/null | head -n 1); test -n \"\$latest\" && { ls -lh \"\$latest\"; wc -l \"\$latest\"; head -n 2 \"\$latest\"; tail -n 2 \"\$latest\"; } || { echo 'ERROR: smoke CSV was not created' >&2; exit 1; }"
+fi

@@ -1,0 +1,18 @@
+#!/usr/bin/env sh
+set -eu
+. "$(dirname -- "$0")/ev3-bench-common"
+
+BUILD_DIR=${EV3_BUILD_DIR:-$REPO_ROOT/build/ev3-bench-armel}
+BINARY=${EV3_BENCH_BINARY:-$BUILD_DIR/ev3-bench}
+
+if [ ! -f "$BINARY" ]; then
+    echo "Binary not found: $BINARY" >&2
+    echo "Run scripts/ev3-bench-build, or set EV3_BENCH_BINARY." >&2
+    exit 1
+fi
+BINARY_DIR=$(CDPATH= cd -- "$(dirname -- "$BINARY")" && pwd)
+BINARY_NAME=$(basename -- "$BINARY")
+case "$BINARY_NAME" in *[!A-Za-z0-9_.-]*) echo "Unsafe binary filename: $BINARY_NAME" >&2; exit 2;; esac
+tar -C "$BINARY_DIR" -cf - "$BINARY_NAME" | \
+    ssh_ev3 "mkdir -p '$EV3_ROOT/bin' '$EV3_ROOT/results/ev3/raw' && tar -m -C '$EV3_ROOT/bin' -xf - && if [ '$BINARY_NAME' != 'ev3-bench' ]; then mv '$EV3_ROOT/bin/$BINARY_NAME' '$EV3_ROOT/bin/ev3-bench'; fi && chmod 0755 '$EV3_ROOT/bin/ev3-bench'"
+echo "Deployed to $EV3_HOST:$EV3_ROOT/bin/ev3-bench"

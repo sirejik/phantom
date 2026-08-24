@@ -26,6 +26,15 @@
 *.mdb
 *.opendb
 *.VC.db
+__pycache__/
+*.py[cod]
+.ev3-ssh/
+
+# EV3 bench: retain reproducible tooling and summary reports, not local captures.
+/build/
+/results/ev3/raw/
+/results/ev3/environment.json
+/results/ev3/environment.txt
 
 # Unity build artifacts and crash reports
 *.apk

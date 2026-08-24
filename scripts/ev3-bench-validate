@@ -1,0 +1,9 @@
+#!/usr/bin/env sh
+# Rebuild all human-readable EV3 summaries from locally pulled raw captures.
+set -eu
+
+ROOT=$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd)
+cd "$ROOT"
+
+python -m unittest tools.ev3_validation.test_analyze -v
+python tools/ev3_validation/analyze.py results/ev3/raw
