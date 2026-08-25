@@ -1,0 +1,8 @@
+{
+  "name": "Phantom.EditorTests",
+  "rootNamespace": "Phantom.Tests",
+  "references": ["Phantom.Runtime"],
+  "optionalUnityReferences": ["TestAssemblies"],
+  "includePlatforms": ["Editor"],
+  "autoReferenced": false
+}

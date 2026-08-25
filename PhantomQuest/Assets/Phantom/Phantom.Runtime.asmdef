@@ -1,0 +1,11 @@
+{
+  "name": "Phantom.Runtime",
+  "rootNamespace": "Phantom",
+  "references": [
+    "Unity.XR.Hands",
+    "Unity.InputSystem",
+    "UnityEngine.UI",
+    "Oculus.VR"
+  ],
+  "autoReferenced": true
+}

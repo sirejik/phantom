@@ -1,0 +1,13 @@
+{
+  "name": "Phantom.Editor",
+  "rootNamespace": "Phantom.Editor",
+  "references": [
+    "Oculus.Platform",
+    "Oculus.VR",
+    "Oculus.VR.Editor",
+    "Unity.XR.Hands",
+    "Unity.XR.OpenXR"
+  ],
+  "includePlatforms": ["Editor"],
+  "autoReferenced": true
+}

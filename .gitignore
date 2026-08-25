@@ -30,6 +30,12 @@ __pycache__/
 *.py[cod]
 .ev3-ssh/
 
+# Local signing material (never commit).
+/.secrets/
+*.keystore
+*.jks
+*.p12
+
 # EV3 bench: retain reproducible tooling and summary reports, not local captures.
 /build/
 /results/ev3/raw/
@@ -42,6 +48,35 @@ __pycache__/
 *.unitypackage
 sysinfo.txt
 *.stacktrace
+
+# Quest validation local compiler/test output
+/results/quest/*.dll
+/results/quest/*.log
+/results/quest/*.jsonl
+/results/quest/*.xml
+/results/quest/environment.json
+/results/quest/runs/
+/results/quest/device-pulls/
+/results/quest/q4-latest/
+/results/quest/summaries/QUEST_ARCHITECTURE_RECOMMENDATIONS.md
+/results/quest/summaries/QUEST_VALIDATION_REPORT.md
+/results/quest/summaries/USER_CALIBRATION_REPORT.md
+/results/quest/v20-physical-*/QUEST_ARCHITECTURE_RECOMMENDATIONS.md
+/results/quest/v20-physical-*/USER_CALIBRATION_REPORT.md
+/results/quest/smoke/
+/.gradle-quest/
+/PhantomQuest/.utmp/
+/PhantomQuest/Assets/XR/Temp/
+/PhantomQuest/Assets/XR/Temp.meta
+/PhantomQuest/Assets/Resources/PerformanceTestRunInfo.json*
+/PhantomQuest/Assets/Resources/PerformanceTestRunSettings.json*
+
+# Meta XR local editor/debug-agent state. DevAgentSettings can contain an
+# access token and a developer workstation address.
+/PhantomQuest/Assets/Resources/DevAgentSettings.asset
+/PhantomQuest/Assets/Resources/DevAgentSettings.asset.meta
+/PhantomQuest/Assets/Resources/ImmersiveDebuggerSettings.asset
+/PhantomQuest/Assets/Resources/ImmersiveDebuggerSettings.asset.meta
 
 # Operating-system files
 .DS_Store
