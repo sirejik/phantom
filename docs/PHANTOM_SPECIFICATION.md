@@ -3237,12 +3237,17 @@ safe_bounds:
 ev3dev Stretch class system (legacy/EOL)
 ARMv5TEJ / armel / gnueabi
 C++14
-systemd
+systemd 232 compatibility baseline
+Python 3.5 compatibility для device/deployment helpers
 ```
 
 Этот software base рассматривается как legacy/EOL: он допускается для исследовательского прототипа только с pinned image SHA-256, pinned toolchain, SBOM, vulnerability/risk record, SSH keys и изолированной LAN без Internet exposure. Код компилируется вне EV3 кросс-компилятором. На EV3 устанавливаются готовые бинарные артефакты и конфигурация.
 
 Hardware-specific sysfs код изолируется за интерфейсом `MotorBackend` (`Ev3SysfsBackend` в v1). State machine, safety policy, protocol, trajectory/reference и controller math не должны зависеть от EV3 sysfs API, чтобы future controller migration не требовала изменения управляющей семантики.
+
+Все устанавливаемые unit-файлы обязаны проходить `systemd-analyze verify` на реальном baseline systemd 232. Директивы, появившиеся позже systemd 232 (например, `StateDirectory=`, `LogsDirectory=` или `RuntimeDirectoryPreserve=`), запрещены без совместимого fallback. Вспомогательные скрипты, выполняемые на Brick, не используют синтаксис/API Python новее 3.5 до смены pinned ev3dev image.
+
+Проверенный 03.09.2026 development fingerprint текущего Brick: `ev3dev-stretch`, Debian `9.12`, kernel `4.14.117-ev3dev-2.3.5-ev3`, machine `armv5tejl`, systemd `232`, Python `3.5.3`. Этот fingerprint задаёт фактически проверенный compatibility floor, но не заменяет обязательный SHA-256 полного ev3dev image и device SBOM из §3.2.7/§8.5.
 
 <a id="sec-7-2"></a>
 ## 7.2. Процессы
@@ -3351,6 +3356,8 @@ heartbeat controller просрочен
 9. запрещать любое автоматическое движение до валидной reference и остальных safety predicates.
 
 Перезапуск не восстанавливает старые `q_target`, `q_hold`, session offsets, сетевая сессия или motion permission. Persistent `DriveCalibration` сохраняется только как коэффициенты конкретной механики; текущий encoder offset всегда устанавливается заново по QR.
+
+Успешное открытие/проверка hardware backend и допуск к движению являются разными результатами. При полном исправном I/O, но ещё не завершённом commissioning, процессы продолжают работать в `SAFE_HOLD` с нулевым output и предоставляют диагностику. Ошибка обнаружения/открытия обязательного motor/sensor/battery I/O должна быть явно залогирована и завершать соответствующий service с ненулевым кодом; запрещено оставлять process `active`, если backend фактически не инициализирован.
 
 <a id="sec-7-5"></a>
 ## 7.5. Реализация QR↔энкодерной калибровки Base/Shoulder/Elbow на EV3
@@ -4296,6 +4303,8 @@ Diagnostic может дополнительно постоянно/сеансо
 - факт потери diagnostic records включается в следующий доступный event/telemetry;
 - цикл управления моторами не блокируется.
 
+Production state и журналы располагаются соответственно в `/var/lib/phantom` и `/var/log/phantom`; runtime sockets/lease — в `/run/phantom`. Каталог `/home/robot/phantom-bench/results/ev3/raw` принадлежит только инженерному bench harness и не является production log storage. Bench logs имеют отдельную bounded rotation/cleanup policy; перед ручной очисткой нужные evidence-файлы копируются на host, точный canonical target path проверяется, а удаление никогда не затрагивает release/config/state каталоги.
+
 <a id="sec-7-21"></a>
 ## 7.21. Конфигурация EV3
 
@@ -4474,6 +4483,8 @@ logging:
 ## 7.22. Обнаружение EV3 и установление соединения
 
 EV3 публикует `_phantom-ev3._udp.local` с текущим `robot_id`, port и protocol major. IP-адрес не является identity.
+
+USB gadget network допускается только как maintenance/bench transport. Host-side инструменты используют проверенное имя `ev3dev.local` либо явно заданный endpoint и pin сохранённого SSH host key; они не должны предполагать, что `192.168.0.1` всегда принадлежит Brick, поскольку этот адрес может совпасть с LAN gateway. IPv4 link-local адрес после USB enumeration допустим для обслуживания при подтверждённой привязке к LEGO RNDIS interface/MAC. Production control остаётся в изолированной Wi-Fi/LAN согласно §8.12.
 
 `HELLO_ACK` содержит:
 
@@ -4748,11 +4759,15 @@ required flags: -march=armv5te -mfloat-abi=soft
 ```text
 phantom-controller
 phantom-safety
+phantom-device-auto
 config.generated.json
 build-manifest.json
 SHA256SUMS
 systemd units
+tmpfiles.d policy
 ```
+
+`SHA256SUMS` содержит относительные POSIX paths для всех файлов release, кроме самого `SHA256SUMS`, кодируется ASCII и использует только LF line endings. Пакет отвергается, если inventory неполон, содержит duplicate/absolute/`..` path, CRLF либо hash mismatch. `phantom-controller`, `phantom-safety` и `phantom-device-auto` сохраняют executable bit; остальные файлы данных не становятся исполняемыми.
 
 `build-manifest.json`:
 
@@ -4772,10 +4787,26 @@ artifact_sha256
 build_time
 ```
 
+Референсная последовательность Windows/CI для EV3:
+
+```powershell
+powershell -NoProfile -ExecutionPolicy Bypass -File scripts/ev3-host-build.ps1 -Profile Release
+powershell -NoProfile -ExecutionPolicy Bypass -File scripts/ev3-host-build.ps1 -Profile Diagnostic
+powershell -NoProfile -ExecutionPolicy Bypass -File scripts/ev3-armel-docker.ps1
+powershell -NoProfile -ExecutionPolicy Bypass -File scripts/pre-install-auto.ps1
+powershell -NoProfile -ExecutionPolicy Bypass -File scripts/ev3-package.ps1
+```
+
+Перед `pre-install-auto.ps1` уже должны существовать Quest Release/Diagnostic artifacts того же clean commit согласно §8.8; старый APK делает общий gate `FAIL`, даже если EV3 build сам по себе корректен. ARMEL build и упаковка разрешены только из clean committed worktree. Упаковщик повторно проверяет внутренние hashes, нормализует modes и создаёт `.tar.gz` с детерминированными owner/group, порядком файлов, mtime и gzip header. Release и Diagnostic упаковываются раздельно и не могут разделять один `build_id`.
+
 <a id="sec-8-7"></a>
 ## 8.7. Развёртывание EV3
 
 Штатное развёртывание принимает только артефакт, для которого сохранён успешный `PRE-INSTALL AUTO` отчёт §9.1.2 и совпадают `build_id`/SHA-256. Локальная инженерная установка непроверенного build допускается только как явно помеченная отладочная операция и не может участвовать в приёмке.
+
+Installer работает с root privilege, но runtime controller работает как отдельный системный пользователь/группа `phantom`; `phantom-safety` работает как root только для независимого доступа к motor sysfs. `/run/phantom` создаётся mode `0770`, `/var/lib/phantom` и `/var/log/phantom` — `0750`, owner/group `phantom:phantom`, через совместимую с systemd 232 `tmpfiles.d` policy. Общий unrestricted passwordless sudo для пользователя `robot` запрещён; maintenance harness получает только явно перечисленную команду, а production install требует отдельного контролируемого root/sudo шага.
+
+До распаковки проверяются безопасный release id и отсутствие absolute/`..` members. Внутри распакованного release выполняется `sha256sum -c SHA256SUMS`; PRE-INSTALL report обязан перечислять этот `build_id`, совпавшие `specification_sha256`/`protocol_schema_hash` и SHA-256 обоих production ELF. Совпадения одного только `git_commit` недостаточно.
 
 Каталоги:
 
@@ -4799,6 +4830,7 @@ build_time
 → атомарно переключить current symlink
 → restart systemd target
 → выполнить health check
+→ выполнить `phantom-device-auto`
 ```
 
 Если health check не проходит:
@@ -4809,6 +4841,8 @@ build_time
 → restart
 → JointReference оставить invalid
 ```
+
+Остановка/перезапуск `phantom.target` обязана распространяться на оба service через `PartOf=` либо эквивалентную явную остановку, чтобы старые процессы не продолжали работать после смены symlink. При failed first install `current` удаляется; при failed upgrade он возвращается на `previous`; неуспешно распакованный новый release удаляется только после проверки, что canonical path находится внутри `/opt/phantom/releases/`.
 
 Развёртывание во время `TRACKING` запрещено.
 
@@ -5106,13 +5140,21 @@ artifact SHA-256 recorded
 - `phantom-controller` и `phantom-safety` запускаются через `systemd`;
 - версии и `build_id` соответствуют установленному пакету;
 - конфигурация читается и проходит schema/hash checks;
-- обнаружены ожидаемые `motor0..`/порты и `LOCAL_STOP`, но автоматический motion остаётся запрещён до valid reference;
+- sysfs devices обнаружены по `address=outA..outD`, а не по нестабильному имени `motorN`; проверены типы `Large/Large/Large/Medium`, `count_per_rot=360`, `GRIPPER_HOME in3`, `LOCAL_STOP in4` и battery telemetry, но автоматический motion остаётся запрещён до valid reference;
 - выполняется короткий timing self-test критического цикла с `duty=0`/безопасным backend;
 - DNS-SD/mDNS service публикуется;
 - Quest/PC test client может выполнить `HELLO/HELLO_ACK`, `PING/PONG` и получить `TELEMETRY`;
 - падение одного процесса обнаруживается вторым по правилам безопасности.
 
 Каждый DEVICE AUTO test также имеет `introduced_at_stage`. На этапе 2 обязательны только автономный запуск, config/hash checks, обнаружение локального I/O, zero-output timing self-test, supervisor heartbeat/takeover и безопасный shutdown. DNS-SD, `HELLO/PING/TELEMETRY` и иные функции этапа 3 становятся обязательными с этапа 3; до этого они записываются как `N_A`, а не как PASS и не как пропущенная строка. DEVICE AUTO никогда не заменяется результатом PC-симулятора.
+
+EV3 stage-2 DEVICE AUTO выполняется установленным `/opt/phantom/current/bin/phantom-device-auto` с root privilege и атомарно сохраняет `/var/lib/phantom/device-auto.json`. Отчёт содержит `git_commit`, один установленный `build_id`, hashes controller/safety/config, platform fingerprint, monotonic timestamp и отдельные строки минимум для artifact integrity, config, motor/sensor/battery discovery, обоих on-device self-tests, systemd startup, zero-output startup, supervisor takeover и safe restart. Stage-3 network строки присутствуют как `N_A` с `introduced_at_stage=3`.
+
+On-device timing self-test выполняет не менее 250 итераций по абсолютной 20-ms сетке с безопасным backend, требует `p99 <= 25 ms`, `max < 50 ms`, нулевое число nonzero motor writes и проверяет latched `LOCAL_STOP` logic. Supervisor test при уже нулевом output посылает `SIGKILL` controller, подтверждает новый emergency event и сохранение `duty=0`, `speed=0`, `stop_action=brake`, после чего полностью перезапускает target для снятия takeover lease/inhibit. Ни один DEVICE AUTO step не выставляет ненулевой duty.
+
+Неполный bench-комплект моторов/датчиков может проходить отдельные E0/stationary проверки, но не превращает обязательный stage-2 I/O discovery в `PASS` или `N_A`. Полный DEVICE AUTO запускается только при подключённых production A/B/C/D, `LOCAL_STOP` и `GRIPPER_HOME`; отсутствие элемента даёт `FAIL`/`NOT_RUN` с причиной без попытки движения.
+
+EV3 не имеет надёжного RTC, поэтому control/watchdog/safety freshness используют только `CLOCK_MONOTONIC`. DEVICE AUTO дополнительно фиксирует wall-clock/NTP state; неверные календарные часы не ослабляют stop path, но блокируют использование отчёта как хронологического release/HIL evidence до синхронизации либо надёжной корреляции с host timestamp.
 
 `DEVICE AUTO` не заменяет HIL: успешный запуск процесса ещё не доказывает, что реальная передача, QR, мотор и механика работают правильно.
 

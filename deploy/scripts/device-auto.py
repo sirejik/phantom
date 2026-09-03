@@ -1,9 +1,11 @@
 #!/usr/bin/env python3
 """Stage-2 EV3 DEVICE AUTO: real Brick checks with zero commanded motion."""
+import calendar
 import hashlib
 import json
 import os
 import pathlib
+import platform
 import subprocess
 import sys
 import time
@@ -76,6 +78,7 @@ def write_report(manifest):
     payload = {"schema_version": 1, "gate": "DEVICE AUTO", "stage": 2,
                "status": status, "git_commit": manifest.get("git_commit"),
                "build_id": manifest.get("build_id"),
+               "config_hash": manifest.get("config_hash"),
                "artifact_sha256": {"controller": manifest.get("controller_sha256"),
                                      "safety": manifest.get("safety_sha256")},
                "monotonic_finished_us": int(time.monotonic() * 1000000), "checks": checks}
@@ -93,6 +96,30 @@ def main():
         return write_report({})
     root = CURRENT.resolve()
     manifest = json.loads((root / "build-manifest.json").read_text(encoding="utf-8-sig"))
+    systemd = run(["systemctl", "--version"], 5).stdout.splitlines()
+    platform_evidence = {"machine": platform.machine(), "kernel": platform.release(),
+                         "python": platform.python_version(),
+                         "systemd": systemd[0] if systemd else "unknown"}
+    platform_ok = platform_evidence["machine"].startswith("armv5")
+    platform_ok = platform_ok and sys.version_info[:2] >= (3, 5)
+    try:
+        platform_ok = platform_ok and int(platform_evidence["systemd"].split()[1]) >= 232
+    except (IndexError, ValueError):
+        platform_ok = False
+    add("ev3-platform-compatibility", "PASS" if platform_ok else "FAIL",
+        "pinned Stretch runtime compatibility", platform_evidence)
+    built_epoch = calendar.timegm(time.strptime(manifest["built_at"][:19], "%Y-%m-%dT%H:%M:%S"))
+    wall_epoch = time.time()
+    timedate = run(["timedatectl", "status"], 5).stdout
+    ntp = "unknown"
+    for line in timedate.splitlines():
+        if "NTP synchronized:" in line:
+            ntp = line.split(":", 1)[1].strip()
+            break
+    clock_evidence = {"wall_clock_utc": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime(wall_epoch)),
+                      "build_time_utc": manifest["built_at"], "ntp_synchronized": ntp}
+    add("ev3-wall-clock", "PASS" if wall_epoch + 86400 >= built_epoch else "FAIL",
+        "wall clock must not predate the installed build", clock_evidence)
     # sha256sum must run relative to the release root.
     integrity = subprocess.run(["sha256sum", "-c", "SHA256SUMS"], cwd=str(root),
                                stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
