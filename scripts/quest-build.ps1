@@ -1,6 +1,7 @@
 param(
     [string]$Output="build/quest/PhantomQuest-release.apk",
-    [string]$SigningDirectory=".secrets/quest-release"
+    [string]$SigningDirectory=".secrets/quest-release",
+    [ValidateSet("Release","Diagnostic")][string]$Profile="Release"
 )
 $ErrorActionPreference="Stop"
 $unity="C:\Program Files\Unity\Hub\Editor\6000.3.22f1\Editor\Unity.exe"
@@ -14,6 +15,14 @@ $env:PHANTOM_KEYSTORE_PATH=$keystore
 $env:PHANTOM_KEYSTORE_PASSWORD_FILE=$passwordFile
 $env:PHANTOM_KEY_ALIAS="phantom-quest-release"
 $env:PHANTOM_META_APP_ID="1405011949353501"
+$env:PHANTOM_BUILD_PROFILE=$Profile
+$env:PHANTOM_GIT_COMMIT=(git rev-parse HEAD).Trim()
+$env:PHANTOM_WORKTREE_DIRTY=if((git status --porcelain).Count -gt 0){"true"}else{"false"}
+$env:PHANTOM_SPECIFICATION_SHA256=(Get-FileHash docs\PHANTOM_SPECIFICATION.md -Algorithm SHA256).Hash.ToLower()
+$env:PHANTOM_PROTOCOL_SCHEMA_HASH=(Get-Content protocol\generated\schema.sha256).Split()[0]
+$env:PHANTOM_CONFIG_HASH=(Get-FileHash config\generated\quest.generated.json -Algorithm SHA256).Hash.ToLower()
+$env:PHANTOM_PACKAGE_LOCK_SHA256=(Get-FileHash PhantomQuest\Packages\packages-lock.json -Algorithm SHA256).Hash.ToLower()
+$env:PHANTOM_SOURCE_TREE_HASH=(python tools\source_hash.py PhantomQuest\Assets\Phantom PhantomQuest\Assets\Plugins PhantomQuest\Packages PhantomQuest\ProjectSettings).Trim()
 # Android Gradle Prefab corrupts non-ASCII Windows profile paths in generated
 # batch files. Keep its cache in the ASCII-only workspace path.
 $env:GRADLE_USER_HOME=[System.IO.Path]::GetFullPath(".gradle-quest")
@@ -24,5 +33,9 @@ $arguments=@(
     "-logFile",[System.IO.Path]::GetFullPath("results/quest/android-build.log"),
     "-quit"
 )
-$process=Start-Process -FilePath $unity -ArgumentList $arguments -WindowStyle Hidden -Wait -PassThru
+$process=Start-Process -FilePath $unity -ArgumentList $arguments -WindowStyle Hidden -PassThru
+# Start-Process -Wait waits for the complete descendant process tree on Windows.
+# Unity may leave Gradle helpers alive after the editor has already returned, so
+# wait for the editor process itself and use its real exit code.
+$process.WaitForExit()
 if($process.ExitCode -ne 0){throw "Unity Android build failed with exit code $($process.ExitCode); see results/quest/android-build.log"}

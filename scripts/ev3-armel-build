@@ -1,0 +1,10 @@
+#!/usr/bin/env sh
+set -eu
+root=$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd);output=${1:-/out};profile=${2:-Release};build="/tmp/phantom-ev3-$(printf %s "$profile" | tr A-Z a-z)"
+case "$profile" in Release) diagnostic=OFF;; Diagnostic) diagnostic=ON;; *) echo "invalid profile: $profile" >&2;exit 2;;esac
+command -v arm-linux-gnueabi-g++ >/dev/null 2>&1 || { echo "arm-linux-gnueabi toolchain unavailable; release gate NOT RUN" >&2;exit 127; }
+rm -rf "$build";mkdir -p "$build" "$output"
+cmake -H"$root/ev3" -B"$build" -DCMAKE_BUILD_TYPE=Release -DPHANTOM_DIAGNOSTIC="$diagnostic" -DCMAKE_TOOLCHAIN_FILE="$root/ev3/bench/cmake/armel-toolchain.cmake"
+cmake --build "$build" -- -j2
+file "$build/phantom-controller" "$build/phantom-safety" | grep -q 'ARM'
+cp "$build/phantom-controller" "$build/phantom-safety" "$output/"

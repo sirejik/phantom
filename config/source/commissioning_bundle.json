@@ -1,0 +1,9 @@
+{
+  "schema_version":1,"revision":1,"bundle_id":"phantom-v1-unqualified","mechanical_revision":"MEASURED_REQUIRED","qualification_status":"UNQUALIFIED",
+  "robot_geometry":{"branch_sign":1,"l1_m":null,"l2_m":null,"shoulder_height_m":null,"marker_mounts":"MEASURED_REQUIRED"},
+  "drive_calibration":{"revision":1,"status":"MEASURED_REQUIRED","axes":{"A":null,"B":null,"C":null,"D":null}},
+  "collision_model":{"revision":1,"status":"MEASURED_REQUIRED","primitives":[]},
+  "joint_safe_sets":{"format":"GRID3D_V1","status":"MEASURED_REQUIRED","profiles":{}},
+  "payload_profiles":{"status":"MEASURED_REQUIRED","profiles":{"EMPTY":{"payload_state":"EMPTY","mass_kg":null,"cog_offset_m":null}}},
+  "safety_envelope":{"external_power_cut_present":null,"external_power_cut_tested":null,"payload_mass_max_kg":null,"payload_cog_offset_max_m":null,"tcp_static_moment_max_Nm":null,"swept_volume_margin_m":null,"pinch_exclusion_margin_m":null}
+}

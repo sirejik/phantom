@@ -265,8 +265,8 @@ namespace Phantom.Experiments
             _logger.Log(_test.ToString(),"tracking_sample",CurrentPhase,"",JsonUtility.ToJson(new MarkerRigTrackingSample
             {
                 tracking=_last,valid=valid,tracker_status=tracker?.StatusReason??"трекер меток недоступен",geometry=geometry,
-                base_back=Marker(snapshot,RobotMarkerId.BaseBack),shoulder_l=Marker(snapshot,RobotMarkerId.ShoulderL),shoulder_r=Marker(snapshot,RobotMarkerId.ShoulderR),
-                elbow_l=Marker(snapshot,RobotMarkerId.ElbowL),elbow_r=Marker(snapshot,RobotMarkerId.ElbowR),tcp_cal=Marker(snapshot,RobotMarkerId.TcpCal)
+                base_back=Marker(snapshot,RobotMarkerId.TurretLeft),shoulder_l=Marker(snapshot,RobotMarkerId.ShoulderLeft),shoulder_r=Marker(snapshot,RobotMarkerId.ShoulderRight),
+                elbow_l=Marker(snapshot,RobotMarkerId.ElbowLeft),elbow_r=Marker(snapshot,RobotMarkerId.ElbowRight),tcp_cal=Marker(snapshot,RobotMarkerId.GripperLeft)
             }));
         }
 

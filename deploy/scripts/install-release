@@ -1,0 +1,20 @@
+#!/bin/sh
+set -eu
+archive=${1:?release archive required};gate=${2:?PRE-INSTALL report required};root=/opt/phantom
+test "$(id -u)" = 0 || { echo "root required" >&2;exit 1; }
+release_id=$(basename "$archive" .tar.gz);case "$release_id" in ''|.|..|*[!A-Za-z0-9._-]*) echo "unsafe release id" >&2;exit 1;;esac
+dest="$root/releases/$release_id";test ! -e "$dest" || { echo "release exists" >&2;exit 1; }
+tar -tzf "$archive" | while IFS= read -r member;do case "$member" in /*|../*|*/../*|*/..) echo "unsafe archive member: $member" >&2;exit 1;;esac;done
+mkdir -p "$dest";tar -xzf "$archive" -C "$dest";(cd "$dest"&&sha256sum -c SHA256SUMS)
+python3 - "$gate" "$dest/build-manifest.json" <<'PY'
+import json,sys
+with open(sys.argv[1],encoding="utf-8-sig") as stream: report=json.load(stream)
+with open(sys.argv[2],encoding="utf-8-sig") as stream: manifest=json.load(stream)
+if report.get("gate")!="PRE-INSTALL AUTO" or report.get("status")!="PASS" or report.get("worktree_dirty") is not False:raise SystemExit("PRE-INSTALL gate is not a clean PASS")
+if report.get("git_commit")!=manifest.get("git_commit") or manifest.get("worktree_dirty") is not False:raise SystemExit("PRE-INSTALL/build manifest source mismatch")
+PY
+"$dest/bin/phantom-controller" --self-test;"$dest/bin/phantom-safety" --self-test
+systemctl stop phantom.target || true;previous=$(readlink -f "$root/current" 2>/dev/null||true);if test -n "$previous";then ln -sfn "$previous" "$root/previous";fi;ln -sfn "$dest" "$root/current"
+install -m 0644 "$dest/systemd/phantom-controller.service" "$dest/systemd/phantom-safety.service" "$dest/systemd/phantom.target" /etc/systemd/system/
+systemctl daemon-reload;systemctl start phantom.target
+systemctl is-active --quiet phantom-safety.service phantom-controller.service || { systemctl stop phantom.target||true;test -n "$previous"&&ln -sfn "$previous" "$root/current";systemctl start phantom.target||true;exit 1; }

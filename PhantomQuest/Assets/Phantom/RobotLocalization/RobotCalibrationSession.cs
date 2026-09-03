@@ -18,13 +18,13 @@ namespace Phantom.RobotLocalization
         public void Reset(){foreach(var list in _samples.Values)list.Clear();_start=-1;Quality=default;}
         public void Add(double monotonicSeconds,RobotMarkerSnapshot snapshot)
         {
-            if(snapshot==null||snapshot.Positions.Count!=6||!snapshot.BaseFrame.IsValid){Reset();return;}if(_start<0)_start=monotonicSeconds;_latestBase=snapshot.BaseFrame;
+            if(snapshot==null||!snapshot.HasAllTenPoses||!snapshot.BaseFrame.IsValid){Reset();return;}if(_start<0)_start=monotonicSeconds;_latestBase=snapshot.BaseFrame;
             foreach(var pair in snapshot.Positions)if(pair.Value.IsFinite)_samples[pair.Key].Add(pair.Value);
-            Quality=new RobotCalibrationQuality{SampleCount=_samples[RobotMarkerId.BaseBack].Count,WindowSeconds=monotonicSeconds-_start,Reason="collecting"};
+            Quality=new RobotCalibrationQuality{SampleCount=_samples[RobotMarkerId.ShoulderLeft].Count,WindowSeconds=monotonicSeconds-_start,Reason="collecting"};
         }
         public bool TryFinish(double monotonicSeconds,out RobotGeometry geometry)
         {
-            geometry=default;if(_start<0||monotonicSeconds-_start<_requiredWindowSeconds||_samples[RobotMarkerId.BaseBack].Count<30)return false;
+            geometry=default;if(_start<0||monotonicSeconds-_start<_requiredWindowSeconds||_samples[RobotMarkerId.ShoulderLeft].Count<30)return false;
             var means=new Dictionary<RobotMarkerId,Vec3>();double maxStd=0;
             foreach(var pair in _samples)
             {
@@ -34,7 +34,7 @@ namespace Phantom.RobotLocalization
                 maxStd=Math.Max(maxStd,Math.Sqrt(sum/accepted));
             }
             geometry=new RobotGeometryEstimator().Estimate(means,_latestBase);var valid=geometry.Valid&&maxStd<=.01;
-            Quality=new RobotCalibrationQuality{SampleCount=_samples[RobotMarkerId.BaseBack].Count,WindowSeconds=monotonicSeconds-_start,MaxPositionStdMeters=maxStd,Valid=valid,Reason=valid?"locked":"pose_variance_or_geometry"};
+            Quality=new RobotCalibrationQuality{SampleCount=_samples[RobotMarkerId.ShoulderLeft].Count,WindowSeconds=monotonicSeconds-_start,MaxPositionStdMeters=maxStd,Valid=valid,Reason=valid?"locked":"pose_variance_or_geometry"};
             if(!valid)geometry.Valid=false;return valid;
         }
         static Vec3 RobustMean(List<Vec3> values)

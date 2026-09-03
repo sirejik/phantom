@@ -1,39 +1,28 @@
-import importlib.util
-import pathlib
-import struct
-import unittest
+import hashlib,hmac,importlib.util,json,pathlib,struct,sys,unittest
+HERE=pathlib.Path(__file__).resolve().parent;ROOT=HERE.parents[1];sys.path.insert(0,str(ROOT/"protocol"))
+import phantom_protocol as wire
+spec=importlib.util.spec_from_file_location("phantom_simulator",str(HERE/"phantom_simulator.py"));simulator=importlib.util.module_from_spec(spec);spec.loader.exec_module(simulator)
 
-PATH = pathlib.Path(__file__).with_name("phantom_simulator.py")
-SPEC = importlib.util.spec_from_file_location("phantom_simulator", str(PATH))
-simulator = importlib.util.module_from_spec(SPEC)
-SPEC.loader.exec_module(simulator)
-
-class ProtocolTests(unittest.TestCase):
-    def packet(self, seq=1, flags=simulator.FLAG_HELLO, session=123):
-        body=struct.pack("<IHHQIQffff",simulator.MAGIC,simulator.VERSION,flags,session,seq,10,0.1,0.2,0.3,0.4)
-        return simulator.crc_packet(body)
-
-    def test_golden_vector_decodes(self):
-        data=bytes.fromhex("50484e540100020008070605040302010d0c0b0a18171615141312110000803f000000c00000003f0000803e6230dfde")
-        packet=simulator.decode_target(data)
-        self.assertEqual(packet["session"],0x0102030405060708)
-        self.assertEqual(packet["seq"],0x0a0b0c0d)
-
-    def test_crc_and_nan_rejected(self):
-        data=bytearray(self.packet());data[20]^=1
-        self.assertIsNone(simulator.decode_target(bytes(data)))
-        body=struct.pack("<IHHQIQffff",simulator.MAGIC,1,1,1,1,1,float("nan"),0,0,0)
-        self.assertIsNone(simulator.decode_target(simulator.crc_packet(body)))
-
-    def test_stale_and_wrong_session_ignored(self):
-        sim=simulator.Simulator();now=sim.started
-        sim.queue_datagram(self.packet(10),("127.0.0.1",1),now);self.assertEqual(len(sim.drain(now)),1)
-        sim.queue_datagram(self.packet(9,simulator.FLAG_TRACKING),("127.0.0.1",1),now);sim.drain(now);self.assertEqual(sim.stale,1)
-        sim.queue_datagram(self.packet(11,simulator.FLAG_TRACKING,999),("127.0.0.1",1),now);sim.drain(now);self.assertEqual(sim.last_seq,10)
-
-    def test_ack_and_telemetry_sizes(self):
-        sim=simulator.Simulator();sim.session=1
-        self.assertEqual(len(sim.hello_ack()),84)
-        self.assertEqual(len(sim.telemetry(sim.started)),84)
-
-if __name__ == "__main__": unittest.main()
+class WireTests(unittest.TestCase):
+    def setUp(self):self.sim=simulator.Simulator();self.address=("127.0.0.1",12345);self.nonce=b"N"*16
+    def hello(self):
+        payload=wire.hello_payload("phantom01",0,0,self.nonce);packet=wire.encode(1,payload,simulator.TEST_KEY,b"\0"*16,self.sim.boot_id,0,1);reply=self.sim.process(packet,self.address,self.sim.started)[0][0];decoded=wire.decode(reply,simulator.TEST_KEY);self.assertEqual(decoded["message"],"HELLO_ACK");self.assertEqual(decoded["payload"][:16],self.nonce)
+    def send(self,name,payload,sequence):return wire.encode(wire.NAMES[name]["type"],payload,simulator.TEST_KEY,self.sim.session,self.sim.boot_id,sequence,sequence)
+    def test_all_generated_vectors_have_valid_hmac_and_lengths(self):
+        vectors=json.loads((ROOT/"protocol"/"golden_vectors"/"v1.json").read_text())["vectors"]
+        self.assertEqual(len(vectors),len(wire.MESSAGES))
+        for vector in vectors:
+            data=bytes.fromhex(vector["datagram_hex"]);self.assertEqual(len(data),64+vector["payload_length"]+32);self.assertTrue(hmac.compare_digest(data[-32:],hmac.new(bytes.fromhex(vector["hmac_key_hex"]),data[:-32],hashlib.sha256).digest()))
+    def test_handshake_is_server_generated_and_retry_idempotent(self):
+        self.hello();session=self.sim.session;self.hello();self.assertEqual(session,self.sim.session)
+    def test_reference_required_before_command(self):
+        self.hello();command=self.send("COMMAND",wire.command_payload(5,[.1,.2,.3],.4),1);self.sim.process(command,self.address,self.sim.started+.01);self.assertEqual(self.sim.state,simulator.SAFE_HOLD)
+    def test_calibration_reference_command_and_timeout(self):
+        self.hello();reply=self.sim.process(self.send("CALIBRATION_QUERY",struct.pack("<Q",7),1),self.address,self.sim.started+.01)[0][0];sample=wire.decode(reply,simulator.TEST_KEY)["payload"];sample_id=struct.unpack_from("<Q",sample,8)[0]
+        reference=struct.pack("<Q32s32sQ3ff4i",1,self.sim.bundle_hash,b"\x44"*32,sample_id,0.,0.,.5,0.,0,0,500,0);ack=self.sim.process(self.send("SET_JOINT_REFERENCE",reference,2),self.address,self.sim.started+.02);self.assertTrue(ack);self.assertTrue(self.sim.references)
+        self.sim.process(self.send("COMMAND",wire.command_payload(5,[.2,.1,.6],.8),3),self.address,self.sim.started+.03);self.assertEqual(self.sim.state,simulator.TRACKING);self.sim.update(.02,self.sim.started+.20);self.assertEqual(self.sim.state,simulator.SAFE_HOLD)
+    def test_corrupt_hmac_reserved_nan_stale_do_not_change_target(self):
+        self.hello();before=list(self.sim.target);packet=bytearray(self.send("COMMAND",wire.command_payload(5,[.1,.2,.3],.4),1));packet[-1]^=1;self.sim.process(bytes(packet),self.address,self.sim.started);self.assertEqual(before,self.sim.target)
+        bad=struct.pack("<IffffI",5,float("nan"),0,0,.2,0);data=self.send("COMMAND",bad,2);self.sim.process(data,self.address,self.sim.started);self.assertEqual(before,self.sim.target)
+    def test_scenarios_are_declared(self):self.assertTrue({"stall","reference_loss","maintenance","local_stop","disconnect"}.issubset(simulator.SCENARIOS))
+if __name__=="__main__":unittest.main()

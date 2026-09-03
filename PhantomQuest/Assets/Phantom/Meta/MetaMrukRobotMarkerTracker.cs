@@ -4,7 +4,6 @@ using System.Collections.Generic;
 using Meta.XR.MRUtilityKit;
 using Phantom.Kinematics;
 using Phantom.RobotLocalization;
-using Phantom.Room;
 using Phantom.Tracking;
 using UnityEngine;
 
@@ -12,8 +11,6 @@ namespace Phantom.Meta
 {
     public sealed class MetaMrukRobotMarkerTracker : MonoBehaviour, IRobotMarkerTracker
     {
-        [SerializeField] Vector3 baseOriginFromMarkerMeters=Vector3.zero;
-        [SerializeField] Vector3 baseFrameEulerInMarkerDegrees=Vector3.zero;
         readonly Dictionary<RobotMarkerId,MRUKTrackable> _trackables=new Dictionary<RobotMarkerId,MRUKTrackable>();
         readonly List<MRUKTrackable> _qrTrackables=new List<MRUKTrackable>();
         readonly List<MRUKTrackable> _initialTrackables=new List<MRUKTrackable>();
@@ -36,8 +33,6 @@ namespace Phantom.Meta
             _nextInitializationAttempt=Time.unscaledTime+1f;
             if(!OVRPlugin.initialized){_reason="OpenXR runtime initializing";return;}
             if(!MRUK.Instance){_reason="MRUK instance unavailable";return;}
-            var roomReference=RoomReferenceRegistry.Current;
-            if(roomReference==null||!roomReference.IsReady){_reason=roomReference?.StatusReason??"room reference unavailable";return;}
             try
             {
                 if(!MRUK.Instance.QRCodeTrackingSupported){_capabilityChecked=true;_reason="QR tracking unavailable on this device/runtime";return;}
@@ -64,14 +59,14 @@ namespace Phantom.Meta
             if(!trackable||trackable.TrackableType!=OVRAnchor.TrackableType.QRCode)return;
             if(!_qrTrackables.Contains(trackable))_qrTrackables.Add(trackable);
             if(TryParse(trackable.MarkerPayloadString,out var id))_trackables[id]=trackable;
-            _reason="QR detected: "+DisplayPayload(trackable.MarkerPayloadString)+"; robot markers "+_trackables.Count+"/6";
+            _reason="QR detected: "+DisplayPayload(trackable.MarkerPayloadString)+"; robot markers "+_trackables.Count+"/10";
         }
         void OnTrackableRemoved(MRUKTrackable trackable){_qrTrackables.Remove(trackable);if(TryParse(trackable.MarkerPayloadString,out var id))_trackables.Remove(id);_reason="QR removed: "+DisplayPayload(trackable.MarkerPayloadString);}
         public bool TryGetSnapshot(out RobotMarkerSnapshot snapshot)
         {
-            snapshot=null;if(_trackables.Count!=6)return false;var baseMarker=_trackables[RobotMarkerId.BaseBack];var rotation=baseMarker.transform.rotation*Quaternion.Euler(baseFrameEulerInMarkerDegrees);var origin=baseMarker.transform.TransformPoint(baseOriginFromMarkerMeters);
-            var frame=new RobotBaseFrame{OriginRoom=MetaQuestTrackingSource.UnityToCanonical(origin),ForwardRoom=MetaQuestTrackingSource.UnityToCanonical(rotation*Vector3.forward).Normalized,LeftRoom=MetaQuestTrackingSource.UnityToCanonical(rotation*Vector3.left).Normalized,UpRoom=MetaQuestTrackingSource.UnityToCanonical(rotation*Vector3.up).Normalized};
-            if(!frame.IsValid)return false;snapshot=new RobotMarkerSnapshot{BaseFrame=frame};foreach(var pair in _trackables){if(!pair.Value||!pair.Value.IsTracked)return false;snapshot.Positions[pair.Key]=MetaQuestTrackingSource.UnityToCanonical(pair.Value.transform.position);}return true;
+            snapshot=null;if(_trackables.Count!=10)return false;var left=MetaQuestTrackingSource.UnityToLocalFloor(_trackables[RobotMarkerId.ShoulderLeft].transform.position);var right=MetaQuestTrackingSource.UnityToLocalFloor(_trackables[RobotMarkerId.ShoulderRight].transform.position);var basis=XrSpaceBridge.FromShoulderPair(left,right);
+            var frame=new RobotBaseFrame{OriginRoom=basis.OriginFloor,ForwardRoom=basis.XFloor,LeftRoom=basis.YFloor,UpRoom=basis.ZFloor};
+            if(!frame.IsValid)return false;snapshot=new RobotMarkerSnapshot{BaseFrame=frame};foreach(var pair in _trackables){if(!pair.Value||!pair.Value.IsTracked)return false;var rotation=pair.Value.transform.rotation;snapshot.Positions[pair.Key]=MetaQuestTrackingSource.UnityToLocalFloor(pair.Value.transform.position);snapshot.Rotations[pair.Key]=new MarkerRotation{X=rotation.x,Y=rotation.y,Z=rotation.z,W=rotation.w};}return snapshot.HasAllTenPoses;
         }
         public bool TryGetQrSnapshot(string requiredPayload,out QrMarkerObservation observation)
         {
@@ -84,7 +79,7 @@ namespace Phantom.Meta
             }
             if(!selected)return false;
             var rotation=selected.transform.rotation;
-            observation=new QrMarkerObservation{Payload=string.IsNullOrEmpty(selected.MarkerPayloadString)?"<binary>":selected.MarkerPayloadString,PositionRoom=MetaQuestTrackingSource.UnityToCanonical(selected.transform.position),RotationX=rotation.x,RotationY=rotation.y,RotationZ=rotation.z,RotationW=rotation.w,Valid=true};
+            observation=new QrMarkerObservation{Payload=string.IsNullOrEmpty(selected.MarkerPayloadString)?"<binary>":selected.MarkerPayloadString,PositionRoom=MetaQuestTrackingSource.UnityToLocalFloor(selected.transform.position),RotationX=rotation.x,RotationY=rotation.y,RotationZ=rotation.z,RotationW=rotation.w,Valid=true};
             return true;
         }
         static string DisplayPayload(string payload)=>string.IsNullOrEmpty(payload)?"<binary>":payload.Length<=80?payload:payload.Substring(0,80);
@@ -96,7 +91,7 @@ namespace Phantom.Meta
                 var separator=normalized.LastIndexOf(':');
                 if(separator>=0&&separator+1<normalized.Length)normalized=normalized.Substring(separator+1);
             }
-            switch(normalized){case "BASE_BACK":id=RobotMarkerId.BaseBack;return true;case "SHOULDER_L":id=RobotMarkerId.ShoulderL;return true;case "SHOULDER_R":id=RobotMarkerId.ShoulderR;return true;case "ELBOW_L":id=RobotMarkerId.ElbowL;return true;case "ELBOW_R":id=RobotMarkerId.ElbowR;return true;case "TCP_CAL":id=RobotMarkerId.TcpCal;return true;default:id=default;return false;}
+            switch(normalized){case "SHOULDER_LEFT":id=RobotMarkerId.ShoulderLeft;return true;case "SHOULDER_RIGHT":id=RobotMarkerId.ShoulderRight;return true;case "TURRET_LEFT":id=RobotMarkerId.TurretLeft;return true;case "TURRET_RIGHT":id=RobotMarkerId.TurretRight;return true;case "ELBOW_LEFT":id=RobotMarkerId.ElbowLeft;return true;case "ELBOW_RIGHT":id=RobotMarkerId.ElbowRight;return true;case "GRIPPER_LEFT":id=RobotMarkerId.GripperLeft;return true;case "GRIPPER_RIGHT":id=RobotMarkerId.GripperRight;return true;case "JAW_LEFT":id=RobotMarkerId.JawLeft;return true;case "JAW_RIGHT":id=RobotMarkerId.JawRight;return true;default:id=default;return false;}
         }
         void OnDestroy(){if(_subscribed&&MRUK.Instance){MRUK.Instance.SceneSettings.TrackableAdded.RemoveListener(OnTrackableAdded);MRUK.Instance.SceneSettings.TrackableRemoved.RemoveListener(OnTrackableRemoved);}if(ReferenceEquals(RobotMarkerTrackerRegistry.Current,this))RobotMarkerTrackerRegistry.Current=null;}
     }

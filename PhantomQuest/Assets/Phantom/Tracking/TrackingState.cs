@@ -8,6 +8,11 @@ namespace Phantom.Tracking
     {
         public Vec3 Position;
         public bool Valid;
+        public long SampleOrQueryTimeUs;
+        public long ReceiveMonotonicTimeUs;
+        public float TimeUncertaintyMs;
+        public string Quality;
+        public string RuntimeQuality;
     }
 
     [Serializable]
@@ -44,6 +49,7 @@ namespace Phantom.Tracking
     {
         public long MonotonicTimeUs;
         public PoseObservation Head;
+        public PoseObservation RightShoulder;
         public HandState RightHand;
         public ControllerState LeftController;
         public bool AppFocused;
@@ -56,5 +62,13 @@ namespace Phantom.Tracking
     public interface IPhantomTrackingSource
     {
         bool TryGetFrame(out TrackingFrame frame);
+    }
+
+    public interface IGripSignalProvider { GripObservation Current { get; } }
+
+    public sealed class SyntheticTrackingSource : IPhantomTrackingSource
+    {
+        public TrackingFrame Frame;
+        public bool TryGetFrame(out TrackingFrame frame){frame=Frame;return true;}
     }
 }

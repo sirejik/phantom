@@ -1,5 +1,6 @@
 using System;
 using System.IO;
+using System.Security.Cryptography;
 using UnityEditor;
 using UnityEditor.Build;
 using UnityEditor.Build.Reporting;
@@ -20,6 +21,16 @@ namespace Phantom.Editor
             var passwordFile=RequiredEnvironmentVariable("PHANTOM_KEYSTORE_PASSWORD_FILE");
             var alias=RequiredEnvironmentVariable("PHANTOM_KEY_ALIAS");
             var configuredAppId=RequiredEnvironmentVariable("PHANTOM_META_APP_ID");
+            var profile=Environment.GetEnvironmentVariable("PHANTOM_BUILD_PROFILE")??"Release";
+            var gitCommit=RequiredEnvironmentVariable("PHANTOM_GIT_COMMIT");
+            var specificationHash=RequiredEnvironmentVariable("PHANTOM_SPECIFICATION_SHA256");
+            var protocolHash=RequiredEnvironmentVariable("PHANTOM_PROTOCOL_SCHEMA_HASH");
+            var configHash=RequiredEnvironmentVariable("PHANTOM_CONFIG_HASH");
+            var sourceTreeHash=RequiredEnvironmentVariable("PHANTOM_SOURCE_TREE_HASH");
+            var packageLockHash=RequiredEnvironmentVariable("PHANTOM_PACKAGE_LOCK_SHA256");
+            var worktreeDirty=RequiredEnvironmentVariable("PHANTOM_WORKTREE_DIRTY");
+            if(worktreeDirty!="true"&&worktreeDirty!="false")throw new Exception("Invalid PHANTOM_WORKTREE_DIRTY value");
+            if(profile!="Release"&&profile!="Diagnostic")throw new Exception("Invalid build profile: "+profile);
             if(configuredAppId!=MetaAppId)throw new Exception("Unexpected Meta App ID: "+configuredAppId);
             if(!File.Exists(keystore))throw new FileNotFoundException("Release keystore not found",keystore);
             if(!File.Exists(passwordFile))throw new FileNotFoundException("Release keystore password file not found",passwordFile);
@@ -43,7 +54,7 @@ namespace Phantom.Editor
             BuildReport report;
             try
             {
-                EditorUserBuildSettings.development=false;
+                EditorUserBuildSettings.development=profile=="Diagnostic";
                 PlayerSettings.Android.useCustomKeystore=true;
                 PlayerSettings.Android.keystoreName=keystore;
                 PlayerSettings.Android.keystorePass=password;
@@ -60,7 +71,11 @@ namespace Phantom.Editor
                 PlayerSettings.Android.keyaliasPass=oldKeyaliasPass;
             }
             if(report.summary.result!=BuildResult.Succeeded)throw new Exception($"Android build failed: {report.summary.result}, errors={report.summary.totalErrors}");
+            var apkHash=Sha256(File.ReadAllBytes(output));
+            var manifest=$"{{\"schema_version\":1,\"build_id\":\"{gitCommit}-{profile.ToLowerInvariant()}-quest\",\"git_commit\":\"{gitCommit}\",\"source_tree_hash\":\"{sourceTreeHash}\",\"worktree_dirty\":{worktreeDirty},\"build_profile\":\"{profile}\",\"protocol_version\":1,\"specification_sha256\":\"{specificationHash}\",\"protocol_schema_hash\":\"{protocolHash}\",\"config_hash\":\"{configHash}\",\"unity_version\":\"{UnityEngine.Application.unityVersion}\",\"app_version\":\"{PlayerSettings.bundleVersion}\",\"package_lock_sha256\":\"{packageLockHash}\",\"body_tracking_provider\":\"OVRBody (qualification pending)\",\"apk_sha256\":\"{apkHash}\",\"build_time\":\"{DateTime.UtcNow:o}\"}}";
+            File.WriteAllText(output+".build-manifest.json",manifest+Environment.NewLine);
         }
+        static string Sha256(byte[] data){using(var sha=SHA256.Create())return BitConverter.ToString(sha.ComputeHash(data)).Replace("-","").ToLowerInvariant();}
 
         static string RequiredEnvironmentVariable(string name)
         {

@@ -14,8 +14,10 @@ $stderr=Join-Path $outDir "simulator-integration.stderr.txt"
 $sim=Start-Process -FilePath "python" -ArgumentList @("sim/ev3-simulator/phantom_simulator.py","--bind","127.0.0.1","--port","31339","--scenario","normal") -PassThru -WindowStyle Hidden -RedirectStandardOutput $stdout -RedirectStandardError $stderr
 try
 {
-    Start-Sleep -Milliseconds 300
-    & "$outDir/UdpIntegration.exe"
+    $deadline=(Get-Date).AddSeconds(3);$boot=$null
+    while((Get-Date)-lt $deadline -and !$boot){Start-Sleep -Milliseconds 50;if(Test-Path $stdout){$first=Get-Content $stdout -First 1 -ErrorAction SilentlyContinue;if($first){$boot=($first|ConvertFrom-Json).controller_boot_id}}}
+    if(!$boot){throw "simulator discovery record timeout"}
+    & "$outDir/UdpIntegration.exe" $boot
     if($LASTEXITCODE -ne 0){exit $LASTEXITCODE}
 }
 finally

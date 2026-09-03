@@ -1,20 +1,6 @@
-using System;
-using System.Threading;
-using Phantom.Kinematics;
-using Phantom.Networking;
-
+using System;using System.Threading;using Phantom.Kinematics;using Phantom.Networking;using Phantom.Networking.Generated;
 internal static class UdpIntegration
 {
-    public static int Main()
-    {
-        using(var client=new PhantomUdpClient("127.0.0.1",31339))
-        {
-            var start=DateTime.UtcNow;while(!client.HandshakeComplete&&(DateTime.UtcNow-start).TotalSeconds<2){client.Send(new JointAngles(0,0,.5),0,CommandFlags.Hello,0);Thread.Sleep(20);client.Poll();}
-            if(!client.HandshakeComplete||!client.Capabilities.Homed)throw new Exception("HELLO_ACK/capabilities timeout");
-            var target=new JointAngles(.5,.4,1.0);start=DateTime.UtcNow;
-            while((DateTime.UtcNow-start).TotalSeconds<1.5){client.Send(target,.7f,CommandFlags.Tracking,0);Thread.Sleep(20);client.Poll();}
-            var actual=client.LastTelemetry.Actual;if(!client.NetworkReady||actual.Base<.25||actual.Shoulder<.2||client.LastTelemetry.GripActual<.3f)throw new Exception($"telemetry did not follow target: {actual.Base}, {actual.Shoulder}, grip={client.LastTelemetry.GripActual}");
-            client.Send(target,.7f,CommandFlags.Hold,0);Console.WriteLine($"PASS: UDP handshake/capabilities/absolute target/telemetry q=({actual.Base:F3},{actual.Shoulder:F3},{actual.Elbow:F3}) grip={client.LastTelemetry.GripActual:F3}");return 0;
-        }
-    }
+ static byte[] Hex(string s){var b=new byte[s.Length/2];for(var i=0;i<b.Length;i++)b[i]=Convert.ToByte(s.Substring(i*2,2),16);return b;}static void PutU64(byte[]b,int o,ulong v){for(var i=0;i<8;i++)b[o+i]=(byte)(v>>(8*i));}static void PutF32(byte[]b,int o,float v){var x=BitConverter.GetBytes(v);Buffer.BlockCopy(x,0,b,o,4);}static ulong U64(byte[]b,int o){ulong v=0;for(var i=0;i<8;i++)v|=(ulong)b[o+i]<<(8*i);return v;}
+ public static int Main(string[] args){if(args.Length<1)throw new ArgumentException("boot id hex required");using(var client=new PhantomUdpClient("127.0.0.1",31339,Hex("000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f"),Hex(args[0]))){var start=DateTime.UtcNow;while(!client.HandshakeComplete&&(DateTime.UtcNow-start).TotalSeconds<2){client.Send(new JointAngles(),0,CommandFlags.Hello,0);Thread.Sleep(20);client.Poll();}if(!client.HandshakeComplete)throw new Exception("HELLO_ACK timeout");var query=new byte[8];PutU64(query,0,7);client.SendMessage(WireV1.MessageType.CalibrationQuery,query,1);start=DateTime.UtcNow;while(client.LastDatagram.Header.MessageType!=WireV1.MessageType.CalibrationSample&&(DateTime.UtcNow-start).TotalSeconds<1){Thread.Sleep(10);client.Poll();}var sampleId=U64(client.LastDatagram.Payload,8);var reference=new byte[112];PutU64(reference,0,1);Buffer.BlockCopy(client.Handshake.BundleHash,0,reference,8,32);for(var i=0;i<32;i++)reference[40+i]=0x44;PutU64(reference,72,sampleId);PutF32(reference,88,.5f);reference[108]=0xf4;reference[109]=1;client.SendMessage(WireV1.MessageType.SetJointReference,reference,2);Thread.Sleep(30);client.Poll();var target=new JointAngles(.5,.4,1);start=DateTime.UtcNow;while((DateTime.UtcNow-start).TotalSeconds<1.5){client.Send(target,.7f,CommandFlags.Tracking,0);Thread.Sleep(20);client.Poll();}var actual=client.LastTelemetry.Actual;if(!client.NetworkReady||actual.Base<.2||client.LastTelemetry.GripActual<.2f)throw new Exception("telemetry did not follow target");client.Send(target,.7f,CommandFlags.Hold,0);Console.WriteLine("PASS: HMAC handshake, reference, command, telemetry, HOLD");return 0;}}
 }

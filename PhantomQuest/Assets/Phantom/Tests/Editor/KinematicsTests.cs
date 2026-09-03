@@ -32,10 +32,8 @@ namespace Phantom.Tests
         [Test]
         public void CoordinateAdapter_DoesNotMirrorYaw()
         {
-            var forward=Tracking.MetaQuestTrackingSource.UnityToCanonical(new UnityEngine.Vector3(0,0,1));
-            var unityRight=Tracking.MetaQuestTrackingSource.UnityToCanonical(new UnityEngine.Vector3(1,0,0));
-            Assert.That(forward.X,Is.EqualTo(1));Assert.That(unityRight.Y,Is.EqualTo(-1));
-            Assert.That(Vec3.Cross(new Vec3(1,0,0),new Vec3(0,1,0)).Z,Is.EqualTo(1));
+            var basis=Tracking.XrSpaceBridge.FromShoulderPair(new Vec3(0,1,1),new Vec3(0,1,-1));
+            Assert.That(basis.ZFloor,Is.EqualTo(new Vec3(0,1,0)));Assert.That(Vec3.Dot(Vec3.Cross(basis.XFloor,basis.YFloor),basis.ZFloor),Is.EqualTo(1).Within(1e-12));
         }
 
         [Test]
@@ -49,18 +47,13 @@ namespace Phantom.Tests
         [Test]
         public void AbsoluteMapping_HasNoCumulativeDriftOverOneHundredThousandFrames()
         {
-            var mapper=new HumanToRobotMapper(0.32);var shoulder=Vec3.Zero;var wrist0=new Vec3(0.6,0,0);var robot0=new Vec3(0.3,0,0.1);
-            Assert.That(mapper.Engage(wrist0,shoulder,0.6,robot0),Is.True);Vec3 target=Vec3.Zero;
-            for(var i=0;i<=100000;i++){var phase=2*Math.PI*i/100000;var wrist=wrist0+new Vec3(0,0.05*Math.Sin(phase),0.03*Math.Sin(2*phase));Assert.That(mapper.TryMap(wrist,shoulder,0.6,out target),Is.True);}
-            Assert.That((target-robot0).Magnitude,Is.LessThan(1e-12));
+            var mapper=new HumanToRobotMapper(.35);var input=new Vec3(.6,.1,.2);Assert.True(mapper.TryMapVector(input,.65,out var first));for(var i=0;i<100000;i++)Assert.True(mapper.TryMapVector(input,.65,out _));Assert.True(mapper.TryMapVector(input,.65,out var last));Assert.That((last-first).Magnitude,Is.LessThan(1e-12));
         }
 
         [Test]
-        public void ReengageStartsAtCurrentTcpWithoutJump()
+        public void MappingDoesNotUsePhysicalPoseOrEngagementAnchor()
         {
-            var mapper=new HumanToRobotMapper(0.3);mapper.Engage(new Vec3(0.5,0,0),Vec3.Zero,0.5,new Vec3(0.2,0,0));mapper.TryMap(new Vec3(0.5,0.1,0),Vec3.Zero,0.5,out var moved);
-            mapper.Release();Assert.That(mapper.Engage(new Vec3(0.4,-0.1,0.1),Vec3.Zero,0.5,moved),Is.True);mapper.TryMap(new Vec3(0.4,-0.1,0.1),Vec3.Zero,0.5,out var reengaged);
-            Assert.That((reengaged-moved).Magnitude,Is.LessThan(1e-12));
+            var mapper=new HumanToRobotMapper(.3);Assert.True(mapper.TryMapVector(new Vec3(.5,0,0),.5,out var target));Assert.That(target,Is.EqualTo(new Vec3(.3,0,0)));Assert.False(mapper.TryMapVector(new Vec3(.001,0,0),.5,out _));
         }
     }
 }

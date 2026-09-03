@@ -1,52 +1,16 @@
-using System;
-using NUnit.Framework;
-using Phantom.Kinematics;
-using Phantom.Mapping;
-using Phantom.Networking;
-
+using System;using System.Security.Cryptography;using NUnit.Framework;using Phantom.Kinematics;using Phantom.Mapping;using Phantom.Networking;using Phantom.Networking.Generated;
 namespace Phantom.Tests
 {
-    public sealed class ProtocolAndStateTests
-    {
-        [Test]
-        public void Protocol_GoldenVectorAndRoundTrip()
-        {
-            var packet=new TargetPacket{Flags=CommandFlags.Tracking,SessionId=0x0102030405060708,Sequence=0x0a0b0c0d,ClientTimeUs=0x1112131415161718,Target=new JointAngles(1,-2,0.5),GripIntent=0.25f};
-            var bytes=ProtocolCodec.EncodeTarget(packet);var hex=BitConverter.ToString(bytes).Replace("-","").ToLowerInvariant();
-            Assert.That(hex,Is.EqualTo("50484e540100020008070605040302010d0c0b0a18171615141312110000803f000000c00000003f0000803e6230dfde"));
-            Assert.That(ProtocolCodec.TryDecodeTarget(bytes,out var decoded),Is.True);Assert.That(decoded.SessionId,Is.EqualTo(packet.SessionId));Assert.That(decoded.Target.Shoulder,Is.EqualTo(-2));
-            bytes[12]^=0x80;Assert.That(ProtocolCodec.TryDecodeTarget(bytes,out _),Is.False);
-        }
-
-        [Test]
-        public void SequenceComparison_HandlesWrapAndRejectsStale()
-        {
-            Assert.That(SequenceMath.IsNewer(11,10),Is.True);Assert.That(SequenceMath.IsNewer(9,10),Is.False);Assert.That(SequenceMath.IsNewer(0,uint.MaxValue),Is.True);Assert.That(SequenceMath.IsNewer(10,10),Is.False);
-        }
-
-        [Test]
-        public void StateMachine_RequiresExplicitReleaseAfterLoss()
-        {
-            var sm=new PhantomStateMachine();var p=new SafetyPredicates{AppFocused=true,RightHandValid=true,LeftControllerValid=true,RoomValid=true,RobotGeometryValid=true,UserCalibrationValid=true,NetworkReady=true};
-            Assert.That(sm.Update(p),Is.EqualTo(PhantomState.ArmedHold));p.EnableHeld=true;Assert.That(sm.Update(p),Is.EqualTo(PhantomState.Tracking));
-            p.RightHandValid=false;Assert.That(sm.Update(p),Is.EqualTo(PhantomState.SafeHold));p.RightHandValid=true;Assert.That(sm.Update(p),Is.EqualTo(PhantomState.SafeHold));
-            p.EnableHeld=false;Assert.That(sm.Update(p),Is.EqualTo(PhantomState.ArmedHold));p.EnableHeld=true;Assert.That(sm.Update(p),Is.EqualTo(PhantomState.Tracking));
-        }
-
-        [Test]
-        public void EnableUsesHysteresis()
-        {
-            var h=new EnableHysteresis(0.75f,0.55f);Assert.That(h.Update(0.7f),Is.False);Assert.That(h.Update(0.8f),Is.True);Assert.That(h.Update(0.6f),Is.True);Assert.That(h.Update(0.5f),Is.False);
-        }
-
-        [Test]
-        public void StateMachine_RequiresRoomBeforeNetwork()
-        {
-            var sm=new PhantomStateMachine();
-            var p=new SafetyPredicates{RoomValid=false,NetworkReady=false};
-            Assert.That(sm.Update(p),Is.EqualTo(PhantomState.RoomRequired));
-            p.RoomValid=true;
-            Assert.That(sm.Update(p),Is.EqualTo(PhantomState.Disconnected));
-        }
-    }
+ public sealed class ProtocolAndStateTests
+ {
+  static byte[] Key(){var k=new byte[32];for(var i=0;i<32;i++)k[i]=(byte)i;return k;}static byte[] Id(byte start){var b=new byte[16];for(var i=0;i<16;i++)b[i]=(byte)(start+i);return b;}
+  [Test]public void Protocol_HmacRoundTripAndCorruption(){var payload=ProtocolCodec.EncodeCommand(new CommandPayload{Flags=MotionFlags.MotionEnable|MotionFlags.TrackingValid,Target=new JointAngles(1,-2,.5),GripIntent=.25f});var bytes=ProtocolCodec.Encode(WireV1.MessageType.Command,payload,Key(),Id(16),Id(32),1,123);Assert.That(bytes.Length,Is.EqualTo(120));Assert.That(ProtocolCodec.TryDecode(bytes,Key(),out var decoded),Is.True);Assert.That(ProtocolCodec.TryDecodeCommand(decoded.Payload,out var command),Is.True);Assert.That(command.Target.Shoulder,Is.EqualTo(-2));bytes[70]^=1;Assert.That(ProtocolCodec.TryDecode(bytes,Key(),out _),Is.False);}
+  [Test]public void Protocol_RejectsWrongLengthReservedAndNonFinite(){var payload=ProtocolCodec.EncodeCommand(new CommandPayload{Flags=MotionFlags.HoldRequest,Target=new JointAngles(0,0,0),GripIntent=0});payload[23]=1;Assert.That(ProtocolCodec.TryDecodeCommand(payload,out _),Is.False);payload[23]=0;var nan=BitConverter.GetBytes(float.NaN);Buffer.BlockCopy(nan,0,payload,4,4);Assert.That(ProtocolCodec.TryDecodeCommand(payload,out _),Is.False);Assert.Throws<ArgumentException>(()=>ProtocolCodec.Encode(WireV1.MessageType.Command,new byte[23],Key(),Id(1),Id(2),1,0));}
+  [Test]public void Protocol_RejectsAuthenticatedNonHandshakeWithZeroSequence(){var payload=ProtocolCodec.EncodeCommand(new CommandPayload{Flags=MotionFlags.HoldRequest,Target=new JointAngles(),GripIntent=0});var bytes=ProtocolCodec.Encode(WireV1.MessageType.Command,payload,Key(),Id(1),Id(2),1,0);Array.Clear(bytes,48,8);using(var h=new HMACSHA256(Key()))Buffer.BlockCopy(h.ComputeHash(bytes,0,bytes.Length-32),0,bytes,bytes.Length-32,32);Assert.False(ProtocolCodec.TryDecode(bytes,Key(),out _));}
+  [Test]public void HelloAckDecoderExposesEchoedNonceAndProtocolHash(){var payload=new byte[364];var nonce=Id(9);Buffer.BlockCopy(nonce,0,payload,0,16);var protocol=Hex(WireV1.ProtocolSchemaSha256);Buffer.BlockCopy(protocol,0,payload,116,32);var datagram=new DecodedDatagram{Header=new WireHeader{MessageType=WireV1.MessageType.HelloAck},Payload=payload};Assert.True(ServerProtocol.TryDecodeHelloAck(datagram,out var ack));CollectionAssert.AreEqual(nonce,ack.ClientNonce);CollectionAssert.AreEqual(protocol,ack.ProtocolHash);}
+  [Test]public void StateMachine_RequiresReleaseAndNewRisingEdge(){var sm=new PhantomStateMachine();var p=new SafetyPredicates{AppFocused=true,XrReady=true,WristValid=true,ShoulderValid=true,LeftControllerValid=true,UserCalibrationValid=true,NetworkDiscovered=true,Connected=true,RobotReferenceValid=true};Assert.That(sm.Update(p),Is.EqualTo(PhantomState.Ready));Assert.That(sm.Update(p),Is.EqualTo(PhantomState.Hold));p.EnableHeld=true;Assert.That(sm.Update(p),Is.EqualTo(PhantomState.Tracking));p.WristValid=false;Assert.That(sm.Update(p),Is.EqualTo(PhantomState.SafeHold));p.WristValid=true;Assert.That(sm.Update(p),Is.EqualTo(PhantomState.SafeHold));p.EnableHeld=false;Assert.That(sm.Update(p),Is.EqualTo(PhantomState.Hold));p.EnableHeld=true;Assert.That(sm.Update(p),Is.EqualTo(PhantomState.Tracking));}
+  [Test]public void EnableUsesNormativeAsymmetricHysteresisAndInvalidReleases(){var h=new EnableHysteresis();Assert.False(h.Update(.59f));Assert.True(h.Update(.60f));Assert.True(h.Update(.50f));Assert.False(h.Update(.45f));Assert.True(h.Update(.8f));Assert.False(h.Update(.8f,false));}
+  [Test]public void StateCodesMatchWireContract(){Assert.That((ushort)PhantomState.Boot,Is.Zero);Assert.That((ushort)PhantomState.Tracking,Is.EqualTo(7));Assert.That((ushort)PhantomState.Commissioning,Is.EqualTo(10));}
+  static byte[] Hex(string value){var bytes=new byte[value.Length/2];for(var i=0;i<bytes.Length;i++)bytes[i]=Convert.ToByte(value.Substring(i*2,2),16);return bytes;}
+ }
 }

@@ -1,0 +1,9 @@
+#include "phantom/controller_core.hpp"
+#include "phantom/runtime_guard.hpp"
+#include <cstdlib>
+#include <iostream>
+#include <string>
+#include <unistd.h>
+static void check(bool ok,const char*message){if(!ok){std::cerr<<message<<"\n";std::exit(1);}}
+int main(){phantom::MockMotorBackend backend;phantom::RuntimeConfig blocked;phantom::ControllerCore core(backend,blocked);check(!core.initialize(),"uncommissioned init must fail closed");core.set_safety_heartbeat_alive(true);core.tick(1000000,20000);check(backend.nonzero_writes()==0,"startup generated motor output");check(!core.motion_allowed(),"startup allowed motion");phantom::Target invalid;invalid.sequence=1;invalid.motion_flags=5;invalid.q={{0,0,0}};invalid.grip=0.5f;invalid.received_us=1000000;check(core.publish_target(invalid),"valid bounded target rejected");core.tick(1020000,20000);check(backend.nonzero_writes()==0,"unreferenced target generated motor output");backend.set_local_stop(true);core.tick(1040000,20000);check(core.state()==phantom::State::Stopped,"LOCAL_STOP did not latch STOPPED");check(core.recorder().size()>=3,"flight recorder empty");
+  const std::string prefix="/tmp/phantom-guard-test-"+std::to_string((long long)::getpid()),a=prefix+"-a.sock",b=prefix+"-b.sock",lock=prefix+".lock";{phantom::HeartbeatChannel first(a,b,1),second(b,a,2);check(first.valid()&&second.valid(),"heartbeat socket setup");const auto now=phantom::monotonic_us();first.send(now);second.drain(now+1);check(second.peer_fresh(now+1,100000),"heartbeat not received");phantom::MotorLease lease1(lock.c_str()),lease2(lock.c_str());check(lease1.try_acquire(),"first lease failed");check(!lease2.try_acquire(),"split-brain lease allowed");lease1.release();check(lease2.try_acquire(),"lease takeover failed");}::unlink(lock.c_str());std::cout<<"EV3 core tests PASS\n";}

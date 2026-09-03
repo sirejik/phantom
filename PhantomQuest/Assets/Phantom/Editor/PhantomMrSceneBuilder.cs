@@ -161,6 +161,10 @@ namespace Phantom.Editor
             config.sceneSupport=OVRProjectConfig.FeatureSupport.Required;
             config.insightPassthroughSupport=OVRProjectConfig.FeatureSupport.Required;
             config.renderModelSupport=OVRProjectConfig.RenderModelSupport.Enabled;
+            var runtime=OVRRuntimeSettings.GetRuntimeSettings();
+            runtime.BodyTrackingJointSet=OVRPlugin.BodyJointSet.UpperBody;
+            runtime.BodyTrackingFidelity=OVRPlugin.BodyTrackingFidelity2.Low;
+            EditorUtility.SetDirty(runtime);
             EditorUtility.SetDirty(config);
             AssetDatabase.SaveAssets();
         }
@@ -174,6 +178,9 @@ namespace Phantom.Editor
             Require(config.renderModelSupport==OVRProjectConfig.RenderModelSupport.Enabled,"Meta runtime controller render-model support must be enabled");
             Require(config.sceneSupport==OVRProjectConfig.FeatureSupport.Required,"Meta Scene API must be required");
             Require(config.insightPassthroughSupport==OVRProjectConfig.FeatureSupport.Required,"passthrough must be required");
+            var runtime=OVRRuntimeSettings.GetRuntimeSettings();
+            Require(runtime.BodyTrackingJointSet==OVRPlugin.BodyJointSet.UpperBody,"Body Tracking must use the qualified UpperBody joint set");
+            Require(runtime.BodyTrackingFidelity==OVRPlugin.BodyTrackingFidelity2.Low,"Body Tracking high-fidelity/IOBT profile is not qualified with Multimodal v1");
 
             var settings=OpenXRSettings.GetSettingsForBuildTargetGroup(BuildTargetGroup.Android);
             Require(settings,"Android OpenXR settings are required");

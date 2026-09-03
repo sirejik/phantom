@@ -1,0 +1,5 @@
+{
+  "$schema":"https://json-schema.org/draft/2020-12/schema","type":"object",
+  "required":["schema_version","robot_id","build_profile","space","hand_tracking","body_tracking","qr","grasp","network"],
+  "properties":{"schema_version":{"const":1},"robot_id":{"type":"string","pattern":"^[A-Za-z0-9_-]{1,32}$"},"build_profile":{"enum":["Release","Diagnostic"]},"space":{"type":"object"},"hand_tracking":{"type":"object"},"body_tracking":{"type":"object"},"qr":{"type":"object"},"grasp":{"type":"object"},"network":{"type":"object"}},"additionalProperties":true
+}

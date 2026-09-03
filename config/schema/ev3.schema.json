@@ -1,0 +1,5 @@
+{
+  "$schema":"https://json-schema.org/draft/2020-12/schema","type":"object",
+  "required":["schema_version","robot_id","build_profile","axes","local_stop","gripper_home","network","safety","logging"],
+  "properties":{"schema_version":{"const":1},"robot_id":{"type":"string","pattern":"^[A-Za-z0-9_-]{1,32}$"},"build_profile":{"enum":["Release","Diagnostic"]},"axes":{"type":"object","required":["base","shoulder","elbow","gripper"]},"local_stop":{"type":"object"},"gripper_home":{"type":"object"},"network":{"type":"object"},"safety":{"type":"object"},"logging":{"type":"object"}},"additionalProperties":true
+}

@@ -1,0 +1,51 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "PHANTOM PRE-INSTALL AUTO report",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version", "gate", "stage", "status", "git_commit", "build_ids",
+    "source_tree_hash", "worktree_dirty", "specification_sha256",
+    "protocol_schema_hash", "started_at", "finished_at", "checks", "artifacts"
+  ],
+  "properties": {
+    "schema_version": {"const": 2},
+    "gate": {"const": "PRE-INSTALL AUTO"},
+    "stage": {"type": "integer", "minimum": 1, "maximum": 7},
+    "status": {"enum": ["PASS", "INCOMPLETE"]},
+    "git_commit": {"type": "string", "pattern": "^[0-9a-f]{40}$"},
+    "build_ids": {"type": "array", "items": {"type": "string", "minLength": 1}},
+    "source_tree_hash": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+    "worktree_dirty": {"type": "boolean"},
+    "specification_sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+    "protocol_schema_hash": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+    "started_at": {"type": "string"},
+    "finished_at": {"type": "string"},
+    "checks": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["test_id", "introduced_at_stage", "applicable_to_stage", "status", "runner"],
+        "properties": {
+          "test_id": {"type": "string", "minLength": 1},
+          "introduced_at_stage": {"type": "integer", "minimum": 1, "maximum": 7},
+          "applicable_to_stage": {"type": "integer", "minimum": 1, "maximum": 7},
+          "status": {"enum": ["PASS", "FAIL", "NOT_RUN", "N_A"]},
+          "runner": {"type": "string", "minLength": 1},
+          "detail": {"type": "string"}
+        }
+      }
+    },
+    "artifacts": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["path", "sha256"],
+        "properties": {
+          "path": {"type": "string", "minLength": 1},
+          "sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"}
+        }
+      }
+    }
+  }
+}

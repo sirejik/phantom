@@ -9,6 +9,7 @@ $sourceDirs=@("Kinematics","Workspace","Calibration","Config","Networking","Repl
 $sources=@()
 foreach($dir in $sourceDirs){$sources+=Get-ChildItem "PhantomQuest/Assets/Phantom/$dir" -Filter "*.cs"|Select-Object -ExpandProperty FullName}
 $sources+=(Resolve-Path "PhantomQuest/Assets/Phantom/Tracking/TrackingState.cs").Path
+$sources+=(Resolve-Path "PhantomQuest/Assets/Phantom/Tracking/XrSpaceBridge.cs").Path
 $sources+=(Resolve-Path "PhantomQuest/Assets/Phantom/Mapping/HumanToRobotMapper.cs").Path
 $sources+=(Resolve-Path "PhantomQuest/Assets/Phantom/Mapping/PhantomStateMachine.cs").Path
 & $dotnet $csc -nologo -langversion:9 -noconfig -nostdlib -target:library -out:"$outDir/Phantom.Core.dll" -r:"$api/mscorlib.dll" -r:"$api/System.dll" -r:"$api/System.Core.dll" @sources

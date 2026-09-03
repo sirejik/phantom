@@ -379,8 +379,8 @@ Meta Quest 3 отслеживает правую руку пользовател
 | `grip_intent` | требуемая степень закрытия захвата `0..1` |
 | `Gripper` | двухгубочный захват PHANTOM |
 | `gripper_curve` | служебное представление нелинейной монотонной калибровочной зависимости между смещением энкодера Medium Motor D и фактическим раскрытием губок; отдельные ветви используются для открытия и закрытия |
-| `GRIPPER_LEFT/RIGHT` | пара QR на жёсткой части корпуса захвата/предплечья; после поправок их середина задаёт `GripperCenter` |
-| `GripperCenter` | вычисленная опорная точка жёсткого корпуса захвата на продольной геометрии предплечья, полученная как середина исправленных `GRIPPER_LEFT/RIGHT` |
+| `GRIPPER_LEFT/RIGHT` | пара QR на жёсткой, неподвижной относительно предплечья части корпуса захвата; она не перемещается при открытии губок и после поправок задаёт `GripperCenter` независимо от текущего раскрытия |
+| `GripperCenter` | вычисленная опорная точка жёсткого корпуса захвата на продольной геометрии предплечья, полученная как середина исправленных `GRIPPER_LEFT/RIGHT`; используется для вектора `ElbowCenter → GripperCenter`, длины `L2` и восстановления frame захвата |
 | `GripperReference` | стартовая привязка энкодера захвата к QR-измеренному фактическому раскрытию текущего запуска; стартовая hysteresis-ветвь всегда `UNKNOWN` и выбирается только первым последующим направлением движения. |
 | `GRIPPER_HOME` | отдельный EV3 Touch Sensor/концевик закрытого положения захвата; используется как воспроизводимая home/reference граница при инженерной калибровке. |
 | `Haptic feedback` | служебное название виброотклика Touch Plus Controller для подтверждений и предупреждений |
@@ -398,7 +398,7 @@ Meta Quest 3 отслеживает правую руку пользовател
 | `incident_id` | идентификатор инцидента, связывающий журналы событий EV3/Quest и сохранённые буферы `FlightRecorder` |
 | `IOBT` | Inside-Out Body Tracking; более высокоточный режим Meta Body Tracking, на который PHANTOM не должен полагаться как на обязательную возможность |
 | `IP` | Internet Protocol address; сетевой адрес узла, который в PHANTOM обнаруживается автоматически и не является идентификатором робота |
-| `JAW_LEFT/RIGHT` | QR-маркеры левой и правой движущейся губки, используемые для калибровки фактического раскрытия захвата |
+| `JAW_LEFT/RIGHT` | отдельная от `GRIPPER_LEFT/RIGHT` пара: по одному QR на каждой движущейся губке; используется для калибровки фактического раскрытия по нелинейной эллиптической траектории губок |
 | `JawContactPoint` | откалиброванная физическая точка/рабочая поверхность губки, положение которой вычисляется из QR через постоянное преобразование и используется для измерения реального зазора |
 | `JointReference` | привязка абсолютного отсчёта энкодера текущего запуска к физическому углу Base/Shoulder/Elbow, установленная по QR |
 | `JSON` / `YAML` | текстовые форматы конфигураций и диагностических данных; их разбор запрещён в критическом 50-Hz цикле управления моторами |
@@ -590,8 +590,8 @@ PHANTOM должен повторять пространственное нап�
 | ID | Требование |
 |---|---|
 | `FR-QR-01` | QR должен быть обязательным способом пространственной локализации PHANTOM и абсолютного задания физических углов Base/Shoulder/Elbow; без валидной QR-привязки переход в `READY` запрещён. |
-| `FR-QR-02` | Конструкция должна иметь пары `SHOULDER_LEFT/RIGHT`, `TURRET_LEFT/RIGHT`, `ELBOW_LEFT/RIGHT` и `GRIPPER_LEFT/RIGHT`. `SHOULDER_LEFT/RIGHT` находятся на неподвижной части и задают `ShoulderCenter`/поперечную ось `RobotBaseFrame`; `TURRET_LEFT/RIGHT` находятся на вращающейся Base-yaw части и задают отдельный поперечный вектор для абсолютного `q_base_qr`. `ELBOW_LEFT/RIGHT` и `GRIPPER_LEFT/RIGHT` дают физические центральные точки узлов. Upper Arm определяется только `ShoulderCenter → ElbowCenter`, Forearm — `ElbowCenter → GripperCenter`; ориентация одного QR не является направлением звена. Вертикаль берётся из OpenXR `LOCAL_FLOOR +Y` и явно преобразуется во внутреннюю `+Z_B`. |
-| `FR-QR-03` | Захват должен иметь отдельную пару `JAW_LEFT/RIGHT` на подвижных губках. Во время инженерной калибровки Quest должен по этим маркерам и известным преобразованиям `маркер → рабочая поверхность губки` измерять фактический зазор между рабочими поверхностями, включая поиск точки максимального раскрытия на нелинейной траектории губок. |
+| `FR-QR-02` | Конструкция должна иметь пары `SHOULDER_LEFT/RIGHT`, `TURRET_LEFT/RIGHT`, `ELBOW_LEFT/RIGHT` и `GRIPPER_LEFT/RIGHT`. `SHOULDER_LEFT/RIGHT` находятся на неподвижной части и задают `ShoulderCenter`/поперечную ось `RobotBaseFrame`; `TURRET_LEFT/RIGHT` находятся на вращающейся Base-yaw части и задают отдельный поперечный вектор для абсолютного `q_base_qr`. `ELBOW_LEFT/RIGHT` дают физический центр локтя. `GRIPPER_LEFT/RIGHT` жёстко закреплены на неподвижном корпусе захвата, не перемещаются при открытии губок и задают `GripperCenter` независимо от раскрытия. Upper Arm определяется только `ShoulderCenter → ElbowCenter`, Forearm — `ElbowCenter → GripperCenter`; ориентация одного QR не является направлением звена. Вертикаль берётся из OpenXR `LOCAL_FLOOR +Y` и явно преобразуется во внутреннюю `+Z_B`. |
+| `FR-QR-03` | Захват должен иметь дополнительную к `GRIPPER_LEFT/RIGHT` пару `JAW_LEFT/RIGHT`: по одному QR на каждой подвижной губке. Во время инженерной калибровки Quest должен по полным позам этих маркеров и известным преобразованиям `маркер → рабочая поверхность губки` измерять фактический зазор между рабочими поверхностями, включая поиск точки максимального раскрытия на нелинейной эллиптической траектории. Ни расстояние между центрами QR, ни их необработанная середина сами по себе не считаются фактическим раскрытием или `GripperCenter`. |
 | `FR-QR-04` | После сборки или изменения передачи инженерная калибровка должна автоматически выполнять последовательность «малое движение одной оси → полная остановка → QR-измерение», проходить Base/Shoulder/Elbow в обоих направлениях, определять знак, коэффициент, повторяемость и люфт и формировать `DriveCalibration`. Для захвата должна строиться монотонная нелинейная кривая `encoder_count ↔ jaw_opening_mm`; непрерывное движение с использованием QR как датчика реального времени не допускается. |
 | `FR-QR-05` | При каждом запуске EV3 Quest должен по QR получить текущие физические углы и синхронизировать их с текущими сырыми энкодерными отсчётами, формируя `JointReference`. |
 | `FR-QR-06` | До валидной `JointReference` автоматическое движение Base/Shoulder/Elbow должно быть запрещено. |
@@ -749,7 +749,7 @@ PHANTOM должен повторять пространственное нап�
 | `NFR-MNT-04` | `Release` и `Diagnostic` должны собираться из одного исходного кода; различаться могут только уровень журналирования, диагностические конечные точки и символы/инструменты отладки. |
 | `NFR-MNT-05` | Каждая механическая revision должна иметь versioned LEGO Studio/CAD assembly artifact с однозначной геометрией узлов, QR-креплений, фазировкой парных передач и cable routing; его hash входит в release/commissioning metadata. |
 | `NFR-MNT-06` | EV3 software base считается legacy/EOL. Релиз обязан фиксировать exact image/toolchain hashes, SBOM и vulnerability/risk record; control core должен быть отделён от EV3 sysfs через `MotorBackend`, чтобы миграция контроллера не требовала переписывания state/safety/control logic. |
-| `NFR-MNT-07` | Quest build manifest обязан фиксировать exact tested Horizon OS/runtime build, Unity editor, Meta XR Core SDK, Movement SDK, MRUK и Unity OpenXR Plugin versions. Любое изменение одного элемента platform matrix инвалидирует P0 capability qualification до сокращённого regression gate §9.6. |
+| `NFR-MNT-07` | Quest build manifest обязан фиксировать Unity editor, Meta XR Core SDK, Movement SDK/provider, MRUK и Unity OpenXR Plugin versions. Связанный DEVICE/P0 report фиксирует exact tested Horizon OS/runtime build конкретного Quest и `apk_sha256`. Любое изменение одного элемента этой объединённой platform matrix инвалидирует P0 capability qualification до сокращённого regression gate §9.6. |
 
 <a id="sec-3-2-8"></a>
 ### 3.2.8. Конфиденциальность
@@ -4570,7 +4570,7 @@ Impact, подозрение на slip/пропуск зуба, encoder disconti
 
 ```text
 phantom/
-├── quest/
+├── PhantomQuest/
 │   ├── Assets/Phantom/
 │   │   ├── Tracking/
 │   │   ├── Calibration/
@@ -4616,7 +4616,6 @@ phantom/
 │   └── scripts/
 ├── docs/
 │   └── PHANTOM_SPECIFICATION.md
-├── AGENTS.md
 ├── README.md
 └── .github/workflows/
 ```
@@ -4732,6 +4731,18 @@ Diagnostic
 
 Оба профиля должны содержать одинаковую управление и безопасность логику и отличаться только logging/diagnostic surfaces и символами/инструментами отладки.
 
+Воспроизводимая baseline-кросс-сборка EV3 выполняется в legacy-образе `ev3dev/debian-stretch-cross:latest`, но release/CI никогда не полагается на изменяемый тег и запускает образ по digest:
+
+```text
+ev3dev/debian-stretch-cross@sha256:819ea7442bbe109d2b39c6c7766e7d1fe635bb98b86c4f6c3b636c0ce176a29f
+arm-linux-gnueabi-g++ 6.3.0-18
+CMake 3.7.2 compatible project
+target: ARMv5TEJ / armel / gnueabi
+required flags: -march=armv5te -mfloat-abi=soft
+```
+
+Тег `latest` допускается только как понятное человеку имя источника при первоначальном получении образа. Фактический digest, версия и SHA-256 бинарника компилятора проверяются по `toolchains/ev3dev-stretch.lock.json`. Exact ev3dev image, установленный на Brick, его SHA-256, package snapshot/SBOM и vulnerability/risk record являются отдельными обязательными release inputs; пока они имеют `UNRESOLVED`/`PENDING`, сборка может использоваться для разработки и DEVICE AUTO, но не является финальным release candidate.
+
 Артефакт включает:
 
 ```text
@@ -4748,11 +4759,16 @@ systemd units
 ```text
 build_id
 git_commit
+source_tree_hash / worktree_dirty
 build_profile
 protocol_version
 compiler/toolchain
+cross_image_digest
+specification_sha256
+protocol_schema_hash
 config_hash
 drive_calibration_schema_version
+artifact_sha256
 build_time
 ```
 
@@ -4827,14 +4843,33 @@ Quest также имеет два build профиль. APK разрешает�
 build:
   app_version: 1.x.y
   git_commit: ...
+  source_tree_hash: ...
+  worktree_dirty: false
   build_profile: Release|Diagnostic
   protocol_version: 1
+  specification_sha256: ...
+  protocol_schema_hash: ...
   unity_version: ...
   package_lock_sha256: ...
   quest_config_hash: ...
+  apk_sha256: ...
 ```
 
 Обновление Unity/OpenXR/Meta packages требует повторных platform/integration tests.
+
+Baseline этапов 1–2 собирается Unity Editor `6000.3.22f1` в batch mode вызовом `Phantom.Editor.PhantomBuild.BuildAndroid`. Входы signing передаются только через локальные файлы/переменные окружения, отсутствующие в Git: путь к keystore, файл пароля, alias и Meta App ID. Ожидаемые артефакты — `build/quest/PhantomQuest-release.apk` и `build/quest/PhantomQuest-diagnostic.apk` с соседними `*.build-manifest.json`. Release и Diagnostic подписываются разрешённым ключом, но Diagnostic отличается только разрешёнными §8.8.2 поверхностями.
+
+Для текущей pinned Meta XR matrix APK обязан содержать и post-build gate обязан проверять как минимум:
+
+```text
+android.permission.INTERNET
+com.oculus.permission.HAND_TRACKING
+com.oculus.permission.BODY_TRACKING
+com.oculus.permission.USE_SCENE
+com.oculus.permission.USE_ANCHOR_API
+```
+
+Build-time manifest фиксирует версии Unity и пакетов. Фактический Horizon OS/runtime конкретного Quest неизвестен сборщику APK и записывается в DEVICE/P0 qualification report вместе с `build_id` и `apk_sha256`; только эта связанная пара документов образует tested platform matrix.
 
 <a id="sec-8-9"></a>
 ## 8.9. Совместимость конфигурации
@@ -5025,7 +5060,7 @@ flowchart TD
 |---|---|
 | Quest pure logic | `IK`/`FK`, системы координат, рабочая область, абсолютное отображение руки, фильтры, state machine |
 | Quest Unity | EditMode/PlayMode tests, XR Simulator, MRUK Spatial Testing для виртуальных комнат и пола |
-| QR-математика | синтетические позы `SHOULDER_*`, `ELBOW_*`, `GRIPPER_*`, `JAW_*`; вычисление центров, векторов, `q_qr`, геометрии губок |
+| QR-математика | синтетические позы всех десяти маркеров: `SHOULDER_*`, `TURRET_*`, `ELBOW_*`, `GRIPPER_*`, `JAW_*`; `RobotBaseFrame`, отдельный `q_base_qr`, векторы `ShoulderCenter → ElbowCenter` и `ElbowCenter → GripperCenter`, независимость `GripperCenter` от раскрытия, преобразования `JAW_* → JawContactPoint`, эллиптическая траектория и фактический зазор губок |
 | EV3 core | host-native C++ unit/property tests, `MockMotorBackend`, `q_ref`, регулятор, ограничения, fault state machines |
 | Калибровка | синтетические QR↔encoder datasets, знак, scale, backlash, rejection плохих точек, нелинейные кривые Gripper |
 | Протокол | C#↔C++ golden vectors, HMAC, sequence/session/transaction rules, malformed packets и fuzz |
@@ -5044,6 +5079,10 @@ all generated protocol/config golden hashes match
 Quest and EV3 build_id recorded
 artifact SHA-256 recorded
 ```
+
+Отчёт имеет versioned machine-readable schema и для каждого нормативного test id хранит как минимум `status`, `introduced_at_stage`, `applicable_to_stage`, команду/runner и ссылку на evidence. Допустимые статусы: `PASS`, `FAIL`, `NOT_RUN`, `N_A`. `N_A` разрешён только если тест ещё не применим к проверяемому этапу и содержит нормативную причину; отсутствие строки или неожиданный `NOT_RUN` эквивалентны FAIL. Итоговый `PASS` запрещён для dirty worktree и обязан содержать `git_commit`, `source_tree_hash`, `specification_sha256`, `protocol_schema_hash`, `build_id` и SHA-256 каждого проверенного артефакта. Локальный отчёт dirty checkout является только диагностическим и не разрешает установку.
+
+Минимальный набор этапа 1 включает schemas/generated-file checks, protocol/golden/HMAC/parser tests, Quest pure logic и synthetic adapters, EV3 host core/MockMotorBackend, simulator/replay, secret scan и host sanitizers. На этапе 2 дополнительно обязательны Unity EditMode/PlayMode и доступные XR/MRUK simulation tests, Release/Diagnostic APK audit, pinned ARMv5TEJ cross-build, artifact manifests/hashes и автономные startup/self-test сценарии. Проверки функций, впервые вводимых этапом 3+, могут иметь `N_A` до своего этапа, но не должны молча исчезать из отчёта.
 
 Если тест требует настоящей камеры, пользователя, EV3 scheduler или физический мотор, он **не симулируется как доказательство аппаратной готовности**; для него существует следующий уровень. Но вся чистая логика такого теста должна быть вынесена из SDK/I/O слоя и проверена здесь.
 
@@ -5072,6 +5111,8 @@ artifact SHA-256 recorded
 - DNS-SD/mDNS service публикуется;
 - Quest/PC test client может выполнить `HELLO/HELLO_ACK`, `PING/PONG` и получить `TELEMETRY`;
 - падение одного процесса обнаруживается вторым по правилам безопасности.
+
+Каждый DEVICE AUTO test также имеет `introduced_at_stage`. На этапе 2 обязательны только автономный запуск, config/hash checks, обнаружение локального I/O, zero-output timing self-test, supervisor heartbeat/takeover и безопасный shutdown. DNS-SD, `HELLO/PING/TELEMETRY` и иные функции этапа 3 становятся обязательными с этапа 3; до этого они записываются как `N_A`, а не как PASS и не как пропущенная строка. DEVICE AUTO никогда не заменяется результатом PC-симулятора.
 
 `DEVICE AUTO` не заменяет HIL: успешный запуск процесса ещё не доказывает, что реальная передача, QR, мотор и механика работают правильно.
 
@@ -5303,6 +5344,8 @@ WMM = off в actuator profile
 ### P0 platform feasibility gate
 
 До закупки/сборки механики, зависящей от телеуправления, exact pinned platform matrix из build manifest непрерывно не менее `30 min` должна одновременно выдавать: правый `Wrist`, `graspValue/graspReady`, `Body_RightShoulder`, левый Touch Plus `Grip` и haptics, passthrough и MRUK QR Trackables. Отдельно выполняются pause/resume, снятие/надевание HMD и повторное включение Multimodal. Gate сохраняет runtime/SDK versions и performance counters. **FAIL блокирует actuator milestone**; он не разрешается добавлением HMD→shoulder heuristic или silent provider fallback.
+
+P0 evidence сохраняется как отдельный versioned report и содержит `build_id`, `apk_sha256`, модель/серийно обезличенный id устройства, точный Horizon OS/runtime build, Unity/Meta XR Core/Movement SDK/MRUK/OpenXR versions, feature flags, permissions, время/длительность запуска, результаты каждого capability и ссылки на device logs. Только реальный Quest 3 может дать `PASS`; отсутствие устройства или несовместимость provider/API записывается как `NOT_RUN`/`FAIL` и блокирует завершение этапов 1–2, хотя не запрещает продолжать безопасную observation-only разработку без motor authority.
 
 Сначала проверяется доступность данных:
 
@@ -6353,7 +6396,7 @@ flowchart TD
 
 До первого автоматического движения обязательно выполняются ручные механические safety-проверки §9.1.6. Моторный код уже должен иметь ограничения мощности/времени и безопасный stop path, даже если полноценное сквозное управление ещё отсутствует.
 
-**Критерий завершения этапа:** механика проходит сухую проверку; EV3 стабильно работает на реальном Brick без неконтролируемого motor output; Quest стабильно получает обязательные XR-входы и QR; `PRE-INSTALL AUTO` и применимые `DEVICE AUTO` проходят для текущих артефактов.
+**Критерий завершения этапа:** механика проходит сухую проверку; EV3 стабильно работает на реальном Brick без неконтролируемого motor output; Quest стабильно получает обязательные XR-входы и QR; `PRE-INSTALL AUTO` и применимые `DEVICE AUTO` проходят для текущих артефактов. Сборка observation-only модулей при недоступном оборудовании допустима как промежуточный результат, но этап 2 не считается завершённым без связанного P0 report, EV3 DEVICE AUTO и механического evidence; `NOT_RUN` не является PASS.
 
 <a id="sec-10-5"></a>
 ## 10.5. Этап 3 — связь, телеметрия и наблюдаемость
@@ -6721,11 +6764,11 @@ S43 Reboot не обнуляет накопленную motor-stress protection:
   https://registry.khronos.org/OpenXR/specs/1.1/man/html/XR_EXT_hand_interaction.html
 
 - **Meta — Body Tracking for Movement SDK for Unity**  
-  `OVRBody` предоставляет обновляемый body skeleton; верхний joint set содержит `Body_RightShoulder`. Body Tracking может быть включён вместе с `Controllers and Hands` и используется PHANTOM как источник во время работы положения правого плеча.  
+  Body Tracking предоставляет обновляемый body skeleton; верхний joint set содержит `Body_RightShoulder`. Конкретный provider/API (`OVRBody` либо иной Movement SDK provider) и его совместимость с `Controllers and Hands`/Multimodal не предполагаются по названию функции, а фиксируются exact package matrix и P0. В Meta XR Core `205.0.0` локальная реализация `OVRBody` отключает компонент при включённом `SimultaneousHandsAndControllersEnabled`, поэтому эта baseline не может считаться совместимой до подтверждённого provider/version решения на реальном Quest 3.
   https://developers.meta.com/horizon/documentation/unity/move-body-tracking/
 
 - **Meta — Simultaneous Hands and Controllers (Multimodal), compatibility**  
-  Актуальная документация указывает несовместимость Multimodal с IOBT/FBS и FMM, а также ограничение passthrough + Multimodal + WMM. Поэтому actuator profile v1 фиксирует эти функции выключенными и квалифицирует базовый Body Tracking отдельно.  
+  Актуальная документация указывает несовместимость Multimodal с IOBT/FBS и FMM, а также ограничение passthrough + Multimodal + WMM. Это не доказывает совместимость конкретного `OVRBody` в каждой версии SDK. Поэтому actuator profile v1 фиксирует эти функции выключенными, квалифицирует выбранный базовый Body Tracking provider отдельно и остаётся заблокированным при расхождении документации с фактическим package source/runtime.
   https://developers.meta.com/horizon/documentation/unity/unity-multimodal/
 
 - **Meta — MRUK / Trackables / spatial capabilities**  

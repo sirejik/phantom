@@ -1,0 +1,23 @@
+0 PHANTOM V1 ASSEMBLY - DESIGN PLACEHOLDER, NOT PHYSICALLY QUALIFIED
+0 Name: PHANTOM_V1_ASSEMBLY.ldr
+0 Author: PHANTOM project
+0 !LICENSE CC BY 4.0
+0 FILE PHANTOM_V1_ASSEMBLY.ldr
+0 // Module references preserve required hierarchy; exact pin/axle geometry requires Studio completion gate.
+1 16 0 0 0 1 0 0 0 1 0 0 0 1 BASE.ldr
+1 16 0 -120 0 1 0 0 0 1 0 0 0 1 SHOULDER.ldr
+1 16 0 -300 0 1 0 0 0 1 0 0 0 1 UPPER_ARM.ldr
+1 16 0 -500 0 1 0 0 0 1 0 0 0 1 FOREARM_GRIPPER.ldr
+0 FILE BASE.ldr
+1 16 -60 0 0 1 0 0 0 1 0 0 0 1 64178.dat
+1 16 60 0 0 1 0 0 0 1 0 0 0 1 64178.dat
+0 FILE SHOULDER.ldr
+1 16 0 0 0 1 0 0 0 1 0 0 0 1 18938.dat
+1 16 0 0 0 1 0 0 0 1 0 0 0 1 18939.dat
+0 FILE UPPER_ARM.ldr
+1 16 -20 0 0 1 0 0 0 1 0 0 0 1 67491.dat
+1 16 20 0 0 1 0 0 0 1 0 0 0 1 67491.dat
+0 FILE FOREARM_GRIPPER.ldr
+1 16 -20 0 0 1 0 0 0 1 0 0 0 1 4526.dat
+1 16 20 0 0 1 0 0 0 1 0 0 0 1 4526.dat
+0 NOFILE

@@ -20,15 +20,28 @@ namespace Phantom.Tracking
         bool _multimodalConfigured;
         float _nextMultimodalAttempt;
         string _multimodalStatus = "waiting_for_openxr_session";
+        OVRBody _body;
 
         public bool MultimodalConfigured => _multimodalConfigured;
         public string MultimodalStatus => _multimodalStatus;
+        public bool BodyProviderAvailable => _body!=null&&_body.enabled;
 
-        public static Vec3 UnityToCanonical(Vector3 value) => new Vec3(value.z, -value.x, value.y);
+        // Normalized adapter output remains in OpenXR LOCAL_FLOOR (Y-up).
+        public static Vec3 UnityToLocalFloor(Vector3 value) => new Vec3(value.x,value.y,value.z);
+        [Obsolete("Use UnityToLocalFloor and XrSpaceBridge; this alias is retained for validation tooling only.")]
+        public static Vec3 UnityToCanonical(Vector3 value) => UnityToLocalFloor(value);
 
         void UpdateDevices()
         {
             TryEnableMultimodal();
+            if(_body==null){_body=GetComponent<OVRBody>();if(_body==null)_body=gameObject.AddComponent<OVRBody>();_body.ProvidedSkeletonType=OVRPlugin.BodyJointSet.UpperBody;}
+            if(_multimodalConfigured&&!_body.enabled&&_multimodalStatus!="enabled_body_provider_unavailable")
+            {
+                // Meta XR Core 205 OVRBody disables itself when simultaneous
+                // hands/controllers are active. Keep the actuator path blocked
+                // and surface the P0 provider/version incompatibility explicitly.
+                SetMultimodalStatus("enabled_body_provider_unavailable",true);
+            }
             if (_hands == null || !_hands.running) { HandSubsystems.Clear(); SubsystemManager.GetSubsystems(HandSubsystems); _hands = HandSubsystems.Find(s => s.running); }
             if (!IsPhysicalLeftController(_leftController) || Time.unscaledTime >= _nextControllerScan) SelectPhysicalLeftController();
             if (!_head.isValid) _head = InputDevices.GetDeviceAtXRNode(XRNode.Head);
@@ -103,22 +116,29 @@ namespace Phantom.Tracking
         public bool TryGetFrame(out TrackingFrame frame)
         {
             UpdateDevices(); frame = new TrackingFrame { MonotonicTimeUs = (long)(Time.realtimeSinceStartupAsDouble * 1000000), AppFocused = Application.isFocused, MultimodalConfigured = _multimodalConfigured };
-            if (_head.isValid && _head.TryGetFeatureValue(CommonUsages.devicePosition, out var headPosition)) frame.Head = new PoseObservation { Position=UnityToCanonical(headPosition),Valid=true };
+            if (_head.isValid && _head.TryGetFeatureValue(CommonUsages.devicePosition, out var headPosition)) frame.Head = Observation(UnityToLocalFloor(headPosition),frame.MonotonicTimeUs,"OPENXR_VALID");
+            frame.RightShoulder=ReadRightShoulder(frame.MonotonicTimeUs);
             frame.LeftController = ReadController(); frame.RightHand = ReadRightHand();
             frame.BothValid = frame.RightHand.Valid && frame.LeftController.Valid;
             frame.InteractionMode = frame.BothValid ? "simultaneous" : frame.RightHand.Valid ? "hand_only" : frame.LeftController.Valid ? "controller_only" : "none";
             var handSource = _hands != null && _hands.running ? _hands.subsystemDescriptor.id : "no_hand_subsystem";
             var controllerSource = _leftController.isValid ? _leftController.name : "no_left_controller";
             frame.InteractionSource = handSource + " + " + controllerSource;
-            return frame.Head.Valid || frame.RightHand.Valid || frame.LeftController.Valid;
+            return frame.Head.Valid || frame.RightShoulder.Valid || frame.RightHand.Valid || frame.LeftController.Valid;
         }
+
+        PoseObservation ReadRightShoulder(long receiveUs)
+        {
+            if(_body==null||!_body.enabled||!_body.BodyState.HasValue)return default;var state=_body.BodyState.Value;const int index=(int)OVRPlugin.BoneId.Body_RightShoulder;if(state.JointLocations==null||index>=state.JointLocations.Length)return default;var joint=state.JointLocations[index];if(!joint.PositionValid)return default;var p=joint.Pose.Position.FromFlippedZVector3f();return new PoseObservation{Position=UnityToLocalFloor(p),Valid=true,SampleOrQueryTimeUs=(long)(state.Time*1000000),ReceiveMonotonicTimeUs=receiveUs,TimeUncertaintyMs=-1,Quality=joint.PositionTracked?"TRACKED":"VALID",RuntimeQuality=state.Fidelity.ToString()};
+        }
+        static PoseObservation Observation(Vec3 p,long time,string quality)=>new PoseObservation{Position=p,Valid=true,SampleOrQueryTimeUs=time,ReceiveMonotonicTimeUs=time,TimeUncertaintyMs=-1,Quality=quality,RuntimeQuality=quality};
 
         HandState ReadRightHand()
         {
             var state = new HandState(); if (_hands == null || !_hands.running) return state;
             var hand = _hands.rightHand; state.Valid = hand.isTracked;
-            if (hand.GetJoint(XRHandJointID.Wrist).TryGetPose(out var wrist)) state.Wrist = new PoseObservation { Position=UnityToCanonical(wrist.position),Valid=true };
-            if (hand.GetJoint(XRHandJointID.Palm).TryGetPose(out var palm)) state.Palm = new PoseObservation { Position=UnityToCanonical(palm.position),Valid=true };
+            var now=(long)(Time.realtimeSinceStartupAsDouble*1000000);if (hand.GetJoint(XRHandJointID.Wrist).TryGetPose(out var wrist)) state.Wrist = Observation(UnityToLocalFloor(wrist.position),now,"XR_HAND_VALID");
+            if (hand.GetJoint(XRHandJointID.Palm).TryGetPose(out var palm)) state.Palm = Observation(UnityToLocalFloor(palm.position),now,"XR_HAND_VALID");
             var gestures = _hands.rightHandCommonGestures;
             var ready = gestures.TryGetGraspValue(out var grasp);
             state.Grasp = new GripObservation { Value01=grasp,Ready=ready,Valid=state.Valid };
@@ -132,7 +152,11 @@ namespace Phantom.Tracking
             var poseReady=_leftController.TryGetFeatureValue(CommonUsages.devicePosition,out var p);
             var trackingKnown=_leftController.TryGetFeatureValue(CommonUsages.isTracked,out var isTracked);
             state.Valid=poseReady&&(!trackingKnown||isTracked);
-            if (poseReady) state.Pose=new PoseObservation{Position=UnityToCanonical(p),Valid=state.Valid};
+            if (poseReady)
+            {
+                state.Pose=Observation(UnityToLocalFloor(p),(long)(Time.realtimeSinceStartupAsDouble*1000000),"LEFT_TOUCH_PLUS");
+                state.Pose.Valid=state.Valid;
+            }
             _leftController.TryGetFeatureValue(CommonUsages.grip,out state.GripAnalog);
             _leftController.TryGetFeatureValue(CommonUsages.gripButton,out state.GripHeld);
             _leftController.TryGetFeatureValue(CommonUsages.trigger,out state.Trigger);

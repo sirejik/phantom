@@ -1,62 +1,23 @@
 using System;
 using Phantom.Kinematics;
+using Phantom.Networking.Generated;
 
 namespace Phantom.Networking
 {
-    public enum ServerMessageType : ushort { HelloAck = 1, Telemetry = 2 }
-    public enum RobotRuntimeState : uint { Initializing = 0, Hold = 1, Tracking = 2, Fault = 3 }
-
-    public struct AxisCapabilities
-    {
-        public JointLimits Limits;
-        public JointAngles MaxVelocity;
-        public JointAngles MaxAcceleration;
-        public bool Homed;
-        public uint AxisConfigHash;
-    }
-
-    public struct HelloAckPacket { public ulong SessionId; public uint LastSequence; public AxisCapabilities Capabilities; }
-    public struct TelemetryPacket
-    {
-        public ulong SessionId; public uint LastSequence; public RobotRuntimeState State; public uint Fault;
-        public ulong ServerTimeUs; public JointAngles Actual; public JointAngles Speed; public JointAngles SimDuty;
-        public float GripActual; public float WatchdogAgeMs;
-    }
-
+    public enum RobotRuntimeState:ushort { Boot=0,UserCalibration=1,Discovery=2,ConnectedUnreferenced=3,RobotCalibration=4,Ready=5,Hold=6,Tracking=7,SafeHold=8,Stopped=9,Commissioning=10 }
+    public struct AxisCapabilities { public JointLimits Limits;public JointAngles MaxVelocity,MaxAcceleration;public bool JointReferenceValid,GripperReferenceValid; }
+    public struct HelloAckPacket { public byte[] ClientNonce;public string RobotId,BuildId;public byte[] ProtocolHash,BundleHash;public RobotRuntimeState State;public ushort ReferenceFlags;public AxisCapabilities Capabilities; }
+    public struct TelemetryPacket { public string RobotId,BuildId;public RobotRuntimeState State;public ushort Fault;public uint StatusFlags;public ulong LastSequence;public uint CommandAgeMs;public JointAngles Actual,Speed;public float GripActual;public ushort GripState,BatteryMv; }
     public static class ServerProtocol
     {
-        public const int HelloAckSize = 84;
-        public const int TelemetrySize = 84;
-
-        public static bool TryDecodeHelloAck(byte[] data, out HelloAckPacket packet)
+        public static bool TryDecodeHelloAck(DecodedDatagram datagram,out HelloAckPacket packet)
         {
-            packet = default; if (!HeaderValid(data, HelloAckSize, ServerMessageType.HelloAck)) return false; var o=8;
-            packet.SessionId=U64(data,ref o);packet.LastSequence=U32(data,ref o);o+=4; // reserved
-            packet.Capabilities.Limits=new JointLimits(Angles(data,ref o),Angles(data,ref o));
-            packet.Capabilities.MaxVelocity=Angles(data,ref o);packet.Capabilities.MaxAcceleration=Angles(data,ref o);
-            packet.Capabilities.Homed=data[o++]!=0;o+=3;packet.Capabilities.AxisConfigHash=U32(data,ref o);
-            return packet.SessionId!=0 && packet.Capabilities.Limits.Min.IsFinite && packet.Capabilities.Limits.Max.IsFinite;
+            packet=default;if(datagram.Header.MessageType!=WireV1.MessageType.HelloAck||datagram.Payload==null||datagram.Payload.Length!=364)return false;var b=datagram.Payload;var o=0;packet.ClientNonce=Bytes(b,ref o,16);packet.RobotId=Id32(b,ref o);packet.BuildId=Id32(b,ref o);o+=2+1+1+32;packet.ProtocolHash=Bytes(b,ref o,32);packet.BundleHash=Bytes(b,ref o,32);o+=32*4;packet.State=(RobotRuntimeState)U16(b,ref o);packet.ReferenceFlags=U16(b,ref o);o+=1+1+2;var min=new JointAngles(F32(b,ref o),F32(b,ref o),F32(b,ref o));var max=new JointAngles(F32(b,ref o),F32(b,ref o),F32(b,ref o));var vel=new JointAngles(F32(b,ref o),F32(b,ref o),F32(b,ref o));var accel=new JointAngles(F32(b,ref o),F32(b,ref o),F32(b,ref o));packet.Capabilities=new AxisCapabilities{Limits=new JointLimits(min,max),MaxVelocity=vel,MaxAcceleration=accel,JointReferenceValid=(packet.ReferenceFlags&1)!=0,GripperReferenceValid=(packet.ReferenceFlags&2)!=0};return packet.Capabilities.Limits.Min.IsFinite&&packet.Capabilities.Limits.Max.IsFinite;
         }
-
-        public static bool TryDecodeTelemetry(byte[] data, out TelemetryPacket packet)
+        public static bool TryDecodeTelemetry(DecodedDatagram datagram,out TelemetryPacket packet)
         {
-            packet=default;if(!HeaderValid(data,TelemetrySize,ServerMessageType.Telemetry))return false;var o=8;
-            packet.SessionId=U64(data,ref o);packet.LastSequence=U32(data,ref o);packet.State=(RobotRuntimeState)U32(data,ref o);packet.Fault=U32(data,ref o);
-            packet.ServerTimeUs=U64(data,ref o);packet.Actual=Angles(data,ref o);packet.Speed=Angles(data,ref o);packet.SimDuty=Angles(data,ref o);
-            packet.GripActual=F32(data,ref o);packet.WatchdogAgeMs=F32(data,ref o);
-            return packet.Actual.IsFinite && packet.Speed.IsFinite;
+            packet=default;if(datagram.Header.MessageType!=WireV1.MessageType.Telemetry||datagram.Payload==null||datagram.Payload.Length!=236)return false;var b=datagram.Payload;var o=0;packet.RobotId=Id32(b,ref o);packet.BuildId=Id32(b,ref o);o+=64;packet.State=(RobotRuntimeState)U16(b,ref o);packet.Fault=U16(b,ref o);packet.StatusFlags=U32(b,ref o);o+=16;packet.LastSequence=U64(b,ref o);packet.CommandAgeMs=U32(b,ref o);packet.Actual=new JointAngles(F32(b,ref o),F32(b,ref o),F32(b,ref o));packet.Speed=new JointAngles(F32(b,ref o),F32(b,ref o),F32(b,ref o));packet.GripActual=F32(b,ref o);packet.GripState=U16(b,ref o);packet.BatteryMv=U16(b,ref o);return packet.Actual.IsFinite&&packet.Speed.IsFinite&&!float.IsNaN(packet.GripActual)&&!float.IsInfinity(packet.GripActual);
         }
-
-        static bool HeaderValid(byte[] data,int size,ServerMessageType type)
-        {
-            if(data==null||data.Length!=size||Crc32.Compute(data,0,size-4)!=U32(data,size-4))return false;var o=0;
-            return U32(data,ref o)==ProtocolCodec.Magic&&U16(data,ref o)==ProtocolCodec.Version&&U16(data,ref o)==(ushort)type;
-        }
-        static JointAngles Angles(byte[] d,ref int o)=>new JointAngles(F32(d,ref o),F32(d,ref o),F32(d,ref o));
-        static ushort U16(byte[] d,ref int o){var v=(ushort)(d[o]|d[o+1]<<8);o+=2;return v;}
-        static uint U32(byte[] d,ref int o){var v=U32(d,o);o+=4;return v;}
-        static uint U32(byte[] d,int o)=>(uint)(d[o]|d[o+1]<<8|d[o+2]<<16|d[o+3]<<24);
-        static ulong U64(byte[] d,ref int o){ulong v=0;for(var i=0;i<8;i++)v|=(ulong)d[o++]<<(8*i);return v;}
-        static float F32(byte[] d,ref int o){var b=BitConverter.GetBytes(U32(d,ref o));return BitConverter.ToSingle(b,0);}
+        static byte[] Bytes(byte[]b,ref int o,int n){var v=new byte[n];Buffer.BlockCopy(b,o,v,0,n);o+=n;return v;}static string Id32(byte[]b,ref int o){var end=o;while(end<o+32&&b[end]!=0)end++;var s=System.Text.Encoding.UTF8.GetString(b,o,end-o);o+=32;return s;}static ushort U16(byte[]b,ref int o)=>ProtocolCodec.ReadU16(b,ref o);static uint U32(byte[]b,ref int o)=>ProtocolCodec.ReadU32(b,ref o);static ulong U64(byte[]b,ref int o)=>ProtocolCodec.ReadU64(b,ref o);static float F32(byte[]b,ref int o)=>ProtocolCodec.ReadF32(b,ref o);
     }
 }
