@@ -52,14 +52,15 @@ function Start-QuestApp([string]$phase)
     # `am start -W` can wait indefinitely for a volumetric window while an
     # unattended HMD is asleep. Wake is harmless and output-free; readiness is
     # established by a separately bounded PID poll and by the in-app report.
-    & $adb -s $serial shell input keyevent 224|Out-Null
+    & $adb -s $serial shell input keyevent KEYCODE_WAKEUP|Out-Null
+    & $adb -s $serial shell input keyevent 82|Out-Null
     $start=@(& $adb -s $serial shell am start -n $activity)
     if($LASTEXITCODE-ne 0 -or ($start-join"`n")-match"Error:"){throw "$phase launch failed: $($start-join' ')"}
     $pidDeadline=(Get-Date).AddSeconds(15)
     $pidValue=""
     while((Get-Date)-lt$pidDeadline)
     {
-        $pidValue=(@(& $adb -s $serial shell pidof $Package 2>$null)-join'').Trim()
+        $pidValue=(@(& $adb -s $serial shell "pidof '$Package' 2>/dev/null || true")-join'').Trim()
         if($pidValue){break}
         Start-Sleep -Milliseconds 250
     }
@@ -75,8 +76,8 @@ $firstLaunch=Start-QuestApp "first"
 $deadline=(Get-Date).AddSeconds($ReportTimeoutSeconds)
 while((Get-Date)-lt$deadline)
 {
-    $remoteListing=@(& $adb -s $serial shell ls $remoteReport 2>$null)
-    if($LASTEXITCODE-eq 0 -and (@($remoteListing)-join'').Trim()) {break}
+    $remoteListing=(@(& $adb -s $serial shell "if [ -f '$remoteReport' ]; then echo present; fi")-join'').Trim()
+    if($remoteListing-eq'present') {break}
     Start-Sleep -Milliseconds 500
 }
 if((Get-Date)-ge$deadline)
@@ -88,13 +89,13 @@ if((Get-Date)-ge$deadline)
 & $adb -s $serial pull $remoteReport (Join-Path $runDirectory "app-report.json")|Out-Null
 $firstLogcat=& $adb -s $serial logcat -d
 $firstLogcat|Set-Content (Join-Path $runDirectory "first-launch.logcat.txt") -Encoding UTF8
-$firstPid=(@(& $adb -s $serial shell pidof $Package 2>$null)-join'').Trim()
+$firstPid=(@(& $adb -s $serial shell "pidof '$Package' 2>/dev/null || true")-join'').Trim()
 
 & $adb -s $serial shell am force-stop $Package
 & $adb -s $serial logcat -c
 $secondLaunch=Start-QuestApp "relaunch"
 Start-Sleep -Seconds 8
-$secondPid=(@(& $adb -s $serial shell pidof $Package 2>$null)-join'').Trim()
+$secondPid=(@(& $adb -s $serial shell "pidof '$Package' 2>/dev/null || true")-join'').Trim()
 $secondLogcat=& $adb -s $serial logcat -d
 $secondLogcat|Set-Content (Join-Path $runDirectory "relaunch.logcat.txt") -Encoding UTF8
 & $adb -s $serial shell am force-stop $Package
@@ -111,7 +112,7 @@ $hostChecks=@(
     [ordered]@{test_id="first-launch";status=$(if($firstPid-and!$firstCrash){"PASS"}else{"FAIL"});detail="pid_present=$([bool]$firstPid); crash=$firstCrash"},
     [ordered]@{test_id="force-stop-relaunch";status=$(if($secondPid-and!$secondCrash){"PASS"}else{"FAIL"});detail="pid_present=$([bool]$secondPid); crash=$secondCrash"}
 )
-$hostFailed=@($hostChecks|Where-Object status -eq"FAIL").Count-gt 0
+$hostFailed=@($hostChecks|Where-Object {$_.status -eq "FAIL"}).Count -gt 0
 $status=if($appReport.status-eq"PASS"-and!$hostFailed){"PASS"}else{"FAIL"}
 $report=[ordered]@{
     schema_version=1;gate="QUEST DEVICE AUTO";status=$status
@@ -136,7 +137,7 @@ $p0Checks+=@(
     [ordered]@{test_id="pause-resume-hmd-multimodal";status="NOT_RUN";detail="requires guided headset interaction"},
     [ordered]@{test_id="continuous-simultaneous-30-min";status="NOT_RUN";detail="not started unless all prerequisite capabilities pass"}
 )
-$p0PrerequisiteFailed=@($p0Checks|Where-Object {$_.test_id-in$p0CapabilityIds -and $_.status-eq"FAIL"}).Count-gt 0
+$p0PrerequisiteFailed=@($p0Checks|Where-Object {$_.test_id -in $p0CapabilityIds -and $_.status -eq "FAIL"}).Count -gt 0
 $p0Status=if($p0PrerequisiteFailed){"FAIL"}else{"NOT_RUN"}
 $p0Report=[ordered]@{
     schema_version=1;gate="P0 QUEST PLATFORM FEASIBILITY";status=$p0Status

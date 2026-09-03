@@ -18,7 +18,8 @@
   identity, manifest/hash и Android permission audit;
 - post-install `scripts/quest-device-auto.ps1`: admission только после matching
   PRE-INSTALL PASS, установка, OpenXR/capability/config self-test, force-stop,
-  повторный запуск, crash audit и обезличенный device report;
+  повторный запуск, bounded HMD wake/PID/report polling, crash audit и
+  обезличенный device report;
 - Diagnostic автоматически включает physical validation runner, а Release не
   активирует engineering UI; обязательный Space Setup не вызывается для
   выключенного scene-aware UX.
@@ -26,19 +27,25 @@
 Runtime этапа 2 намеренно не создаёт `RobotTransport` и не посылает команды
 движения. Любая неготовность tracking/provider/QR оставляет систему вне READY.
 
-## Непройденные аппаратные gates
+## Аппаратные gates Quest 3
 
-- P0 на реальном Quest 3 для exact Horizon/Unity/Meta package matrix;
+- `DEVICE AUTO` на реальном Quest 3 запускается, устанавливает exact APK,
+  подтверждает OpenXR/permissions/config/MRUK/passthrough и перезапуск без crash,
+  но итог — `FAIL` из-за недоступного `OVRBody`;
+- связанный P0 для exact Horizon/Unity/Meta package matrix — `FAIL`, а не
+  `NOT_RUN`: prerequisite Body provider несовместим с требуемым Multimodal;
 - одновременная работа Hand Tracking, выбранного Body Tracking provider,
   левого Touch Plus, passthrough и QR Trackables в течение 30 минут;
 - pause/resume, снятие HMD, focus/reference-space lifecycle;
-- успешный установленный APK `DEVICE AUTO` и реальные camera/QR проверки.
+- реальные camera/QR проверки с напечатанными маркерами.
 
 Meta XR Core 205.0.0 содержит существенный blocker: локальная реализация
-`OVRBody` отключается при `SimultaneousHandsAndControllersEnabled`. До выбора и
-P0-подтверждения совместимого provider/version сочетания Quest actuator path
-остаётся заблокированным. Прежние экспериментальные device runs и версии APK
-не являются PASS для текущего build/spec hash.
+`OVRBody` отключается при `SimultaneousHandsAndControllersEnabled`; это
+подтверждено не только package source, но и реальным device report со статусом
+`enabled_body_provider_unavailable`. До выбора и P0-подтверждения совместимого
+provider/version сочетания Quest actuator path остаётся заблокированным.
+Прежние экспериментальные device runs и версии APK не являются PASS для
+текущего build/spec hash.
 
 Актуальный программный результат создаётся `scripts/pre-install-auto.ps1` и
 привязывается к чистому commit, source/spec/protocol hashes и двум APK. Реальный
