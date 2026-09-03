@@ -65,6 +65,9 @@ sysinfo.txt
 /results/quest/v20-physical-*/QUEST_ARCHITECTURE_RECOMMENDATIONS.md
 /results/quest/v20-physical-*/USER_CALIBRATION_REPORT.md
 /results/quest/smoke/
+/results/quest/pre-install/
+/results/quest/provider-compatibility-audit.json
+/results/quest/spec-duration-audit.json
 /results/pre-install/*.json
 /.gradle-quest/
 /PhantomQuest/.utmp/

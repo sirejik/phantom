@@ -34,11 +34,14 @@ def verify_checksum_manifest(directory):
     expected={path.relative_to(directory).as_posix() for path in directory.rglob("*") if path.is_file() and path.name!="SHA256SUMS"}
     require(listed==expected,f"SHA256SUMS inventory mismatch: {directory}")
 def main():
+    quest_only="--quest-only" in sys.argv[1:]
+    unknown=[arg for arg in sys.argv[1:] if arg!="--quest-only"]
+    require(not unknown,"unknown arguments: "+", ".join(unknown))
     protocol=(ROOT/"protocol/generated/schema.sha256").read_text().split()[0]
     specification=sha(ROOT/"docs/PHANTOM_SPECIFICATION.md")
     commit=subprocess.check_output(["git","rev-parse","HEAD"],cwd=ROOT,text=True).strip()
-    lock=load(ROOT/"toolchains/ev3dev-stretch.lock.json")
-    require(lock["cross_image_digest"]=="sha256:819ea7442bbe109d2b39c6c7766e7d1fe635bb98b86c4f6c3b636c0ce176a29f","cross image digest not pinned")
+    lock=None if quest_only else load(ROOT/"toolchains/ev3dev-stretch.lock.json")
+    if lock is not None:require(lock["cross_image_digest"]=="sha256:819ea7442bbe109d2b39c6c7766e7d1fe635bb98b86c4f6c3b636c0ce176a29f","cross image digest not pinned")
     package_manifest=load(ROOT/"PhantomQuest/Packages/manifest.json")
     package_lock=load(ROOT/"PhantomQuest/Packages/packages-lock.json")
     for package,version in package_manifest["dependencies"].items():
@@ -51,7 +54,7 @@ def main():
         apk=ROOT/f"build/quest/PhantomQuest-{profile}.apk";manifest_path=pathlib.Path(str(apk)+".build-manifest.json")
         require(apk.is_file() and manifest_path.is_file(),"Quest artifact missing: "+profile)
         manifest=load(manifest_path)
-        require(manifest.get("schema_version")==2,"Quest build manifest schema mismatch")
+        require(manifest.get("schema_version")==3,"Quest build manifest schema mismatch")
         require(manifest["build_profile"].lower()==profile,"Quest profile mismatch")
         require(manifest["git_commit"]==commit and manifest.get("worktree_dirty") is False,"Quest artifact is not from the clean current commit")
         require(manifest["apk_sha256"]==sha(apk),"Quest APK hash mismatch")
@@ -69,10 +72,14 @@ def main():
         }
         for field,version in expected_versions.items():require(manifest.get(field)==version,f"Quest {field} mismatch")
         require(manifest.get("body_tracking_provider")=="OVRBody/com.meta.xr.sdk.core","Quest body tracking provider mismatch")
+        require(manifest.get("multimodal_required") is True,"Quest multimodal requirement missing")
+        require(manifest.get("body_provider_joint_set")=="UpperBody","Quest body joint set mismatch")
+        require(manifest.get("body_right_shoulder_api")=="OVRPlugin.BoneId.Body_RightShoulder","Quest right-shoulder API mismatch")
+        require(manifest.get("body_multimodal_compatibility") in {"NO_EXPLICIT_SDK_GUARD_FOUND","INCOMPATIBLE_EXPLICIT_SDK_GUARD"},"Quest provider compatibility classification missing")
         with zipfile.ZipFile(apk) as archive:android_manifest=archive.read("AndroidManifest.xml")
         for permission in ("android.permission.INTERNET","com.oculus.permission.HAND_TRACKING","com.oculus.permission.BODY_TRACKING","com.oculus.permission.USE_SCENE","com.oculus.permission.USE_ANCHOR_API"):
             require(permission.encode("utf-16le") in android_manifest,"Quest APK permission missing: "+permission)
-        for family in ("ev3-host","ev3-armel"):
+        for family in (() if quest_only else ("ev3-host","ev3-armel")):
             directory=ROOT/f"build/{family}-{profile}" if family=="ev3-host" else ROOT/f"build/{family}/{profile}"
             manifest=load(directory/"build-manifest.json")
             require(manifest["build_profile"].lower()==profile,f"{family} profile mismatch")
@@ -87,7 +94,7 @@ def main():
                 require(lock["cross_toolchain_binary_sha256"] in manifest["toolchain_facts"],"armel compiler hash mismatch")
                 require(manifest["controller_sha256"]==sha(directory/"bin/phantom-controller"),"controller hash mismatch")
                 require(manifest["safety_sha256"]==sha(directory/"bin/phantom-safety"),"safety hash mismatch")
-    print("artifact gate PASS: package locks, profiles, hashes, metadata, pinned armel image")
+    print("artifact gate PASS: "+("Quest package locks, profiles, hashes, metadata" if quest_only else "package locks, profiles, hashes, metadata, pinned armel image"))
 if __name__=="__main__":
     try:main()
     except Exception as error:print("artifact gate FAIL:",error,file=sys.stderr);sys.exit(1)

@@ -21,10 +21,16 @@ namespace Phantom.Tracking
         float _nextMultimodalAttempt;
         string _multimodalStatus = "waiting_for_openxr_session";
         OVRBody _body;
+        bool _bodyInitializationAttempted;
 
         public bool MultimodalConfigured => _multimodalConfigured;
         public string MultimodalStatus => _multimodalStatus;
         public bool BodyProviderAvailable => _body!=null&&_body.enabled;
+        public bool BodyProviderComponentPresent => _body!=null;
+        public bool BodyProviderUpperBodyConfigured => _body!=null&&_body.ProvidedSkeletonType==OVRPlugin.BodyJointSet.UpperBody;
+        public bool BodyProviderInitializationAttempted => _bodyInitializationAttempted;
+        public bool BodyProviderHasLiveObservation => _body!=null&&_body.enabled&&_body.BodyState.HasValue;
+        public string BodyProviderStatus => _body==null?"component_not_created":_body.enabled?(BodyProviderHasLiveObservation?"initialized_live":"initialized_no_live_observation"):"component_disabled";
 
         // Normalized adapter output remains in OpenXR LOCAL_FLOOR (Y-up).
         public static Vec3 UnityToLocalFloor(Vector3 value) => new Vec3(value.x,value.y,value.z);
@@ -34,13 +40,12 @@ namespace Phantom.Tracking
         void UpdateDevices()
         {
             TryEnableMultimodal();
-            if(_body==null){_body=GetComponent<OVRBody>();if(_body==null)_body=gameObject.AddComponent<OVRBody>();_body.ProvidedSkeletonType=OVRPlugin.BodyJointSet.UpperBody;}
-            if(_multimodalConfigured&&!_body.enabled&&_multimodalStatus!="enabled_body_provider_unavailable")
+            if(_body==null)
             {
-                // Meta XR Core 205 OVRBody disables itself when simultaneous
-                // hands/controllers are active. Keep the actuator path blocked
-                // and surface the P0 provider/version incompatibility explicitly.
-                SetMultimodalStatus("enabled_body_provider_unavailable",true);
+                _body=GetComponent<OVRBody>();
+                if(_body==null)_body=gameObject.AddComponent<OVRBody>();
+                _body.ProvidedSkeletonType=OVRPlugin.BodyJointSet.UpperBody;
+                _bodyInitializationAttempted=true;
             }
             if (_hands == null || !_hands.running) { HandSubsystems.Clear(); SubsystemManager.GetSubsystems(HandSubsystems); _hands = HandSubsystems.Find(s => s.running); }
             if (!IsPhysicalLeftController(_leftController) || Time.unscaledTime >= _nextControllerScan) SelectPhysicalLeftController();

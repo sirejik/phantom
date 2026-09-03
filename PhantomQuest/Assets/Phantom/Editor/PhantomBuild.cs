@@ -108,7 +108,24 @@ namespace Phantom.Editor
             var openxr=PackageVersion("com.unity.xr.openxr");
             var metaOpenxr=PackageVersion("com.unity.xr.meta-openxr");
             var hands=PackageVersion("com.unity.xr.hands");
-            return $"{{\"schema_version\":2,\"build_id\":\"{gitCommit}-{profile.ToLowerInvariant()}-quest\",\"git_commit\":\"{gitCommit}\",\"source_tree_hash\":\"{sourceTreeHash}\",\"worktree_dirty\":{worktreeDirty},\"build_profile\":\"{profile}\",\"protocol_version\":1,\"specification_sha256\":\"{specificationHash}\",\"protocol_schema_hash\":\"{protocolHash}\",\"config_hash\":\"{configHash}\",\"unity_version\":\"{UnityEngine.Application.unityVersion}\",\"app_version\":\"{PlayerSettings.bundleVersion}\",\"package_lock_sha256\":\"{packageLockHash}\",\"meta_xr_core_version\":\"{core}\",\"movement_sdk_version\":\"{core}\",\"body_tracking_provider\":\"OVRBody/com.meta.xr.sdk.core\",\"mruk_version\":\"{mruk}\",\"openxr_plugin_version\":\"{openxr}\",\"meta_openxr_version\":\"{metaOpenxr}\",\"xr_hands_version\":\"{hands}\",\"apk_sha256\":\"{apkHash}\",\"build_time\":\"{buildTime}\"}}";
+            var bodyCompatibility=BodyMultimodalCompatibility();
+            return $"{{\"schema_version\":3,\"build_id\":\"{gitCommit}-{profile.ToLowerInvariant()}-quest\",\"git_commit\":\"{gitCommit}\",\"source_tree_hash\":\"{sourceTreeHash}\",\"worktree_dirty\":{worktreeDirty},\"build_profile\":\"{profile}\",\"protocol_version\":1,\"specification_sha256\":\"{specificationHash}\",\"protocol_schema_hash\":\"{protocolHash}\",\"config_hash\":\"{configHash}\",\"unity_version\":\"{UnityEngine.Application.unityVersion}\",\"app_version\":\"{PlayerSettings.bundleVersion}\",\"package_lock_sha256\":\"{packageLockHash}\",\"meta_xr_core_version\":\"{core}\",\"movement_sdk_version\":\"{core}\",\"body_tracking_provider\":\"OVRBody/com.meta.xr.sdk.core\",\"multimodal_required\":true,\"body_provider_joint_set\":\"UpperBody\",\"body_right_shoulder_api\":\"OVRPlugin.BoneId.Body_RightShoulder\",\"body_multimodal_compatibility\":\"{bodyCompatibility}\",\"mruk_version\":\"{mruk}\",\"openxr_plugin_version\":\"{openxr}\",\"meta_openxr_version\":\"{metaOpenxr}\",\"xr_hands_version\":\"{hands}\",\"apk_sha256\":\"{apkHash}\",\"build_time\":\"{buildTime}\"}}";
+        }
+
+        static string BodyMultimodalCompatibility()
+        {
+            foreach(var package in UnityEditor.PackageManager.PackageInfo.GetAllRegisteredPackages())
+            {
+                if(package.name!="com.meta.xr.sdk.core")continue;
+                var path=Path.Combine(package.resolvedPath,"Scripts","Movement","OVRBody.cs");
+                if(!File.Exists(path))throw new Exception("Resolved OVRBody source is missing: "+path);
+                var source=File.ReadAllText(path);
+                return source.Contains("SimultaneousHandsAndControllersEnabled")&&
+                       source.Contains("Body API and simultaneous hands and controllers cannot be enabled at the same time")
+                    ?"INCOMPATIBLE_EXPLICIT_SDK_GUARD"
+                    :"NO_EXPLICIT_SDK_GUARD_FOUND";
+            }
+            throw new Exception("Meta XR Core package is not registered");
         }
 
         static string PackageVersion(string name)

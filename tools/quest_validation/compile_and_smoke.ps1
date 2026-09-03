@@ -12,6 +12,7 @@ $sources+=(Resolve-Path "PhantomQuest/Assets/Phantom/Tracking/TrackingState.cs")
 $sources+=(Resolve-Path "PhantomQuest/Assets/Phantom/Tracking/XrSpaceBridge.cs").Path
 $sources+=(Resolve-Path "PhantomQuest/Assets/Phantom/Mapping/HumanToRobotMapper.cs").Path
 $sources+=(Resolve-Path "PhantomQuest/Assets/Phantom/Mapping/PhantomStateMachine.cs").Path
+$sources+=(Resolve-Path "PhantomQuest/Assets/Phantom/Diagnostics/QuestAutoQualification.cs").Path
 & $dotnet $csc -nologo -langversion:9 -noconfig -nostdlib -target:library -out:"$outDir/Phantom.Core.dll" -r:"$api/mscorlib.dll" -r:"$api/System.dll" -r:"$api/System.Core.dll" @sources
 if($LASTEXITCODE -ne 0){exit $LASTEXITCODE}
 & $dotnet $csc -nologo -langversion:9 -noconfig -nostdlib -target:exe -out:"$outDir/CoreSmoke.exe" -r:"$api/mscorlib.dll" -r:"$api/System.dll" -r:"$api/System.Core.dll" -r:"$outDir/Phantom.Core.dll" "tools/quest_validation/CoreSmoke.cs"

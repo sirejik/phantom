@@ -444,7 +444,7 @@ Meta Quest 3 отслеживает правую руку пользовател
 | `RobotCollisionModel` | консервативная геометрическая модель коллизий Base/Upper Arm/Forearm/Gripper в виде ограниченного набора примитивов; используется Quest для workspace-проверки и генерации EV3 `JointSafeSet`. |
 | `JointSafeSet` | локально проверяемое EV3 множество допустимых сочетаний углов суставов, сгенерированное из `RobotCollisionModel` и safety margin; защищает от опасных межзвенных/половых коллизий даже при ошибке Quest. |
 | `RobotLocalization` | преобразование между `LOCAL_FLOOR` и `RobotBaseFrame`, вычисленное по опорной паре `SHOULDER_LEFT/RIGHT` |
-| `RSS` | Resident Set Size; фактический объём оперативной памяти процесса EV3, контролируемый при длительных тестах |
+| `RSS` | Resident Set Size; фактический объём оперативной памяти процесса EV3, контролируемый в серии ограниченных ресурсных cases |
 | `RTT` | Round-Trip Time; измеренное время прохождения `PING→PONG` по сети туда и обратно |
 | `SAFE_HOLD` | безопасное удержание после временной ошибки отслеживания, сети или среды выполнения |
 | `sample_id` | уникальный идентификатор атомарного снимка энкодеров, предотвращающий связывание QR-измерения с другим моментом времени |
@@ -542,7 +542,7 @@ PHANTOM должен повторять пространственное нап�
 | `FR-XR-03` | `Space Setup` вызывается только для включённой scene-aware функции, которая действительно требует Room/Scene anchors, либо по явному действию пользователя. После возврата приложение повторно проверяет требуемую capability; успешное завершение API само по себе не считается доказательством готовности, поскольку пользователь мог отменить системную процедуру. |
 | `FR-XR-04` | `XrEventDataReferenceSpaceChangePending` для используемого `LOCAL_FLOOR`, его Unity/Meta-эквивалент, потеря валидности reference space либо смена tracking origin во время движения должны немедленно снимать `MOTION_ENABLE`, переводить систему в `SAFE_HOLD`, инвалидировать `RobotLocalization` и требовать новой QR-локализации плюс deliberate re-arm. |
 | `FR-XR-05` | После pause/focus loss/resume приложение должно заново проверить/включить Multimodal и все Tracking capabilities; возврат приложения не может автоматически восстанавливать `TRACKING`, даже если `Left Grip` продолжает удерживаться. |
-| `FR-XR-06` | До начала разработки физического actuator path exact pinned Quest 3 platform matrix (`Horizon OS/runtime + Unity + Meta XR Core + Movement SDK + MRUK + OpenXR Plugin`) должна пройти P0 feasibility gate: одновременно должны работать правый Hand Tracking `Wrist`/grasp, `Body_RightShoulder`, левый Touch Plus Grip/haptics, passthrough, Multimodal lifecycle и QR Trackables. Если комбинация не проходит gate, физическое движение блокируется и архитектура/версии пересматриваются; silent HMD→Shoulder или иной fallback запрещён. |
+| `FR-XR-06` | До начала разработки физического actuator path exact pinned Quest 3 platform matrix (`Horizon OS/runtime + Unity + Meta XR Core + Movement SDK + MRUK + OpenXR Plugin`) должна пройти короткий zero-interaction P0 compatibility AUTO §9.6, а затем отдельные bounded live-observation/manual cases для правого Hand Tracking `Wrist`/grasp, `Body_RightShoulder`, левого Touch Plus Grip/haptics, passthrough, Multimodal lifecycle и QR Trackables. Неактивный XR/focus на лежащем HMD не является software FAIL; явный provider/API conflict является. Если любой обязательный gate не пройден, физическое движение блокируется и архитектура/версии пересматриваются; silent HMD→Shoulder или иной fallback запрещён. |
 
 <a id="sec-3-1-3"></a>
 ### 3.1.3. Калибровка пользователя
@@ -680,7 +680,7 @@ PHANTOM должен повторять пространственное нап�
 | `NFR-PERF-09` | Отслеживание QR на Quest должно быть выключено после успешной привязки при запуске и включаться только для инженерной калибровки, новой привязки или явной инженерной проверки, поскольку оно потребляет системные ресурсы и не нужно во время обычной работы. |
 | `NFR-PERF-10` | Профиль `Release` EV3 должен собираться как оптимизированная нативная C++-сборка; разбор конфигурации, проверка схемы и подготовка таблиц/коэффициентов выполняются до запуска цикла управления моторами. |
 | `NFR-PERF-11` | После прогрева критический путь Quest `tracking → time alignment → mapping → IK → command` не должен создавать повторяющиеся управляемые выделения памяти на каждом control tick/XR update; тяжёлое форматирование/сериализация выполняется вне критического пути кадра. |
-| `NFR-PERF-12` | Quest `Release` должен удерживать выбранную частоту XR-рендеринга во время штатного 30-минутного теста; пропуски кадров, паузы GC, время CPU/GPU на кадр и тепловое снижение производительности должны измеряться и блокировать приёмку при устойчивом нарушении бюджета кадра. |
+| `NFR-PERF-12` | Quest `Release` должен удерживать выбранную частоту XR-рендеринга в независимых ограниченных performance-кейсах длительностью `<=60 s` (предпочтительно `30 s`), повторённых для холодного, прогретого и воспроизводимо термически ограниченного состояния; пропуски кадров, паузы GC, время CPU/GPU на кадр и тепловое снижение производительности измеряются в каждом кейсе и блокируют приёмку при устойчивом нарушении бюджета кадра. |
 
 <a id="sec-3-2-3"></a>
 ### 3.2.3. Надёжность и механическая безопасность
@@ -5056,6 +5056,10 @@ log drops
 
 Тестирование PHANTOM строится как последовательность обязательных ворот. Чем раньше ошибка может быть обнаружена без физического оборудования, тем раньше она должна обнаруживаться. Установка нового приложения на Quest или новых бинарных файлов на EV3 не является первым способом проверить изменение.
 
+Глобальный нормативный инвариант: любой тест с пометкой `AUTO` (`PRE-INSTALL AUTO`, `DEVICE AUTO`, `HIL AUTO`) от запуска case runner до формирования результата выполняется без участия человека. Он не может просить надеть/разбудить Quest, двигать рукой или Touch Plus, показать QR, подтвердить haptics, выполнить pause/resume либо иное действие. Quest в AUTO разрешено лежать на столе. Для HIL инженерная подготовка безопасной зоны и исходной конфигурации является внешним prerequisite до запуска case runner; после запуска конкретного AUTO-case вмешательство запрещено и приводит к `FAIL`, а не к ожиданию пользователя.
+
+Каждый самостоятельно учитываемый нормативный test case любого уровня, включая `MANUAL ACCEPTANCE` и HIL, ограничен `<=60 s`; предпочтительная длительность — `5..30 s`. Компиляция, сборка, установка, предварительная подготовка стенда и оркестрация полного набора могут занимать больше, но отчёт обязан разделять suite/setup time и длительность каждого case. Свойства с большим временным горизонтом проверяются ускоренным monotonic/virtual time, контролируемой инъекцией порога и серией независимых bounded cases; один непрерывный обязательный case длиннее `60 s` запрещён.
+
 Основной принцип:
 
 ```text
@@ -5138,15 +5142,15 @@ artifact SHA-256 recorded
 
 - приложение запускается и сообщает ожидаемый `build_id`;
 - загружаются конфигурации и проверяются их хэши;
-- создаётся OpenXR session;
-- доступны требуемые Meta XR capabilities/permissions либо корректно запускается штатный запрос разрешения;
+- проверяются декларация/config OpenXR и фактическое состояние session, причём неактивная session на лежащем Quest записывается как environment evidence, а не как несовместимость software;
+- доступны требуемые Meta XR API/config/permissions; AUTO не запускает интерактивный запрос разрешения, permissions выдаются при установке либо их отсутствие даёт `FAIL`;
 - диагностический self-test может запустить synthetic tracking/QR providers без движения реального PHANTOM;
 - отсутствует crash/exception при входе/выходе из приложения и повторном запуске;
 - Release не содержит включённых инженерных механизмов, которые должны быть Diagnostic-only.
 
-Штатный Quest stage-2 runner — `scripts/quest-device-auto.ps1`. Он принимает только APK со смежным build manifest и существующим `results/pre-install/report.json` со статусом `PASS`, содержащим тот же `build_id`; проверяет единственный авторизованный ADB target `Quest 3/eureka`, SHA-256 APK, выполняет `adb install -r`, первый запуск, `force-stop` и повторный запуск. Запуск через ADB не использует неограниченный `am start -W`: runner пробуждает HMD, отдельно и с конечным timeout проверяет PID и появление app report. Если HMD снят/уснул или не получил VR focus, это фиксируется как `FAIL`/timeout с power-state evidence; для наблюдения реальных XR-входов оператор должен надеть и разблокировать шлем, а автоматизация не имитирует proximity/focus. Встроенный zero-output self-test проверяет build/config identity, OpenXR session, `LOCAL_FLOOR`, обязательные permissions, passthrough, MRUK QR capability, Multimodal и выбранный Body provider; при pause до штатного завершения он сохраняет fail-closed capability snapshot, а в Diagnostic дополнительно выполняется synthetic tracking/десять QR без `RobotTransport`. Raw logcat обоих запусков и объединённый host/app report сохраняются под `results/quest/device-auto/<build_id>/`; серийный номер в отчёт не попадает, используется только сокращённый SHA-256 идентификатор.
+Штатный Quest stage-2 runner — `scripts/quest-device-auto.ps1`. Он принимает только APK со смежным build manifest и существующим `results/quest/pre-install/report.json` со статусом `PASS`, содержащим тот же `build_id`; проверяет единственный авторизованный ADB target `Quest 3/eureka`, SHA-256 APK, выполняет `adb install -r -g`, первый запуск, `force-stop` и повторный запуск. Запуск через ADB не использует неограниченный `am start -W`: runner автоматически посылает bounded wake event, отдельно и с конечным timeout проверяет PID и появление app report; ручное пробуждение/разблокирование не требуется и не запрашивается. Неактивные XR session/focus и отсутствие live observations на лежащем шлеме записываются как `NOT_RUN` environment evidence без software FAIL. Встроенный zero-output self-test проверяет build/config identity, `LOCAL_FLOOR`, permissions, passthrough/MRUK/Multimodal configuration, tracking/grasp/controller/haptic adapters и выбранный Body provider; при pause сохраняет тот же классифицированный snapshot, а Diagnostic выполняет полный synthetic suite без `RobotTransport`. Raw logcat обоих запусков и объединённый host/app report сохраняются под `results/quest/device-auto/<build_id>/`; серийный номер в отчёт не попадает, используется только сокращённый SHA-256 идентификатор.
 
-Quest `DEVICE AUTO PASS` доказывает запуск конкретного установленного APK и доступность capability, но не доказывает качество/непрерывность реальных Wrist/Shoulder/grasp/Touch/QR observations. Он не заменяет 30-минутный P0 §9.6, camera/QR measurement §9.10 и ручные pause/resume/HMD/haptics сценарии. Если prerequisite capability несовместима, DEVICE AUTO и связанный P0 имеют `FAIL`, а 30-минутный прогон не маркируется `PASS` или `N_A`.
+Quest `DEVICE AUTO PASS` доказывает запуск конкретного установленного APK и software/platform compatibility, но не доказывает качество реальных Wrist/Shoulder/grasp/Touch/QR observations. Он не заменяет bounded live-observation cases §9.6, camera/QR measurement §9.10 и ручные pause/resume/HMD/haptics сценарии. Provider классифицируется раздельно: API отсутствует — `FAIL`; provider явно отключён или несовместим — `FAIL`; provider сконфигурирован, но XR/focus неактивен и live samples отсутствуют — compatibility `PASS`, live evidence `NOT_RUN`; provider инициализирован — `PASS`, а live sample является дополнительным evidence.
 
 **EV3:**
 
@@ -5174,7 +5178,7 @@ EV3 не имеет надёжного RTC, поэтому control/watchdog/safe
 <a id="sec-9-1-4"></a>
 ### 9.1.4. Автоматизированные аппаратные тесты (`HIL AUTO`)
 
-После успешного device smoke используется сценарный HIL-исполнитель. Человек подготавливает безопасную зону и переводит стенд в указанную исходную конфигурацию; дальше сценарий по возможности выполняется автоматически:
+После успешного device smoke используется сценарный HIL-исполнитель. Человек до запуска runner подготавливает безопасную зону и переводит стенд в указанную исходную конфигурацию; каждый последующий HIL AUTO case выполняется полностью автоматически и завершается не позднее `60 s`:
 
 ```text
 setup confirmed by engineer
@@ -5195,7 +5199,7 @@ setup confirmed by engineer
 - tracking performance реального EV3;
 - stall/obstruction с безопасным тестовым приспособлением;
 - `LOCAL_STOP`, watchdog, process kill, packet loss;
-- длительный `Release`/`Diagnostic` timing run;
+- серия независимых `Release`/`Diagnostic` timing cases по `<=60 s` с агрегированием распределений;
 - автоматический сбор всех численных критериев точности и производительности, которые не требуют субъективной оценки человека.
 
 HIL должен выдавать машинно читаемый отчёт с `build_id`, конфигурационными хэшами, временем запуска, сценарием, метриками и итогом. Ручное переписывание результатов в таблицу не является штатным способом приёмки.
@@ -5214,7 +5218,7 @@ HIL должен выдавать машинно читаемый отчёт с 
 - ощущение задержки и предсказуемости управления;
 - физическое соответствие движения руки и PHANTOM;
 - поведение Gripper с реальными объектами;
-- длительное использование человеком;
+- повторяемые пользовательские сессии, разбитые на независимые cases по `<=60 s`;
 - сквозные сценарии HOLD/SAFE_HOLD/восстановления, где важна наблюдаемая реакция системы.
 
 Для ручного теста заранее задаются шаги, ожидаемый результат и автоматически собираемая диагностическая трасса. Формат «попробовать и посмотреть, нормально ли» не является приёмочным тестом.
@@ -5396,20 +5400,33 @@ FMM = off
 WMM = off в actuator profile
 ```
 
-### P0 platform feasibility gate
+### P0 Quest platform compatibility AUTO
 
-До закупки/сборки механики, зависящей от телеуправления, exact pinned platform matrix из build manifest непрерывно не менее `30 min` должна одновременно выдавать: правый `Wrist`, `graspValue/graspReady`, `Body_RightShoulder`, левый Touch Plus `Grip` и haptics, passthrough и MRUK QR Trackables. Отдельно выполняются pause/resume, снятие/надевание HMD и повторное включение Multimodal. Gate сохраняет runtime/SDK versions и performance counters. **FAIL блокирует actuator milestone**; он не разрешается добавлением HMD→shoulder heuristic или silent provider fallback.
+До закупки/сборки механики, зависящей от телеуправления, exact pinned platform matrix из build manifest проходит короткий полностью автоматический compatibility case на реальном Quest 3. Case длится `5..30 s`, допускает лежащий на столе HMD и не требует live movements, Touch/Grip, QR, haptics confirmation, pause/resume или иных действий человека. Проверяются наличие API и компонентов, статическая конфигурация OpenXR/permissions/passthrough/MRUK/Multimodal, выбранный UpperBody provider и `Body_RightShoulder` в joint set, tracking/grasp/controller/haptic adapters, отсутствие `RobotTransport`/motor authority и явных SDK/runtime запретов выбранной комбинации. **FAIL блокирует actuator milestone**; он не разрешается добавлением HMD→shoulder heuristic, отключением Multimodal или silent provider fallback.
 
-P0 evidence сохраняется как отдельный versioned report и содержит `build_id`, `apk_sha256`, модель/серийно обезличенный id устройства, точный Horizon OS/runtime build, Unity/Meta XR Core/Movement SDK/MRUK/OpenXR versions, feature flags, permissions, время/длительность запуска, результаты каждого capability и ссылки на device logs. Только реальный Quest 3 может дать `PASS`; отсутствие устройства или несовместимость provider/API записывается как `NOT_RUN`/`FAIL` и блокирует завершение этапов 1–2, хотя не запрещает продолжать безопасную observation-only разработку без motor authority.
+P0 evidence сохраняется как отдельный versioned report и содержит `build_id`, `apk_sha256`, модель/серийно обезличенный id устройства, точный Horizon OS/runtime build, Unity/Meta XR Core/Movement SDK/MRUK/OpenXR versions, provider/joint-set, feature flags, permissions, время/длительность case, результаты каждого compatibility check и ссылки на device logs. Только реальный Quest 3 может дать `PASS`; отсутствие устройства даёт `NOT_RUN`, доказанная несовместимость provider/API — `FAIL`.
 
-Сначала проверяется доступность данных:
+P0 обязан различать состояния provider:
+
+| Состояние | Итог compatibility |
+|---|---|
+| требуемый provider API отсутствует | `FAIL` |
+| component/joint set сконфигурирован неверно | `FAIL` |
+| SDK или runtime явно отключает/запрещает provider в требуемом Multimodal profile | `FAIL` |
+| provider сконфигурирован, но XR session/focus неактивен и live samples нет | `PASS`; live evidence отдельно `NOT_RUN` |
+| provider инициализирован без live sample в данном коротком окне | `PASS`; sample отдельно `NOT_RUN` |
+| provider инициализирован и live sample доступен | `PASS` плюс дополнительное live evidence |
+
+Текущее отсутствие live observations на снятом/лежащем HMD никогда не используется как доказательство несовместимости. И наоборот, явный source/runtime guard нельзя переклассифицировать в «HMD не был надет». При конфликте сначала выполняется дешёвый source/config audit минимального числа package/provider candidates; APK собирается только для кандидата, который не содержит известного запрета и сохраняет все обязательные API.
+
+После P0 отдельными `MANUAL ACCEPTANCE` cases проверяется доступность и качество живых данных:
 
 - `Body_RightShoulder` присутствует в выбранном joint set;
 - joint имеет валидную позицию и обновляется непрерывно;
 - `Wrist` и `Body_RightShoulder` одновременно доступны при работающем левом Touch Plus;
 - приложение получает доступные body tracking calibration/status/fidelity поля и документированную временную информацию; отсутствие sensor timestamp не подменяется выдуманным значением.
 
-Физические сценарии выполняются минимум на `10` пользователях:
+Физические сценарии выполняются минимум на `10` пользователях; каждый пронумерованный case имеет собственный отчёт и длительность `<=60 s`:
 
 1. **Голова без корпуса:** пользователь держит корпус и правую руку неподвижно, поворачивает голову примерно на `±90°` и наклоняет её вверх/вниз. Положение `HumanShoulderCenter` не должно повторять HMD yaw/pitch; допускается только шум отслеживания.
 2. **Шаг в сторону:** пользователь смещается примерно на `0.30 м` влево и вправо. `Body_RightShoulder` должен отражать соответствующую трансляцию без дополнительной shoulder-калибровки.
@@ -5886,7 +5903,7 @@ incident log + FlightRecorder created
 
 На motor bench и затем на собранной оси выполняются сценарии:
 
-1. длительный HOLD с нормальной нагрузкой;
+1. bounded HOLD с нормальной нагрузкой (`<=60 s`) и ускоренным временем `MotorStressScore`;
 2. повторяющиеся движения с умеренным duty;
 3. искусственно повышенная, но безопасная нагрузка;
 4. high-duty состояние, доведённое до warning/derating threshold без повреждения оборудования.
@@ -5901,7 +5918,7 @@ critical threshold → motion cancelled + fault/stop policy
 hard max_high_duty_ms действует независимо от integral score
 ```
 
-`MotorStressScore` не сравнивается с градусами температуры; задача теста — доказать консервативное ограничение длительной motor load. Отдельный HIL сценарий перезапускает controller/EV3 при WARN и CRITICAL и доказывает, что restart floor/cooldown не позволяет обнулить защиту.
+`MotorStressScore` не сравнивается с градусами температуры; задача серии bounded cases — доказать консервативное ограничение накопленной motor load. В software/bench case используется ускоренный monotonic time, а физический case безопасно достигает инъецированного квалификационного порога не дольше `60 s`. Отдельный HIL case перезапускает controller/EV3 при WARN и CRITICAL и доказывает, что restart floor/cooldown не позволяет обнулить защиту.
 
 <a id="sec-9-16-4"></a>
 ### 9.16.4. Перегрузка при удержании
@@ -5967,8 +5984,8 @@ stall/contact incident is logged when applicable
 3 Large + 1 Medium active
 real mechanisms connected
 authenticated Wi-Fi
-Release: >=30 min representative movement
-Diagnostic: >=30 min representative movement
+Release: набор независимых representative-movement cases, каждый <=60 s
+Diagnostic: тот же набор независимых cases, каждый <=60 s
 ```
 
 Проверяются одновременно:
@@ -6179,7 +6196,7 @@ physical stop
 
 **Уровень:** `MANUAL ACCEPTANCE` установленного Quest build.
 
-На реальном Quest 3 выполняется непрерывный тест длительностью не менее `30 мин`. Проверяются:
+На реальном Quest 3 выполняется серия независимых cases длительностью `5..60 s` с единым агрегированным отчётом. Нормальная работа, lifecycle faults, QR и performance проверяются раздельно, чтобы ни один case не требовал более `60 s`. Проверяются:
 
 - одновременная работа правого Hand Tracking и левого Touch Plus;
 - `LOCAL_FLOOR`, Spatial Data/Scene/Anchor/QR capabilities; опциональный Space Setup тестируется только при включённом scene-aware UX;
@@ -6434,9 +6451,9 @@ flowchart TD
 | EV3 | каркас `phantom-controller` и `phantom-safety`; `MotorBackend`; host-сборка; `MockMotorBackend`; безопасное состояние по умолчанию |
 | Инструменты | PC-симулятор EV3; replay отслеживания; синтетические QR-позы; общая инфраструктура тестовых отчётов |
 
-С самого этапа 1 действуют проверки протокола, парсинга, математических контрактов, ограниченности очередей/буферов и отсутствия секретов в артефактах. До перехода к этапу 2 выполняется P0 Quest platform feasibility gate §9.6 на exact pinned version matrix; его FAIL является архитектурным blocker, а не отложенной задачей интеграции.
+С самого этапа 1 действуют проверки протокола, парсинга, математических контрактов, ограниченности очередей/буферов и отсутствия секретов в артефактах. До перехода к этапу 2 выполняется zero-interaction P0 Quest platform compatibility AUTO §9.6 на exact pinned version matrix; его FAIL является архитектурным blocker, а не отложенной задачей интеграции. Качество реальных tracking observations квалифицируется отдельными bounded physical cases и не подменяет этот software gate.
 
-**Критерий завершения этапа:** чистый checkout воспроизводимо собирается; `PRE-INSTALL AUTO` проходит; Quest способен работать с симулятором EV3, EV3 controller — с mock-моторами; P0 capability matrix на реальном Quest 3 пройдена; ошибки фундамента наблюдаемы и журналируются.
+**Критерий завершения этапа:** чистый checkout воспроизводимо собирается; `PRE-INSTALL AUTO` проходит; Quest способен работать с симулятором EV3, EV3 controller — с mock-моторами; P0 software/platform compatibility AUTO на реальном Quest 3 пройден даже когда HMD лежит на столе; ошибки фундамента наблюдаемы и журналируются. Live tracking quality здесь не требуется, но до первого actuator milestone обязательно проходит отдельную §9.6 physical qualification.
 
 <a id="sec-10-4"></a>
 ## 10.4. Этап 2 — сборка и автономный запуск модулей
@@ -6451,7 +6468,7 @@ flowchart TD
 
 До первого автоматического движения обязательно выполняются ручные механические safety-проверки §9.1.6. Моторный код уже должен иметь ограничения мощности/времени и безопасный stop path, даже если полноценное сквозное управление ещё отсутствует.
 
-**Критерий завершения этапа:** механика проходит сухую проверку; EV3 стабильно работает на реальном Brick без неконтролируемого motor output; Quest стабильно получает обязательные XR-входы и QR; `PRE-INSTALL AUTO` и применимые `DEVICE AUTO` проходят для текущих артефактов. Сборка observation-only модулей при недоступном оборудовании допустима как промежуточный результат, но этап 2 не считается завершённым без связанного P0 report, EV3 DEVICE AUTO и механического evidence; `NOT_RUN` не является PASS.
+**Критерий завершения этапа:** механика проходит сухую проверку; EV3 стабильно работает на реальном Brick без неконтролируемого motor output; Quest автономно запускается, имеет требуемые XR/QR adapters и проходит P0 software/platform compatibility AUTO на столе; `PRE-INSTALL AUTO` и применимые `DEVICE AUTO` проходят для текущих артефактов. Качество живых XR/QR observations фиксируется отдельными bounded physical cases и блокирует первый actuator milestone, но отсутствие live samples у лежащего HMD не блокирует software compatibility. Сборка observation-only модулей при недоступном оборудовании допустима как промежуточный результат, но этап 2 не считается завершённым без связанного P0 report, EV3 DEVICE AUTO и механического evidence; неожиданный `NOT_RUN` не является PASS.
 
 <a id="sec-10-5"></a>
 ## 10.5. Этап 3 — связь, телеметрия и наблюдаемость
@@ -6463,7 +6480,7 @@ flowchart TD
 | Quest | DNS-SD/mDNS; UDP/HMAC client; установка и восстановление сессии; приём `TELEMETRY`; отображение состояния, энкодеров, батареи и ошибок |
 | EV3 | публикация сервиса; parser/HMAC; session/sequence/transaction semantics; watchdog; штатная и диагностическая телеметрия |
 | Диагностика | общие `build_id`, config hashes и `incident_id`; структурированные события соединения; базовые `FlightRecorder`; видимость потерь/дубликатов/перезапусков |
-| Проверка | golden/protocol/fuzz tests; смена IP; потеря пакетов; reconnect; process restart; длительный поток телеметрии; контроль bounded queues и CPU/network budget |
+| Проверка | golden/protocol/fuzz tests; смена IP; потеря пакетов; reconnect; process restart; повторяемые telemetry bursts по `<=60 s`; контроль bounded queues и CPU/network budget |
 
 Моторный output от пользовательских команд на этом этапе остаётся запрещённым. Любой сетевой дефект должен быть наблюдаем до перехода к калибровочным движениям.
 
@@ -6538,7 +6555,7 @@ flowchart TD
 - установка именно этих проверенных артефактов;
 - полный применимый `DEVICE AUTO`;
 - HIL-калибровка, safety, сеть, точность, временные и ресурсные тесты;
-- длительные прогоны и повторные старты;
+- серия bounded прогонов по `<=60 s` и повторные старты;
 - проверки `Release`/`Diagnostic`, rollback и config hashes;
 - ручная функциональная и UI/UX-приёмка готового приложения;
 - итоговый checklist §9.26.

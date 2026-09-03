@@ -3,7 +3,6 @@ using System.Collections;
 using System.Collections.Generic;
 using System.IO;
 using System.Security.Cryptography;
-using Phantom.Kinematics;
 using Phantom.RobotLocalization;
 using Phantom.Tracking;
 using UnityEngine;
@@ -30,6 +29,10 @@ namespace Phantom.Diagnostics
         public string meta_xr_core_version;
         public string movement_sdk_version;
         public string body_tracking_provider;
+        public bool multimodal_required;
+        public string body_provider_joint_set;
+        public string body_right_shoulder_api;
+        public string body_multimodal_compatibility;
         public string mruk_version;
         public string openxr_plugin_version;
         public string meta_openxr_version;
@@ -48,7 +51,7 @@ namespace Phantom.Diagnostics
     [Serializable]
     public sealed class QuestDeviceAutoReport
     {
-        public int schema_version=1;
+        public int schema_version=2;
         public string gate="QUEST DEVICE AUTO";
         public string status;
         public string build_id;
@@ -64,18 +67,22 @@ namespace Phantom.Diagnostics
         public string finished_utc;
         public long duration_ms;
         public bool motor_authority;
+        public bool xr_session_active;
+        public bool xr_focus_active;
+        public bool live_observation_available;
+        public string body_provider_state;
+        public string body_provider_reason;
         public int error_log_count;
         public QuestDeviceAutoCheck[] checks;
     }
 
-    // Short, zero-output post-install gate. It deliberately does not pretend to
-    // be the 30-minute P0/manual qualification: it proves identity, config,
-    // OpenXR startup and capability availability for the installed APK.
+    // Short, zero-interaction post-install compatibility gate. A Quest may stay
+    // unworn on a table: inactive XR/focus and absent live samples are recorded
+    // as environment evidence, not confused with SDK/API incompatibility.
     public sealed class QuestDeviceAuto : MonoBehaviour
     {
         // A cold OpenXR start consumes several seconds and an unattended Quest
-        // can suspend the activity after roughly 15 seconds. Keep this smoke
-        // inside that window; the 30-minute P0 qualification is a separate gate.
+        // can suspend the activity quickly. Keep the individual case bounded.
         const float SettleSeconds=8f;
         readonly List<XRDisplaySubsystem> _displays=new List<XRDisplaySubsystem>();
         QuestBuildIdentity _identity;
@@ -84,10 +91,6 @@ namespace Phantom.Diagnostics
         float _startedMonotonic;
         int _errorLogs;
         bool _finished;
-#if UNITY_ANDROID && !UNITY_EDITOR
-        UnityEngine.Android.PermissionCallbacks _permissionCallbacks;
-#endif
-
         void Awake()
         {
             _startedUtc=DateTime.UtcNow;
@@ -102,7 +105,6 @@ namespace Phantom.Diagnostics
             var build=Resources.Load<TextAsset>("phantom-build");
             _identity=build?JsonUtility.FromJson<QuestBuildIdentity>(build.text):null;
             Debug.Log("PHANTOM DEVICE AUTO START "+(build?build.text:"{\"error\":\"embedded_build_manifest_missing\"}"));
-            RequestMissingPermissions();
             while(Time.realtimeSinceStartup-_startedMonotonic<SettleSeconds)yield return new WaitForSecondsRealtime(.25f);
             WriteReport();
         }
@@ -122,8 +124,9 @@ namespace Phantom.Diagnostics
 
             _displays.Clear();SubsystemManager.GetSubsystems(_displays);
             var displayRunning=_displays.Exists(value=>value!=null&&value.running);
-            Add(checks,"openxr-session",displayRunning&&OVRPlugin.initialized,
+            Observe(checks,"xr-session-active",displayRunning&&OVRPlugin.initialized,
                 $"display_running={displayRunning}; ovrplugin_initialized={OVRPlugin.initialized}; native_xr_api={OVRPlugin.nativeXrApi}");
+            Observe(checks,"xr-focus-active",Application.isFocused,$"application_is_focused={Application.isFocused}");
 
             var manager=FindFirstObjectByType<OVRManager>();
             var localFloor=manager&&manager.trackingOriginType==OVRManager.TrackingOrigin.FloorLevel;
@@ -135,29 +138,61 @@ namespace Phantom.Diagnostics
             AddPermission(checks,"permission-anchor","com.oculus.permission.USE_ANCHOR_API");
 
             var passthrough=FindFirstObjectByType<OVRPassthroughLayer>();
-            Add(checks,"passthrough-capability",passthrough&&passthrough.enabled&&!passthrough.hidden,
-                $"component={(passthrough?"present":"missing")}; enabled={(passthrough&&passthrough.enabled)}; visible={(passthrough&&!passthrough.hidden)}");
+            Add(checks,"passthrough-configuration",passthrough&&!passthrough.hidden,
+                $"component={(passthrough?"present":"missing")}; enabled={(passthrough&&passthrough.enabled)}; hidden={(passthrough&&passthrough.hidden)}");
 
             var tracker=RobotMarkerTrackerRegistry.Current;
-            Add(checks,"mruk-qr-capability",tracker!=null&&tracker.IsAvailable,tracker?.StatusReason??"QR tracker registry missing");
-            Add(checks,"multimodal-capability",_tracking!=null&&_tracking.MultimodalConfigured,_tracking?.MultimodalStatus??"tracking source missing");
-            Add(checks,"body-provider-capability",_tracking!=null&&_tracking.BodyProviderAvailable,
-                _tracking!=null?$"provider=OVRBody; enabled={_tracking.BodyProviderAvailable}; multimodal={_tracking.MultimodalStatus}":"tracking source missing");
             var frame=default(TrackingFrame);
             var haveFrame=_tracking!=null&&_tracking.TryGetFrame(out frame);
-            Observe(checks,"p0-right-wrist-observed",haveFrame&&frame.RightHand.Wrist.Valid,haveFrame?$"valid={frame.RightHand.Wrist.Valid}; quality={frame.RightHand.Wrist.Quality}":"no tracking frame");
-            Observe(checks,"p0-grasp-ready-observed",haveFrame&&frame.RightHand.Grasp.Valid&&frame.RightHand.Grasp.Ready,haveFrame?$"valid={frame.RightHand.Grasp.Valid}; ready={frame.RightHand.Grasp.Ready}":"no tracking frame");
-            Observe(checks,"p0-right-shoulder-observed",haveFrame&&frame.RightShoulder.Valid,haveFrame?$"valid={frame.RightShoulder.Valid}; quality={frame.RightShoulder.Quality}; runtime={frame.RightShoulder.RuntimeQuality}":"no tracking frame");
-            Observe(checks,"p0-left-touch-observed",haveFrame&&frame.LeftController.Valid,haveFrame?$"valid={frame.LeftController.Valid}; grip={frame.LeftController.GripAnalog:F3}":"no tracking frame");
+            Add(checks,"mruk-qr-configuration",tracker!=null,tracker?.StatusReason??"QR tracker registry missing");
+            Add(checks,"multimodal-configuration",_tracking!=null,
+                _tracking!=null?$"runtime_configured={_tracking.MultimodalConfigured}; lifecycle_status={_tracking.MultimodalStatus}":"tracking source missing");
+            Add(checks,"hand-adapter",_tracking!=null,"XR Hands right-hand/Wrist adapter is compiled and attached");
+            Add(checks,"controller-adapter",_tracking!=null,"physical left-controller selector and Grip adapter are compiled and attached");
+            Add(checks,"grasp-adapter",_tracking!=null,"XR Hands standard grasp adapter is compiled and attached");
+            Add(checks,"haptic-command-path",typeof(MetaQuestTrackingSource).GetMethod("Haptic")!=null,"bounded left-controller haptic method present; no impulse emitted by AUTO");
+
+            var explicitConflict=_identity!=null&&_identity.multimodal_required&&
+                string.Equals(_identity.body_multimodal_compatibility,"INCOMPATIBLE_EXPLICIT_SDK_GUARD",StringComparison.Ordinal);
+            var probe=new BodyProviderProbe
+            {
+                ApiPresent=typeof(OVRBody)!=null,
+                ComponentPresent=_tracking!=null&&_tracking.BodyProviderComponentPresent,
+                UpperBodyConfigured=_tracking!=null&&_tracking.BodyProviderUpperBodyConfigured,
+                RightShoulderInJointSet=Enum.IsDefined(typeof(OVRPlugin.BoneId),"Body_RightShoulder"),
+                ExplicitMultimodalConflict=explicitConflict,
+                XrSessionActive=displayRunning&&OVRPlugin.initialized,
+                XrFocusActive=Application.isFocused,
+                InitializationAttempted=_tracking!=null&&_tracking.BodyProviderInitializationAttempted,
+                ProviderEnabled=_tracking!=null&&_tracking.BodyProviderAvailable,
+                LiveObservationAvailable=_tracking!=null&&_tracking.BodyProviderHasLiveObservation,
+                Detail=_tracking?.BodyProviderStatus??"tracking_source_missing"
+            };
+            var body=BodyProviderClassifier.Classify(probe);
+            Add(checks,"provider-presence",probe.ApiPresent&&probe.ComponentPresent,
+                $"api={probe.ApiPresent}; component={probe.ComponentPresent}; provider={_identity?.body_tracking_provider??"unknown"}");
+            Add(checks,"provider-configuration",probe.UpperBodyConfigured&&probe.RightShoulderInJointSet,
+                $"joint_set={_identity?.body_provider_joint_set??"unknown"}; right_shoulder_api={_identity?.body_right_shoulder_api??"unknown"}");
+            Add(checks,"body-multimodal-compatibility",body.SoftwareCompatible,
+                $"classification={body.State}; reason={body.Reason}; enabled={probe.ProviderEnabled}; manifest={_identity?.body_multimodal_compatibility??"unknown"}");
+            Observe(checks,"live-right-wrist-observed",haveFrame&&frame.RightHand.Wrist.Valid,haveFrame?$"valid={frame.RightHand.Wrist.Valid}; quality={frame.RightHand.Wrist.Quality}":"no tracking frame");
+            Observe(checks,"live-grasp-ready-observed",haveFrame&&frame.RightHand.Grasp.Valid&&frame.RightHand.Grasp.Ready,haveFrame?$"valid={frame.RightHand.Grasp.Valid}; ready={frame.RightHand.Grasp.Ready}":"no tracking frame");
+            Observe(checks,"live-right-shoulder-observed",haveFrame&&frame.RightShoulder.Valid,haveFrame?$"valid={frame.RightShoulder.Valid}; quality={frame.RightShoulder.Quality}; runtime={frame.RightShoulder.RuntimeQuality}":"no tracking frame");
+            Observe(checks,"live-left-touch-observed",haveFrame&&frame.LeftController.Valid,haveFrame?$"valid={frame.LeftController.Valid}; grip={frame.LeftController.GripAnalog:F3}":"no tracking frame");
             var qr=default(QrMarkerObservation);
             var qrObserved=tracker!=null&&tracker.TryGetQrSnapshot(null,out qr)&&qr.Valid;
-            Observe(checks,"p0-qr-observed",qrObserved,qrObserved?$"payload={qr.Payload}":tracker?.StatusReason??"QR tracker registry missing");
+            Observe(checks,"live-qr-observed",qrObserved,qrObserved?$"payload={qr.Payload}":tracker?.StatusReason??"QR tracker registry missing");
             Add(checks,"motor-authority-disabled",true,"stage-2 runtime constructs no RobotTransport and emits no actuator commands");
             Add(checks,"runtime-error-log",_errorLogs==0,$"error_exception_assert_count={_errorLogs}");
 
             var diagnostic=_identity!=null&&string.Equals(_identity.build_profile,"Diagnostic",StringComparison.Ordinal);
-            if(diagnostic)Add(checks,"diagnostic-synthetic-tracking-qr",SyntheticProviderSmoke(),"pure synthetic frame and all ten QR poses accepted without RobotTransport");
-            else checks.Add(new QuestDeviceAutoCheck{test_id="diagnostic-synthetic-tracking-qr",status="N_A",detail="Diagnostic-only; Release has no active engineering runner"});
+            if(diagnostic)
+            {
+                var synthetic=QuestSyntheticQualification.Run(false,false);
+                foreach(var result in synthetic)Add(checks,result.test_id,result.passed,result.detail);
+                Add(checks,"diagnostic-synthetic-suite",Array.TrueForAll(synthetic,result=>result.passed),$"cases={synthetic.Length}; RobotTransport=false; motor_authority=false");
+            }
+            else checks.Add(new QuestDeviceAutoCheck{test_id="diagnostic-synthetic-suite",status="N_A",detail="Diagnostic-only; Release has no active engineering runner"});
 
             var runner=FindFirstObjectByType<Phantom.Experiments.QuestValidationRunner>();
             Add(checks,"release-engineering-disabled",diagnostic||runner==null,diagnostic?"N_A for Diagnostic profile":$"validation_runner_active={runner!=null}");
@@ -180,6 +215,11 @@ namespace Phantom.Diagnostics
                 finished_utc=now.ToString("o"),
                 duration_ms=(long)((Time.realtimeSinceStartup-_startedMonotonic)*1000),
                 motor_authority=false,
+                xr_session_active=probe.XrSessionActive,
+                xr_focus_active=probe.XrFocusActive,
+                live_observation_available=frame.RightHand.Wrist.Valid||frame.RightShoulder.Valid||frame.LeftController.Valid||qrObserved,
+                body_provider_state=body.State.ToString(),
+                body_provider_reason=body.Reason,
                 error_log_count=_errorLogs,
                 checks=checks.ToArray()
             };
@@ -196,41 +236,6 @@ namespace Phantom.Diagnostics
 #else
             checks.Add(new QuestDeviceAutoCheck{test_id=id,status="N_A",detail="Android device permission check"});
 #endif
-        }
-
-        void RequestMissingPermissions()
-        {
-#if UNITY_ANDROID && !UNITY_EDITOR
-            var required=new[]{"com.oculus.permission.BODY_TRACKING","com.oculus.permission.USE_SCENE","com.oculus.permission.USE_ANCHOR_API"};
-            var missing=new List<string>();
-            foreach(var permission in required)if(!UnityEngine.Android.Permission.HasUserAuthorizedPermission(permission))missing.Add(permission);
-            if(missing.Count==0)return;
-            _permissionCallbacks=new UnityEngine.Android.PermissionCallbacks();
-            _permissionCallbacks.PermissionGranted+=value=>Debug.Log("PHANTOM permission_granted="+value);
-            _permissionCallbacks.PermissionDenied+=value=>Debug.LogWarning("PHANTOM permission_denied="+value);
-            _permissionCallbacks.PermissionDeniedAndDontAskAgain+=value=>Debug.LogWarning("PHANTOM permission_denied_dont_ask_again="+value);
-            UnityEngine.Android.Permission.RequestUserPermissions(missing.ToArray(),_permissionCallbacks);
-            Debug.Log("PHANTOM permission_request_started="+string.Join(",",missing));
-#endif
-        }
-
-        static bool SyntheticProviderSmoke()
-        {
-            var frame=new TrackingFrame{MonotonicTimeUs=1,AppFocused=true,MultimodalConfigured=true};
-            frame.RightHand.Valid=true;frame.RightHand.Wrist=new PoseObservation{Position=new Vec3(.3,.4,.5),Valid=true};
-            frame.LeftController.Valid=true;frame.BothValid=true;
-            var snapshot=new RobotMarkerSnapshot
-            {
-                BaseFrame=new RobotBaseFrame{OriginRoom=new Vec3(0,0,0),ForwardRoom=new Vec3(1,0,0),LeftRoom=new Vec3(0,0,1),UpRoom=new Vec3(0,1,0)}
-            };
-            var index=0;
-            foreach(RobotMarkerId id in Enum.GetValues(typeof(RobotMarkerId)))
-            {
-                snapshot.Positions[id]=new Vec3(.1*index,.5,.2);
-                snapshot.Rotations[id]=MarkerRotation.Identity;
-                index++;
-            }
-            return frame.BothValid&&frame.RightHand.Wrist.Valid&&snapshot.HasAllTenPoses&&snapshot.BaseFrame.IsValid;
         }
 
         static void Add(List<QuestDeviceAutoCheck> checks,string id,bool passed,string detail)
