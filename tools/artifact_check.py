@@ -7,6 +7,14 @@ def sha(path):return hashlib.sha256(path.read_bytes()).hexdigest()
 def source_hash(*paths):return subprocess.check_output([sys.executable,str(ROOT/"tools/source_hash.py"),*paths],text=True).strip()
 def require(condition,message):
     if not condition:raise ValueError(message)
+def compiler_matches(expected,facts):
+    """Match the locked executable and Debian package revision independently.
+
+    GCC prints the distribution revision in parentheses, so the lock's compact
+    ``executable revision`` form is intentionally not a literal substring.
+    """
+    parts=expected.split()
+    return len(parts)>=2 and facts.split()[0]==parts[0] and parts[-1] in facts
 def verify_checksum_manifest(directory):
     manifest_path=directory/"SHA256SUMS"
     require(manifest_path.is_file(),f"SHA256SUMS missing: {directory}")
@@ -75,7 +83,7 @@ def main():
             verify_checksum_manifest(directory)
             if family=="ev3-armel":
                 require(manifest["cross_image"].endswith(lock["cross_image_digest"]),"armel image mismatch")
-                require(lock["cross_toolchain"] in manifest["toolchain_facts"],"armel compiler version mismatch")
+                require(compiler_matches(lock["cross_toolchain"],manifest["toolchain_facts"]),"armel compiler version mismatch")
                 require(lock["cross_toolchain_binary_sha256"] in manifest["toolchain_facts"],"armel compiler hash mismatch")
                 require(manifest["controller_sha256"]==sha(directory/"bin/phantom-controller"),"controller hash mismatch")
                 require(manifest["safety_sha256"]==sha(directory/"bin/phantom-safety"),"safety hash mismatch")

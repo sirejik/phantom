@@ -20,6 +20,7 @@ Run-Check "config-json-schema-generated" 1 {python tools/configgen.py --check}
 Run-Check "protocol-exact-hmac-fuzz" 1 {python tools/test_protocol.py}
 Run-Check "simulator-regressions" 1 {python sim/ev3-simulator/test_simulator.py}
 Run-Check "tracking-replay-regressions" 1 {python sim/tracking-replay/test_tracking_replay.py}
+Run-Check "artifact-gate-regressions" 1 {python tools/test_artifact_check.py}
 Run-Check "secret-scan" 1 {python tools/security_scan.py}
 Run-Check "quest-pure-core" 1 {powershell -NoProfile -ExecutionPolicy Bypass -File tools/quest_validation/compile_and_smoke.ps1}
 Run-Check "quest-simulator-integration" 1 {powershell -NoProfile -ExecutionPolicy Bypass -File tools/quest_validation/run_udp_integration.ps1}
