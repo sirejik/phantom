@@ -5,6 +5,7 @@ param(
     [int]$ReportTimeoutSeconds=35
 )
 $ErrorActionPreference="Stop"
+$startedAt=(Get-Date).ToUniversalTime().ToString('o')
 $adb="C:\Program Files\Unity\Hub\Editor\6000.3.22f1\Editor\Data\PlaybackEngines\AndroidPlayer\SDK\platform-tools\adb.exe"
 if(!(Test-Path -LiteralPath $adb)){throw "Bundled adb not found: $adb"}
 $apkPath=[System.IO.Path]::GetFullPath($Apk)
@@ -21,12 +22,12 @@ if($preInstall.status-ne"PASS" -or $preInstall.build_ids-notcontains$manifest.bu
 $devices=@(& $adb devices|Select-Object -Skip 1|Where-Object {$_-match "\sdevice$"})
 if($devices.Count-ne 1){throw "Exactly one authorized ADB device is required; found $($devices.Count)"}
 $serial=($devices[0]-split "\s+")[0]
-$model=(& $adb -s $serial shell getprop ro.product.model).Trim()
-$device=(& $adb -s $serial shell getprop ro.product.device).Trim()
+$model=(@(& $adb -s $serial shell getprop ro.product.model)-join'').Trim()
+$device=(@(& $adb -s $serial shell getprop ro.product.device)-join'').Trim()
 if($model-ne"Quest 3" -or $device-ne"eureka"){throw "Physical Quest 3 required; found model=$model device=$device"}
-$fingerprint=(& $adb -s $serial shell getprop ro.build.fingerprint).Trim()
-$displayBuild=(& $adb -s $serial shell getprop ro.build.display.id).Trim()
-$runtimeVersion=(& $adb -s $serial shell getprop ro.build.version.incremental).Trim()
+$fingerprint=(@(& $adb -s $serial shell getprop ro.build.fingerprint)-join'').Trim()
+$displayBuild=(@(& $adb -s $serial shell getprop ro.build.display.id)-join'').Trim()
+$runtimeVersion=(@(& $adb -s $serial shell getprop ro.build.version.incremental)-join'').Trim()
 $serialBytes=[System.Text.Encoding]::UTF8.GetBytes($serial)
 $sha=[System.Security.Cryptography.SHA256]::Create()
 try{$deviceIdHash=([BitConverter]::ToString($sha.ComputeHash($serialBytes))).Replace("-","").ToLowerInvariant().Substring(0,16)}finally{$sha.Dispose()}
@@ -42,13 +43,31 @@ if($LASTEXITCODE-ne 0){throw "adb install failed"}
 & $adb -s $serial shell am force-stop $Package
 & $adb -s $serial shell rm -f $remoteReport
 & $adb -s $serial logcat -c
-$activity=(& $adb -s $serial shell cmd package resolve-activity --brief $Package|Select-Object -Last 1).Trim()
+$activity=(@(& $adb -s $serial shell cmd package resolve-activity --brief $Package)|Select-Object -Last 1)
+$activity=(@($activity)-join'').Trim()
 if(!$activity -or $activity-match"No activity"){throw "Launch activity was not resolved for $Package"}
 
 function Start-QuestApp([string]$phase)
 {
-    $start=& $adb -s $serial shell am start -W -n $activity
+    # `am start -W` can wait indefinitely for a volumetric window while an
+    # unattended HMD is asleep. Wake is harmless and output-free; readiness is
+    # established by a separately bounded PID poll and by the in-app report.
+    & $adb -s $serial shell input keyevent 224|Out-Null
+    $start=@(& $adb -s $serial shell am start -n $activity)
     if($LASTEXITCODE-ne 0 -or ($start-join"`n")-match"Error:"){throw "$phase launch failed: $($start-join' ')"}
+    $pidDeadline=(Get-Date).AddSeconds(15)
+    $pidValue=""
+    while((Get-Date)-lt$pidDeadline)
+    {
+        $pidValue=(@(& $adb -s $serial shell pidof $Package 2>$null)-join'').Trim()
+        if($pidValue){break}
+        Start-Sleep -Milliseconds 250
+    }
+    if(!$pidValue)
+    {
+        $powerState=(@(& $adb -s $serial shell dumpsys power|Select-String -Pattern 'mWakefulness=')-join'; ').Trim()
+        throw "$phase launch did not create a process within 15 seconds; $powerState"
+    }
     return $start
 }
 
@@ -56,21 +75,26 @@ $firstLaunch=Start-QuestApp "first"
 $deadline=(Get-Date).AddSeconds($ReportTimeoutSeconds)
 while((Get-Date)-lt$deadline)
 {
-    $exists=(& $adb -s $serial shell test -f $remoteReport ';' echo `$?).Trim()
-    if($exists-eq"0"){break}
+    $remoteListing=@(& $adb -s $serial shell ls $remoteReport 2>$null)
+    if($LASTEXITCODE-eq 0 -and (@($remoteListing)-join'').Trim()) {break}
     Start-Sleep -Milliseconds 500
 }
-if((Get-Date)-ge$deadline){& $adb -s $serial logcat -d|Set-Content (Join-Path $runDirectory "first-launch.logcat.txt") -Encoding UTF8;throw "Quest DEVICE AUTO report timeout"}
+if((Get-Date)-ge$deadline)
+{
+    & $adb -s $serial logcat -d|Set-Content (Join-Path $runDirectory "first-launch.logcat.txt") -Encoding UTF8
+    $powerState=(@(& $adb -s $serial shell dumpsys power|Select-String -Pattern 'mWakefulness=')-join'; ').Trim()
+    throw "Quest DEVICE AUTO report timeout after $ReportTimeoutSeconds seconds; $powerState. Put on/wake the HMD and retry."
+}
 & $adb -s $serial pull $remoteReport (Join-Path $runDirectory "app-report.json")|Out-Null
 $firstLogcat=& $adb -s $serial logcat -d
 $firstLogcat|Set-Content (Join-Path $runDirectory "first-launch.logcat.txt") -Encoding UTF8
-$firstPid=(& $adb -s $serial shell pidof $Package).Trim()
+$firstPid=(@(& $adb -s $serial shell pidof $Package 2>$null)-join'').Trim()
 
 & $adb -s $serial shell am force-stop $Package
 & $adb -s $serial logcat -c
 $secondLaunch=Start-QuestApp "relaunch"
 Start-Sleep -Seconds 8
-$secondPid=(& $adb -s $serial shell pidof $Package).Trim()
+$secondPid=(@(& $adb -s $serial shell pidof $Package 2>$null)-join'').Trim()
 $secondLogcat=& $adb -s $serial logcat -d
 $secondLogcat|Set-Content (Join-Path $runDirectory "relaunch.logcat.txt") -Encoding UTF8
 & $adb -s $serial shell am force-stop $Package
@@ -93,7 +117,7 @@ $report=[ordered]@{
     schema_version=1;gate="QUEST DEVICE AUTO";status=$status
     build_id=$manifest.build_id;apk_sha256=$actualApkHash;build_manifest=$manifest
     device=[ordered]@{model=$model;device=$device;anonymized_id=$deviceIdHash;horizon_display_build=$displayBuild;runtime_incremental=$runtimeVersion;fingerprint=$fingerprint}
-    started_at=(Get-Date).ToUniversalTime().ToString('o');app_report=$appReport;host_checks=$hostChecks
+    started_at=$startedAt;finished_at=(Get-Date).ToUniversalTime().ToString('o');app_report=$appReport;host_checks=$hostChecks
     log_files=@("first-launch.logcat.txt","relaunch.logcat.txt")
 }
 $reportPath=Join-Path $runDirectory "quest-device-auto.json"

@@ -73,7 +73,10 @@ namespace Phantom.Diagnostics
     // OpenXR startup and capability availability for the installed APK.
     public sealed class QuestDeviceAuto : MonoBehaviour
     {
-        const float SettleSeconds=15f;
+        // A cold OpenXR start consumes several seconds and an unattended Quest
+        // can suspend the activity after roughly 15 seconds. Keep this smoke
+        // inside that window; the 30-minute P0 qualification is a separate gate.
+        const float SettleSeconds=8f;
         readonly List<XRDisplaySubsystem> _displays=new List<XRDisplaySubsystem>();
         QuestBuildIdentity _identity;
         MetaQuestTrackingSource _tracking;
@@ -250,6 +253,13 @@ namespace Phantom.Diagnostics
         {
             if(!_finished)WriteReport();
             Application.logMessageReceived-=OnLog;
+        }
+
+        void OnApplicationPause(bool paused)
+        {
+            // Always leave machine-readable evidence when Horizon suspends the
+            // app. Capability checks remain fail-closed if XR is already gone.
+            if(paused&&!_finished)WriteReport();
         }
     }
 }
