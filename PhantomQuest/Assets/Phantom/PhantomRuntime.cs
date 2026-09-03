@@ -1,4 +1,4 @@
-using Phantom.Logging;using Phantom.Mapping;using Phantom.RobotLocalization;using Phantom.Tracking;using Phantom.UI;using Phantom.Visualization;using UnityEngine;
+using Phantom.Diagnostics;using Phantom.Logging;using Phantom.Mapping;using Phantom.RobotLocalization;using Phantom.Tracking;using Phantom.UI;using Phantom.Visualization;using UnityEngine;
 namespace Phantom
 {
     // Stage-2 runtime is intentionally observation-only. No RobotTransport is
@@ -11,5 +11,9 @@ namespace Phantom
         static string Russian(PhantomState s){switch(s){case PhantomState.Boot:return "ЗАПУСК";case PhantomState.UserCalibration:return "КАЛИБРОВКА ПОЛЬЗОВАТЕЛЯ";case PhantomState.Discovery:return "ПОИСК EV3";case PhantomState.ConnectedUnreferenced:return "НУЖНА QR-ПРИВЯЗКА";case PhantomState.Ready:return "ГОТОВО";case PhantomState.Hold:return "УДЕРЖАНИЕ";case PhantomState.Tracking:return "УПРАВЛЕНИЕ";case PhantomState.SafeHold:return "БЕЗОПАСНАЯ ОСТАНОВКА";case PhantomState.Stopped:return "ЛОКАЛЬНАЯ ОСТАНОВКА";default:return "ОШИБКА";}}
         void OnApplicationFocus(bool focused){if(!focused)_state.OnReferenceSpaceChange();}void OnApplicationPause(bool paused){if(paused)_state.OnReferenceSpaceChange();}void OnDestroy(){_enabledQrTracker?.SetQrTrackingEnabled(false);_logger?.Dispose();}
     }
-    public static class PhantomBootstrap{[RuntimeInitializeOnLoadMethod(RuntimeInitializeLoadType.AfterSceneLoad)]static void Install(){if(Object.FindFirstObjectByType<PhantomRuntime>()!=null)return;var go=new GameObject("PhantomRuntime");Object.DontDestroyOnLoad(go);go.AddComponent<PhantomRuntime>();}}
+    public static class PhantomBootstrap{[RuntimeInitializeOnLoadMethod(RuntimeInitializeLoadType.AfterSceneLoad)]static void Install(){if(Object.FindFirstObjectByType<PhantomRuntime>()!=null)return;var go=new GameObject("PhantomRuntime");Object.DontDestroyOnLoad(go);go.AddComponent<PhantomRuntime>();go.AddComponent<QuestDeviceAuto>();
+#if DEVELOPMENT_BUILD
+        go.AddComponent<Phantom.Experiments.QuestValidationRunner>();
+#endif
+    }}
 }

@@ -12,9 +12,13 @@ python tools/protocolgen.py --check
 python tools/configgen.py --check
 powershell -File tools/quest_validation/compile_and_smoke.ps1
 powershell -File tools/quest_validation/run_udp_integration.ps1
+powershell -File scripts/quest-test.ps1
+powershell -File scripts/quest-build.ps1 -Profile Release -Output build/quest/PhantomQuest-release.apk
+powershell -File scripts/quest-build.ps1 -Profile Diagnostic -Output build/quest/PhantomQuest-diagnostic.apk
 powershell -File scripts/ev3-host-build.ps1 -Profile Release
 powershell -File scripts/ev3-armel-docker.ps1
 powershell -File scripts/pre-install-auto.ps1
+powershell -File scripts/quest-device-auto.ps1
 powershell -File scripts/ev3-package.ps1
 ```
 

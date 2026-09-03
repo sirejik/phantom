@@ -1,9 +1,11 @@
 using System;
 using System.IO;
 using System.Security.Cryptography;
+using System.Text;
 using UnityEditor;
 using UnityEditor.Build;
 using UnityEditor.Build.Reporting;
+using UnityEditor.PackageManager;
 using Oculus.Platform;
 
 namespace Phantom.Editor
@@ -12,6 +14,8 @@ namespace Phantom.Editor
     {
         const string PackageName="dev.phantom.questprototype";
         const string MetaAppId="1405011949353501";
+        const string EmbeddedBuildPath="Assets/Resources/phantom-build.json";
+        const string EmbeddedConfigPath="Assets/Resources/phantom-quest-config.json";
 
         public static void BuildAndroid()
         {
@@ -51,6 +55,7 @@ namespace Phantom.Editor
             var oldKeystorePass=PlayerSettings.Android.keystorePass;
             var oldKeyaliasName=PlayerSettings.Android.keyaliasName;
             var oldKeyaliasPass=PlayerSettings.Android.keyaliasPass;
+            var oldDevelopment=EditorUserBuildSettings.development;
             BuildReport report;
             try
             {
@@ -60,20 +65,56 @@ namespace Phantom.Editor
                 PlayerSettings.Android.keystorePass=password;
                 PlayerSettings.Android.keyaliasName=alias;
                 PlayerSettings.Android.keyaliasPass=password;
+                WriteEmbeddedInputs(profile,gitCommit,sourceTreeHash,worktreeDirty,specificationHash,protocolHash,configHash,packageLockHash);
                 report=BuildPipeline.BuildPlayer(paths,output,BuildTarget.Android,BuildOptions.None);
             }
             finally
             {
+                DeleteEmbeddedInputs();
+                EditorUserBuildSettings.development=oldDevelopment;
                 PlayerSettings.Android.useCustomKeystore=oldUseCustomKeystore;
                 PlayerSettings.Android.keystoreName=oldKeystoreName;
                 PlayerSettings.Android.keystorePass=oldKeystorePass;
                 PlayerSettings.Android.keyaliasName=oldKeyaliasName;
                 PlayerSettings.Android.keyaliasPass=oldKeyaliasPass;
+                AssetDatabase.SaveAssets();
             }
             if(report.summary.result!=BuildResult.Succeeded)throw new Exception($"Android build failed: {report.summary.result}, errors={report.summary.totalErrors}");
             var apkHash=Sha256(File.ReadAllBytes(output));
-            var manifest=$"{{\"schema_version\":1,\"build_id\":\"{gitCommit}-{profile.ToLowerInvariant()}-quest\",\"git_commit\":\"{gitCommit}\",\"source_tree_hash\":\"{sourceTreeHash}\",\"worktree_dirty\":{worktreeDirty},\"build_profile\":\"{profile}\",\"protocol_version\":1,\"specification_sha256\":\"{specificationHash}\",\"protocol_schema_hash\":\"{protocolHash}\",\"config_hash\":\"{configHash}\",\"unity_version\":\"{UnityEngine.Application.unityVersion}\",\"app_version\":\"{PlayerSettings.bundleVersion}\",\"package_lock_sha256\":\"{packageLockHash}\",\"body_tracking_provider\":\"OVRBody (qualification pending)\",\"apk_sha256\":\"{apkHash}\",\"build_time\":\"{DateTime.UtcNow:o}\"}}";
+            var manifest=BuildManifestJson(profile,gitCommit,sourceTreeHash,worktreeDirty,specificationHash,protocolHash,configHash,packageLockHash,apkHash,DateTime.UtcNow.ToString("o"));
             File.WriteAllText(output+".build-manifest.json",manifest+Environment.NewLine);
+        }
+
+        static void WriteEmbeddedInputs(string profile,string gitCommit,string sourceTreeHash,string worktreeDirty,string specificationHash,string protocolHash,string configHash,string packageLockHash)
+        {
+            Directory.CreateDirectory(Path.GetDirectoryName(EmbeddedBuildPath));
+            var manifest=BuildManifestJson(profile,gitCommit,sourceTreeHash,worktreeDirty,specificationHash,protocolHash,configHash,packageLockHash,"","embedded-before-apk-hash");
+            File.WriteAllText(EmbeddedBuildPath,manifest+Environment.NewLine,new UTF8Encoding(false));
+            File.Copy(Path.GetFullPath(Path.Combine("..","config","generated","quest.generated.json")),EmbeddedConfigPath,true);
+            AssetDatabase.ImportAsset(EmbeddedBuildPath,ImportAssetOptions.ForceSynchronousImport);
+            AssetDatabase.ImportAsset(EmbeddedConfigPath,ImportAssetOptions.ForceSynchronousImport);
+        }
+
+        static void DeleteEmbeddedInputs()
+        {
+            AssetDatabase.DeleteAsset(EmbeddedBuildPath);
+            AssetDatabase.DeleteAsset(EmbeddedConfigPath);
+        }
+
+        static string BuildManifestJson(string profile,string gitCommit,string sourceTreeHash,string worktreeDirty,string specificationHash,string protocolHash,string configHash,string packageLockHash,string apkHash,string buildTime)
+        {
+            var core=PackageVersion("com.meta.xr.sdk.core");
+            var mruk=PackageVersion("com.meta.xr.mrutilitykit");
+            var openxr=PackageVersion("com.unity.xr.openxr");
+            var metaOpenxr=PackageVersion("com.unity.xr.meta-openxr");
+            var hands=PackageVersion("com.unity.xr.hands");
+            return $"{{\"schema_version\":2,\"build_id\":\"{gitCommit}-{profile.ToLowerInvariant()}-quest\",\"git_commit\":\"{gitCommit}\",\"source_tree_hash\":\"{sourceTreeHash}\",\"worktree_dirty\":{worktreeDirty},\"build_profile\":\"{profile}\",\"protocol_version\":1,\"specification_sha256\":\"{specificationHash}\",\"protocol_schema_hash\":\"{protocolHash}\",\"config_hash\":\"{configHash}\",\"unity_version\":\"{UnityEngine.Application.unityVersion}\",\"app_version\":\"{PlayerSettings.bundleVersion}\",\"package_lock_sha256\":\"{packageLockHash}\",\"meta_xr_core_version\":\"{core}\",\"movement_sdk_version\":\"{core}\",\"body_tracking_provider\":\"OVRBody/com.meta.xr.sdk.core\",\"mruk_version\":\"{mruk}\",\"openxr_plugin_version\":\"{openxr}\",\"meta_openxr_version\":\"{metaOpenxr}\",\"xr_hands_version\":\"{hands}\",\"apk_sha256\":\"{apkHash}\",\"build_time\":\"{buildTime}\"}}";
+        }
+
+        static string PackageVersion(string name)
+        {
+            foreach(var package in UnityEditor.PackageManager.PackageInfo.GetAllRegisteredPackages())if(package.name==name)return package.version;
+            throw new Exception("Required Unity package is not registered: "+name);
         }
         static string Sha256(byte[] data){using(var sha=SHA256.Create())return BitConverter.ToString(sha.ComputeHash(data)).Replace("-","").ToLowerInvariant();}
 

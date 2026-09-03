@@ -57,6 +57,7 @@ sysinfo.txt
 /results/quest/environment.json
 /results/quest/runs/
 /results/quest/device-pulls/
+/results/quest/device-auto/
 /results/quest/q4-latest/
 /results/quest/summaries/QUEST_ARCHITECTURE_RECOMMENDATIONS.md
 /results/quest/summaries/QUEST_VALIDATION_REPORT.md

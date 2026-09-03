@@ -14,7 +14,14 @@
   `GripperCenter`; `GRIPPER_*` отделены от движущихся `JAW_*`;
 - pure IK/FK, абсолютный mapping, калибровка длины руки и synthetic tests;
 - generated HMAC protocol v1, PC EV3 simulator и UDP integration tooling;
-- Release/Diagnostic batch build, manifest/hash и Android permission audit.
+- Release/Diagnostic batch build, exact package matrix, embedded build/config
+  identity, manifest/hash и Android permission audit;
+- post-install `scripts/quest-device-auto.ps1`: admission только после matching
+  PRE-INSTALL PASS, установка, OpenXR/capability/config self-test, force-stop,
+  повторный запуск, crash audit и обезличенный device report;
+- Diagnostic автоматически включает physical validation runner, а Release не
+  активирует engineering UI; обязательный Space Setup не вызывается для
+  выключенного scene-aware UX.
 
 Runtime этапа 2 намеренно не создаёт `RobotTransport` и не посылает команды
 движения. Любая неготовность tracking/provider/QR оставляет систему вне READY.
@@ -25,7 +32,7 @@ Runtime этапа 2 намеренно не создаёт `RobotTransport` и 
 - одновременная работа Hand Tracking, выбранного Body Tracking provider,
   левого Touch Plus, passthrough и QR Trackables в течение 30 минут;
 - pause/resume, снятие HMD, focus/reference-space lifecycle;
-- установленный APK `DEVICE AUTO` и реальные camera/QR проверки.
+- успешный установленный APK `DEVICE AUTO` и реальные camera/QR проверки.
 
 Meta XR Core 205.0.0 содержит существенный blocker: локальная реализация
 `OVRBody` отключается при `SimultaneousHandsAndControllersEnabled`. До выбора и

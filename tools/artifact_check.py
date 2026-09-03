@@ -43,6 +43,7 @@ def main():
         apk=ROOT/f"build/quest/PhantomQuest-{profile}.apk";manifest_path=pathlib.Path(str(apk)+".build-manifest.json")
         require(apk.is_file() and manifest_path.is_file(),"Quest artifact missing: "+profile)
         manifest=load(manifest_path)
+        require(manifest.get("schema_version")==2,"Quest build manifest schema mismatch")
         require(manifest["build_profile"].lower()==profile,"Quest profile mismatch")
         require(manifest["git_commit"]==commit and manifest.get("worktree_dirty") is False,"Quest artifact is not from the clean current commit")
         require(manifest["apk_sha256"]==sha(apk),"Quest APK hash mismatch")
@@ -50,6 +51,16 @@ def main():
         require(manifest["config_hash"]==expected_config["quest"],"Quest config hash mismatch")
         require(manifest["source_tree_hash"]==expected_source["quest"],"Quest artifact was not built from current sources")
         require(manifest["package_lock_sha256"]==sha(ROOT/"PhantomQuest/Packages/packages-lock.json"),"Quest package lock hash mismatch")
+        expected_versions={
+            "meta_xr_core_version":package_lock["dependencies"]["com.meta.xr.sdk.core"]["version"],
+            "movement_sdk_version":package_lock["dependencies"]["com.meta.xr.sdk.core"]["version"],
+            "mruk_version":package_lock["dependencies"]["com.meta.xr.mrutilitykit"]["version"],
+            "openxr_plugin_version":package_lock["dependencies"]["com.unity.xr.openxr"]["version"],
+            "meta_openxr_version":package_lock["dependencies"]["com.unity.xr.meta-openxr"]["version"],
+            "xr_hands_version":package_lock["dependencies"]["com.unity.xr.hands"]["version"],
+        }
+        for field,version in expected_versions.items():require(manifest.get(field)==version,f"Quest {field} mismatch")
+        require(manifest.get("body_tracking_provider")=="OVRBody/com.meta.xr.sdk.core","Quest body tracking provider mismatch")
         with zipfile.ZipFile(apk) as archive:android_manifest=archive.read("AndroidManifest.xml")
         for permission in ("android.permission.INTERNET","com.oculus.permission.HAND_TRACKING","com.oculus.permission.BODY_TRACKING","com.oculus.permission.USE_SCENE","com.oculus.permission.USE_ANCHOR_API"):
             require(permission.encode("utf-16le") in android_manifest,"Quest APK permission missing: "+permission)

@@ -38,4 +38,18 @@ $process=Start-Process -FilePath $unity -ArgumentList $arguments -WindowStyle Hi
 # Unity may leave Gradle helpers alive after the editor has already returned, so
 # wait for the editor process itself and use its real exit code.
 $process.WaitForExit()
-if($process.ExitCode -ne 0){throw "Unity Android build failed with exit code $($process.ExitCode); see results/quest/android-build.log"}
+$unityExitCode=$process.ExitCode
+# A surviving Gradle daemon can retain a Windows file handle in the generated
+# launcher and make the immediately following profile build nondeterministic.
+$gradleWrapper=[System.IO.Path]::GetFullPath("PhantomQuest/Library/Bee/Android/Prj/IL2CPP/Gradle/gradlew.bat")
+if(Test-Path -LiteralPath $gradleWrapper)
+{
+    $previousLocation=Get-Location
+    try
+    {
+        Set-Location ([System.IO.Path]::GetDirectoryName($gradleWrapper))
+        & $gradleWrapper --stop | Out-Null
+    }
+    finally { Set-Location $previousLocation }
+}
+if($unityExitCode -ne 0){throw "Unity Android build failed with exit code $unityExitCode; see results/quest/android-build.log"}

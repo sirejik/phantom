@@ -21,7 +21,6 @@ namespace Phantom.Meta
         bool _ready; bool _queryInProgress; string _reason="MRUK initializing"; Vec3 _floor; MRUK _mruk;
         bool _roomLocalized; string _localizedRoomDescription="";
         float _roomWidth; float _roomDepth;
-        bool _spaceSetupRequested;
         float _queryStartedAt; float _nextPoll; float _nextRetry; int _queryAttempts;
         Guid _selectedRoomUuid; Guid _selectedFloorUuid; OVRLocatable _floorLocatable;
         public bool IsReady=>_ready; public string StatusReason=>_reason; public Vec3 FloorOrigin=>_floor;
@@ -99,27 +98,10 @@ namespace Phantom.Meta
                     RejectQuery("room-layout discovery failed: "+roomResult.Status);
                     return;
                 }
-                if(rooms.Count==0&&!_spaceSetupRequested)
+                if(rooms.Count==0)
                 {
-                    _spaceSetupRequested=true;
-                    _reason="opening Meta Space Setup: no saved room layout is available to this app";
-                    Debug.LogWarning("PHANTOM ROOM "+_reason);
-                    var setupCompleted=await OVRScene.RequestSpaceSetup();
-                    if(!setupCompleted)
-                    {
-                        RejectQuery("Meta Space Setup request failed");
-                        return;
-                    }
-                    _reason="Space Setup closed; checking room layouts";
-                    roomResult=await OVRAnchor.FetchAnchorsAsync(rooms,new OVRAnchor.FetchOptions
-                    {
-                        SingleComponentType=typeof(OVRRoomLayout)
-                    });
-                    if(!roomResult.Success)
-                    {
-                        RejectQuery("post-setup room-layout discovery failed: "+roomResult.Status);
-                        return;
-                    }
+                    RejectQuery("no saved room layout; optional scene-aware UX may request Space Setup explicitly");
+                    return;
                 }
 
                 var candidates=new List<RoomCandidate>();
@@ -172,22 +154,6 @@ namespace Phantom.Meta
                 var selected=SelectCurrentCandidate(candidates,haveHead);
                 if(selected==null)
                 {
-                    if(!_spaceSetupRequested)
-                    {
-                        _spaceSetupRequested=true;
-                        _reason="Открывается Meta Space Setup: текущая комната не распознана";
-                        Debug.LogWarning("PHANTOM ROOM "+_reason);
-                        var setupCompleted=await OVRScene.RequestSpaceSetup();
-                        _queryInProgress=false;
-                        if(!setupCompleted)
-                        {
-                            RejectQuery("Meta Space Setup не завершён");
-                            return;
-                        }
-                        _reason="Space Setup закрыт; повторное распознавание комнаты";
-                        _nextRetry=Time.unscaledTime+.5f;
-                        return;
-                    }
                     RejectQuery(candidates.Count==0
                         ?$"no localized floor among {rooms.Count} room layout(s)"
                         :$"no room floor contains the current head position ({candidates.Count} localized candidate(s))");
