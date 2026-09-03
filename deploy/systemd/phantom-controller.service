@@ -2,16 +2,12 @@
 Description=PHANTOM EV3 controller (fail-closed until commissioned)
 Requires=phantom-safety.service
 After=phantom-safety.service network-online.target
+PartOf=phantom.target
 
 [Service]
 Type=simple
 User=phantom
 Group=phantom
-RuntimeDirectory=phantom
-RuntimeDirectoryMode=0770
-RuntimeDirectoryPreserve=yes
-StateDirectory=phantom
-LogsDirectory=phantom
 ExecStart=/opt/phantom/current/bin/phantom-controller
 ExecStopPost=/bin/sh -c 'for m in /sys/class/tacho-motor/motor*; do echo 0 > "$m/duty_cycle_sp" 2>/dev/null || true; echo brake > "$m/stop_action" 2>/dev/null || true; echo stop > "$m/command" 2>/dev/null || true; done'
 Restart=on-failure

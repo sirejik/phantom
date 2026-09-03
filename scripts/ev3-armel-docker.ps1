@@ -22,7 +22,9 @@ foreach($profile in @("Release","Diagnostic")){
   docker run --rm --entrypoint sh --mount "type=bind,src=$workspace,dst=/workspace,readonly" --mount "type=bind,src=$binOut,dst=/out" $image /workspace/scripts/ev3-armel-build /out $profile
   if($LASTEXITCODE -ne 0){throw "EV3 armel Docker build failed: $profile"}
   Copy-Item config/generated/ev3.generated.json "$profileOut/config.generated.json" -Force
+  Copy-Item deploy/scripts/device-auto.py "$binOut/phantom-device-auto" -Force
   Copy-Item deploy/systemd "$profileOut/systemd" -Recurse -Force
+  Copy-Item deploy/tmpfiles "$profileOut/tmpfiles" -Recurse -Force
   $manifest=[ordered]@{
     schema_version=1;build_id="$commit-$($profile.ToLower())-armel";git_commit=$commit;source_tree_hash=$sourceHash;worktree_dirty=$dirty;target="ARMv5TEJ-armel-gnueabi";build_profile=$profile
     protocol_version=1;specification_sha256=$specHash;protocol_schema_hash=$protocolHash;config_hash=$configHash
@@ -32,6 +34,9 @@ foreach($profile in @("Release","Diagnostic")){
     built_at=(Get-Date).ToUniversalTime().ToString('o')
   }
   $manifest|ConvertTo-Json -Depth 4|Set-Content "$profileOut/build-manifest.json" -Encoding UTF8
-  Get-ChildItem $profileOut -Recurse -File|Where-Object Name -ne SHA256SUMS|ForEach-Object{"$((Get-FileHash $_.FullName -Algorithm SHA256).Hash.ToLower())  $($_.FullName.Substring($profileOut.Length+1).Replace('\','/'))"}|Set-Content "$profileOut/SHA256SUMS" -Encoding ASCII
+  $checksumLines=Get-ChildItem $profileOut -Recurse -File|Where-Object Name -ne SHA256SUMS|ForEach-Object{"$((Get-FileHash $_.FullName -Algorithm SHA256).Hash.ToLower())  $($_.FullName.Substring($profileOut.Length+1).Replace('\','/'))"}
+  # The manifest is consumed by GNU sha256sum on ev3dev. PowerShell 5's
+  # Set-Content emits CRLF, which makes the trailing CR part of each filename.
+  [System.IO.File]::WriteAllText((Join-Path $profileOut "SHA256SUMS"),(($checksumLines -join "`n")+"`n"),[System.Text.Encoding]::ASCII)
 }
 Write-Output "EV3 armel artifacts: $out"

@@ -12,9 +12,21 @@ with open(sys.argv[1],encoding="utf-8-sig") as stream: report=json.load(stream)
 with open(sys.argv[2],encoding="utf-8-sig") as stream: manifest=json.load(stream)
 if report.get("gate")!="PRE-INSTALL AUTO" or report.get("status")!="PASS" or report.get("worktree_dirty") is not False:raise SystemExit("PRE-INSTALL gate is not a clean PASS")
 if report.get("git_commit")!=manifest.get("git_commit") or manifest.get("worktree_dirty") is not False:raise SystemExit("PRE-INSTALL/build manifest source mismatch")
+if manifest.get("build_id") not in report.get("build_ids",[]):raise SystemExit("installed build_id is absent from PRE-INSTALL report")
+if report.get("specification_sha256")!=manifest.get("specification_sha256") or report.get("protocol_schema_hash")!=manifest.get("protocol_schema_hash"):raise SystemExit("PRE-INSTALL/build contract hash mismatch")
+reported={item.get("sha256") for item in report.get("artifacts",[]) if isinstance(item,dict)}
+for field in ("controller_sha256","safety_sha256"):
+    if manifest.get(field) not in reported:raise SystemExit(field+" is absent from PRE-INSTALL artifact evidence")
 PY
 "$dest/bin/phantom-controller" --self-test;"$dest/bin/phantom-safety" --self-test
-systemctl stop phantom.target || true;previous=$(readlink -f "$root/current" 2>/dev/null||true);if test -n "$previous";then ln -sfn "$previous" "$root/previous";fi;ln -sfn "$dest" "$root/current"
+getent group phantom >/dev/null 2>&1||addgroup --system phantom
+getent passwd phantom >/dev/null 2>&1||adduser --system --ingroup phantom --home /var/lib/phantom --no-create-home --disabled-password --shell /usr/sbin/nologin phantom
+install -m 0644 "$dest/tmpfiles/phantom.conf" /etc/tmpfiles.d/phantom.conf
+systemd-tmpfiles --create /etc/tmpfiles.d/phantom.conf
+previous=$(readlink -f "$root/current" 2>/dev/null||true)
+rollback(){ systemctl stop phantom-controller.service phantom-safety.service phantom.target||true;if test -n "$previous";then ln -sfn "$previous" "$root/current";systemctl start phantom.target||true;else rm -f "$root/current";fi;rm -rf -- "$dest"; }
+systemctl stop phantom-controller.service phantom-safety.service phantom.target||true;if test -n "$previous";then ln -sfn "$previous" "$root/previous";fi;ln -sfn "$dest" "$root/current"
 install -m 0644 "$dest/systemd/phantom-controller.service" "$dest/systemd/phantom-safety.service" "$dest/systemd/phantom.target" /etc/systemd/system/
 systemctl daemon-reload;systemctl start phantom.target
-systemctl is-active --quiet phantom-safety.service phantom-controller.service || { systemctl stop phantom.target||true;test -n "$previous"&&ln -sfn "$previous" "$root/current";systemctl start phantom.target||true;exit 1; }
+systemctl is-active --quiet phantom-safety.service phantom-controller.service || { rollback;exit 1; }
+"$dest/bin/phantom-device-auto" || { rollback;exit 1; }

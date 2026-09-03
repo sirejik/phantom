@@ -1,12 +1,30 @@
 #!/usr/bin/env python3
 """Post-build metadata, hash, architecture, profile, and lock-file gate."""
-import hashlib,json,pathlib,subprocess,sys,zipfile
+import hashlib,json,pathlib,re,subprocess,sys,zipfile
 ROOT=pathlib.Path(__file__).resolve().parents[1]
 def load(path):return json.loads(path.read_text(encoding="utf-8-sig"))
 def sha(path):return hashlib.sha256(path.read_bytes()).hexdigest()
 def source_hash(*paths):return subprocess.check_output([sys.executable,str(ROOT/"tools/source_hash.py"),*paths],text=True).strip()
 def require(condition,message):
     if not condition:raise ValueError(message)
+def verify_checksum_manifest(directory):
+    manifest_path=directory/"SHA256SUMS"
+    require(manifest_path.is_file(),f"SHA256SUMS missing: {directory}")
+    raw=manifest_path.read_bytes()
+    require(b"\r" not in raw,f"SHA256SUMS must be LF-only: {directory}")
+    listed=set()
+    for line in raw.decode("ascii").splitlines():
+        match=re.fullmatch(r"([0-9a-f]{64})  (.+)",line)
+        require(match is not None,f"invalid SHA256SUMS line: {line!r}")
+        relative=match.group(2)
+        require(relative not in listed,f"duplicate SHA256SUMS entry: {relative}")
+        require(not pathlib.PurePosixPath(relative).is_absolute() and ".." not in pathlib.PurePosixPath(relative).parts,f"unsafe SHA256SUMS path: {relative}")
+        artifact=directory/pathlib.PurePosixPath(relative)
+        require(artifact.is_file(),f"SHA256SUMS file missing: {relative}")
+        require(sha(artifact)==match.group(1),f"SHA256SUMS mismatch: {relative}")
+        listed.add(relative)
+    expected={path.relative_to(directory).as_posix() for path in directory.rglob("*") if path.is_file() and path.name!="SHA256SUMS"}
+    require(listed==expected,f"SHA256SUMS inventory mismatch: {directory}")
 def main():
     protocol=(ROOT/"protocol/generated/schema.sha256").read_text().split()[0]
     specification=sha(ROOT/"docs/PHANTOM_SPECIFICATION.md")
@@ -43,7 +61,7 @@ def main():
             require(manifest["protocol_schema_hash"]==protocol and manifest["specification_sha256"]==specification,f"{family} source hash mismatch")
             require(manifest["config_hash"]==expected_config["ev3"],f"{family} config hash mismatch")
             require(manifest["source_tree_hash"]==expected_source["ev3"],f"{family} artifact was not built from current sources")
-            require((directory/"SHA256SUMS").is_file(),f"{family} SHA256SUMS missing")
+            verify_checksum_manifest(directory)
             if family=="ev3-armel":
                 require(manifest["cross_image"].endswith(lock["cross_image_digest"]),"armel image mismatch")
                 require(lock["cross_toolchain"] in manifest["toolchain_facts"],"armel compiler version mismatch")

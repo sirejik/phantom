@@ -1,16 +1,12 @@
 [Unit]
 Description=PHANTOM local stop and controller supervisor
 Before=phantom-controller.service
+PartOf=phantom.target
 
 [Service]
 Type=simple
 User=root
 Group=phantom
-RuntimeDirectory=phantom
-RuntimeDirectoryMode=0770
-RuntimeDirectoryPreserve=yes
-LogsDirectory=phantom
-LogsDirectoryMode=0750
 ExecStart=/opt/phantom/current/bin/phantom-safety
 Restart=always
 RestartSec=1

@@ -2,7 +2,7 @@
 #include <algorithm>
 #include <cmath>
 namespace phantom {
-bool ControllerCore::initialize(){std::string error;if(!backend_.initialize(error)){safe(State::SafeHold,Fault::Config);return false;}backend_.brake_all();motion_allowed_=false;state_=config_.commissioning_valid?State::ConnectedUnreferenced:State::SafeHold;fault_=config_.commissioning_valid?Fault::None:Fault::Config;return config_.commissioning_valid;}
+bool ControllerCore::initialize(){initialization_error_.clear();if(!backend_.initialize(initialization_error_)){safe(State::SafeHold,Fault::Config);return false;}backend_.brake_all();motion_allowed_=false;state_=config_.commissioning_valid?State::ConnectedUnreferenced:State::SafeHold;fault_=config_.commissioning_valid?Fault::None:Fault::Config;return true;}
 bool ControllerCore::publish_target(const Target& t){if(t.sequence<=last_sequence_||t.sequence==0||!std::isfinite(t.grip)||t.grip<0||t.grip>1||t.motion_flags&~15u)return false;for(float q:t.q)if(!std::isfinite(q)||q<-6.4f||q>6.4f)return false;target_=t;last_sequence_=t.sequence;return true;}
 bool ControllerCore::ready_predicates()const noexcept{return config_.commissioning_valid&&config_.measured_limits_complete&&config_.external_power_cut_tested&&safety_alive_&&joint_reference_&&gripper_reference_&&fault_==Fault::None;}
 void ControllerCore::safe(State s,Fault f)noexcept{motion_allowed_=false;state_=s;if(f!=Fault::None)fault_=f;target_.motion_flags=0;backend_.brake_all();}

@@ -3,6 +3,7 @@
 #include <array>
 #include <atomic>
 #include <cstdint>
+#include <string>
 
 namespace phantom {
 enum class State:std::uint16_t { Boot=0,UserCalibration=1,Discovery=2,ConnectedUnreferenced=3,RobotCalibration=4,Ready=5,Hold=6,Tracking=7,SafeHold=8,Stopped=9,Commissioning=10 };
@@ -17,9 +18,9 @@ public:
   ControllerCore(MotorBackend& backend,const RuntimeConfig& config):backend_(backend),config_(config){}
   bool initialize(); void set_safety_heartbeat_alive(bool alive){safety_alive_=alive;} void set_references_valid(bool joints,bool gripper){joint_reference_=joints;gripper_reference_=gripper;}
   bool publish_target(const Target& target); void tick(std::uint64_t now_us,std::uint32_t dt_us) noexcept; void shutdown() noexcept;
-  State state()const{return state_;}Fault fault()const{return fault_;}bool motion_allowed()const{return motion_allowed_;}const FixedRing<500>& recorder()const{return recorder_;}
+  State state()const{return state_;}Fault fault()const{return fault_;}bool motion_allowed()const{return motion_allowed_;}const std::string& initialization_error()const{return initialization_error_;}const FixedRing<500>& recorder()const{return recorder_;}
 private:
   void safe(State state,Fault fault=Fault::None) noexcept; bool ready_predicates()const noexcept;
-  MotorBackend& backend_;RuntimeConfig config_;Target target_{};std::uint64_t last_sequence_=0;State state_=State::Boot;Fault fault_=Fault::None;bool safety_alive_=false,joint_reference_=false,gripper_reference_=false,motion_allowed_=false;FixedRing<500> recorder_;
+  MotorBackend& backend_;RuntimeConfig config_;Target target_{};std::uint64_t last_sequence_=0;State state_=State::Boot;Fault fault_=Fault::None;bool safety_alive_=false,joint_reference_=false,gripper_reference_=false,motion_allowed_=false;std::string initialization_error_;FixedRing<500> recorder_;
 };
 }

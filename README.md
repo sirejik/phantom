@@ -15,6 +15,7 @@ powershell -File tools/quest_validation/run_udp_integration.ps1
 powershell -File scripts/ev3-host-build.ps1 -Profile Release
 powershell -File scripts/ev3-armel-docker.ps1
 powershell -File scripts/pre-install-auto.ps1
+powershell -File scripts/ev3-package.ps1
 ```
 
 The armel build uses the pinned
