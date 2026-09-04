@@ -1,0 +1,22 @@
+[Unit]
+Description=PHANTOM authenticated UDP network worker
+Requires=phantom-controller.service
+After=phantom-controller.service phantom-wifi-autoconnect.service
+PartOf=phantom.target
+
+[Service]
+Type=notify
+NotifyAccess=main
+TimeoutStartSec=90
+User=phantom
+Group=phantom
+ExecStart=/opt/phantom/current/bin/phantom-network
+Restart=on-failure
+RestartSec=2
+NoNewPrivileges=true
+ProtectSystem=strict
+PrivateTmp=true
+ReadWritePaths=/run/phantom
+
+[Install]
+WantedBy=phantom.target

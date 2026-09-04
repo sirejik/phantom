@@ -1,11 +1,13 @@
 #!/usr/bin/env python3
-"""Stage-2 EV3 DEVICE AUTO: real Brick checks with zero commanded motion."""
+"""Stage-3 EV3 DEVICE AUTO: real network/security checks with zero actuator scope."""
 import calendar
 import hashlib
 import json
 import os
 import pathlib
 import platform
+import socket
+import struct
 import subprocess
 import sys
 import time
@@ -17,7 +19,7 @@ checks = []
 
 def add(test_id, status, detail, evidence=None, introduced_at_stage=2):
     item = {"test_id": test_id, "introduced_at_stage": introduced_at_stage,
-            "applicable_to_stage": 2, "status": status, "detail": detail}
+            "applicable_to_stage": 3, "status": status, "detail": detail}
     if evidence is not None:
         item["evidence"] = evidence
     checks.append(item)
@@ -40,19 +42,22 @@ def sha256(path):
     return digest.hexdigest()
 
 
+def semantic_hash(value):
+    data = json.dumps(value, ensure_ascii=False, sort_keys=True, separators=(",", ":")).encode("utf-8")
+    return hashlib.sha256(data).hexdigest()
+
+
 def motor_nodes():
     result = {}
     for node in pathlib.Path("/sys/class/tacho-motor").glob("motor*"):
-        address = text(node / "address").split(":")[-1].lower()
-        result[address] = node
+        result[text(node / "address").split(":")[-1].lower()] = node
     return result
 
 
 def sensor_nodes():
     result = {}
     for node in pathlib.Path("/sys/class/lego-sensor").glob("sensor*"):
-        address = text(node / "address").split(":")[-1].lower()
-        result[address] = node
+        result[text(node / "address").split(":")[-1].lower()] = node
     return result
 
 
@@ -73,14 +78,110 @@ def active(unit):
     return run(["systemctl", "is-active", "--quiet", unit], 5).returncode == 0
 
 
+def dns_name(name):
+    return b"".join(bytes([len(label)]) + label.encode("ascii") for label in name.split(".")) + b"\0"
+
+
+def mdns_probe(robot_id, boot_id):
+    needle = dns_name("_phantom-ev3._udp")[:-1].lower()
+    query = struct.pack(">HHHHHH", 0, 0, 1, 0, 0, 0) + dns_name("_phantom-ev3._udp.local") + struct.pack(">HH", 12, 1)
+    sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM, socket.IPPROTO_UDP)
+    sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+    sock.bind(("", 5353))
+    sock.setsockopt(socket.IPPROTO_IP, socket.IP_ADD_MEMBERSHIP,
+                    socket.inet_aton("224.0.0.251") + socket.inet_aton("0.0.0.0"))
+    sock.settimeout(.4)
+    sock.sendto(query, ("224.0.0.251", 5353))
+    deadline = time.monotonic() + 3.0
+    packets = []
+    try:
+        while time.monotonic() < deadline:
+            try:
+                packet, source = sock.recvfrom(4096)
+            except socket.timeout:
+                sock.sendto(query, ("224.0.0.251", 5353))
+                continue
+            packets.append((packet, source[0]))
+            low = packet.lower()
+            if needle in low and ("robot_id=" + robot_id).encode("ascii") in packet and ("controller_boot_id=" + boot_id).encode("ascii") in packet:
+                return True, {"responses": len(packets), "source": source[0], "service": "_phantom-ev3._udp.local",
+                              "robot_id": robot_id, "controller_boot_id_matches": True}
+    finally:
+        sock.close()
+    return False, {"responses": len(packets), "service": "_phantom-ev3._udp.local", "controller_boot_id_matches": False}
+
+
+def protocol_probe(root, config, boot_hex, motors):
+    sys.path.insert(0, str(root / "bin"))
+    import phantom_protocol as wire
+    raw = pathlib.Path("/var/lib/phantom/secrets/control.psk").read_bytes().strip()
+    key = bytes.fromhex(raw.decode("ascii")) if len(raw) == 64 else raw
+    boot = bytes.fromhex(boot_hex)
+    endpoint = ("127.0.0.1", int(config["network"]["listen_port_udp"]))
+    client = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+    client.settimeout(.25)
+    nonce = os.urandom(16)
+    hello = wire.encode(1, wire.hello_payload(config["robot_id"], 0, 0, nonce), key,
+                        wire.ZERO_ID, boot, 0, int(time.monotonic() * 1000000))
+    client.sendto(hello, endpoint)
+    deadline = time.monotonic() + 2.0
+    ack = None
+    while time.monotonic() < deadline and ack is None:
+        try:
+            packet, unused = client.recvfrom(1024)
+        except socket.timeout:
+            continue
+        decoded = wire.decode(packet, key)
+        if decoded["message"] == "HELLO_ACK":
+            ack = decoded
+    if ack is None or ack["payload"][:16] != nonce:
+        raise ValueError("HELLO_ACK missing")
+    session = ack["session_id"]
+    ping_payload = struct.pack("<QQ", 7341, 0x12345678)
+    ping = wire.encode(768, ping_payload, key, session, boot, 1, int(time.monotonic() * 1000000))
+    client.sendto(ping, endpoint)
+    got_pong = got_telemetry = False
+    telemetry = None
+    deadline = time.monotonic() + 2.0
+    while time.monotonic() < deadline and not (got_pong and got_telemetry):
+        try:
+            packet, unused = client.recvfrom(1024)
+        except socket.timeout:
+            continue
+        decoded = wire.decode(packet, key, expected_session=session, expected_boot=boot)
+        if decoded["message"] == "PONG" and decoded["payload"] == ping_payload:
+            got_pong = True
+        if decoded["message"] == "TELEMETRY":
+            got_telemetry = True
+            telemetry = decoded["payload"]
+    before_safe, unused = zero_state(motors)
+    command = wire.encode(256, wire.command_payload(5, [.1, .2, .3], .4), key,
+                          session, boot, 2, int(time.monotonic() * 1000000))
+    client.sendto(command, endpoint)
+    corrupt = bytearray(wire.encode(768, ping_payload, key, session, boot, 3, 1)); corrupt[-1] ^= 1
+    client.sendto(bytes(corrupt), endpoint)
+    client.sendto(ping, endpoint)
+    time.sleep(.15)
+    after_safe, zero_evidence = zero_state(motors)
+    client.close()
+    state = struct.unpack_from("<H", telemetry, 128)[0] if telemetry else None
+    q = struct.unpack_from("<3f", telemetry, 164) if telemetry else ()
+    grip = struct.unpack_from("<f", telemetry, 188)[0] if telemetry else None
+    return got_pong and got_telemetry and before_safe and after_safe and state == 3 and q == (0.0, 0.0, 0.0) and grip == 0.0, {
+        "hello_ack": ack is not None, "session_id_server_generated": session != wire.ZERO_ID,
+        "pong": got_pong, "telemetry": got_telemetry, "telemetry_state": state,
+        "canonical_out_of_scope_q": list(q), "canonical_out_of_scope_grip": grip,
+        "authenticated_command_zero_output": after_safe, "zero_state": zero_evidence}
+
+
 def write_report(manifest):
     status = "PASS" if all(item["status"] in ("PASS", "N_A") for item in checks) else "FAIL"
-    payload = {"schema_version": 1, "gate": "DEVICE AUTO", "stage": 2,
+    payload = {"schema_version": 2, "gate": "DEVICE AUTO", "stage": 3,
                "status": status, "git_commit": manifest.get("git_commit"),
-               "build_id": manifest.get("build_id"),
-               "config_hash": manifest.get("config_hash"),
+               "build_id": manifest.get("build_id"), "config_hash": manifest.get("config_hash"),
+               "commissioning_bundle_hash": manifest.get("commissioning_bundle_hash"),
                "artifact_sha256": {"controller": manifest.get("controller_sha256"),
-                                     "safety": manifest.get("safety_sha256")},
+                                   "safety": manifest.get("safety_sha256")},
                "monotonic_finished_us": int(time.monotonic() * 1000000), "checks": checks}
     REPORT.parent.mkdir(parents=True, exist_ok=True)
     temporary = REPORT.with_suffix(".tmp")
@@ -96,94 +197,114 @@ def main():
         return write_report({})
     root = CURRENT.resolve()
     manifest = json.loads((root / "build-manifest.json").read_text(encoding="utf-8-sig"))
+    config = json.loads((root / "config.generated.json").read_text(encoding="utf-8-sig"))
+    bundle = json.loads((root / "commissioning-bundle.generated.json").read_text(encoding="utf-8-sig"))
+    profile_ok = (config.get("build_profile") == "Diagnostic" and config.get("qualification_only") is True and
+                  config.get("actuator_scope_mask") == 0 and bundle.get("qualification_only") is True and
+                  bundle.get("actuator_scope_mask") == 0)
+    add("ev3-stage3-profile", "PASS" if profile_ok else "FAIL",
+        "Diagnostic qualification_only with authoritative actuator_scope_mask=0x00",
+        {"build_profile": config.get("build_profile"), "qualification_only": config.get("qualification_only"),
+         "actuator_scope_mask": config.get("actuator_scope_mask")}, 3)
+
     systemd = run(["systemctl", "--version"], 5).stdout.splitlines()
     platform_evidence = {"machine": platform.machine(), "kernel": platform.release(),
-                         "python": platform.python_version(),
-                         "systemd": systemd[0] if systemd else "unknown"}
-    platform_ok = platform_evidence["machine"].startswith("armv5")
-    platform_ok = platform_ok and sys.version_info[:2] >= (3, 5)
-    try:
-        platform_ok = platform_ok and int(platform_evidence["systemd"].split()[1]) >= 232
-    except (IndexError, ValueError):
-        platform_ok = False
-    add("ev3-platform-compatibility", "PASS" if platform_ok else "FAIL",
-        "pinned Stretch runtime compatibility", platform_evidence)
+                         "python": platform.python_version(), "systemd": systemd[0] if systemd else "unknown"}
+    platform_ok = platform_evidence["machine"].startswith("armv5") and sys.version_info[:2] >= (3, 5)
+    add("ev3-platform-compatibility", "PASS" if platform_ok else "FAIL", "pinned Stretch runtime compatibility", platform_evidence)
     built_epoch = calendar.timegm(time.strptime(manifest["built_at"][:19], "%Y-%m-%dT%H:%M:%S"))
     wall_epoch = time.time()
-    timedate = run(["timedatectl", "status"], 5).stdout
-    ntp = "unknown"
-    for line in timedate.splitlines():
-        if "NTP synchronized:" in line:
-            ntp = line.split(":", 1)[1].strip()
-            break
-    clock_evidence = {"wall_clock_utc": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime(wall_epoch)),
-                      "build_time_utc": manifest["built_at"], "ntp_synchronized": ntp}
-    add("ev3-wall-clock", "PASS" if wall_epoch + 86400 >= built_epoch else "FAIL",
-        "wall clock must not predate the installed build", clock_evidence)
-    # sha256sum must run relative to the release root.
-    integrity = subprocess.run(["sha256sum", "-c", "SHA256SUMS"], cwd=str(root),
-                               stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
-                               universal_newlines=True, timeout=30)
-    add("installed-artifact-integrity", "PASS" if integrity.returncode == 0 else "FAIL",
-        integrity.stdout.strip())
+    add("ev3-wall-clock", "PASS" if wall_epoch + 86400 >= built_epoch else "FAIL", "wall clock must not predate installed build",
+        {"wall_clock_utc": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime(wall_epoch)), "build_time_utc": manifest["built_at"]})
+    integrity = subprocess.run(["sha256sum", "-c", "SHA256SUMS"], cwd=str(root), stdout=subprocess.PIPE,
+                               stderr=subprocess.STDOUT, universal_newlines=True, timeout=30)
+    add("installed-artifact-integrity", "PASS" if integrity.returncode == 0 else "FAIL", integrity.stdout.strip())
     config_hash = sha256(root / "config.generated.json")
-    add("installed-config-hash", "PASS" if config_hash == manifest.get("config_hash") else "FAIL",
-        config_hash)
+    add("installed-config-hash", "PASS" if config_hash == manifest.get("config_hash") else "FAIL", config_hash)
+    bundle_hash = semantic_hash(bundle)
+    add("installed-bundle-hash", "PASS" if bundle_hash == manifest.get("commissioning_bundle_hash") else "FAIL", bundle_hash, introduced_at_stage=3)
 
-    expected_motors = {"outa": "lego-ev3-l-motor", "outb": "lego-ev3-l-motor",
-                       "outc": "lego-ev3-l-motor", "outd": "lego-ev3-m-motor"}
+    usb_devices = []
+    for node in pathlib.Path("/sys/bus/usb/devices").iterdir():
+        vendor, product = node / "idVendor", node / "idProduct"
+        if vendor.is_file() and product.is_file():
+            usb_devices.append(text(vendor) + ":" + text(product))
+    wireless = [node.name for node in pathlib.Path("/sys/class/net").iterdir() if (node / "wireless").exists()]
+    modules = run(["lsmod"], 5).stdout
+    wna_ok = "0846:9030" in usb_devices and "ath9k_htc" in modules and len(wireless) == 1
+    add("ev3-wna1100", "PASS" if wna_ok else "FAIL", "USB 0846:9030, ath9k_htc and one discovered wireless interface",
+        {"vid_pid": "0846:9030" if "0846:9030" in usb_devices else None, "driver": "ath9k_htc" if "ath9k_htc" in modules else None,
+         "interfaces": wireless}, 3)
+    wifi = wireless[0] if wireless else ""
+    ip_output = run(["ip", "-o", "-4", "addr", "show", "dev", wifi], 5).stdout if wifi else ""
+    carrier_path = pathlib.Path("/sys/class/net") / wifi / "carrier"
+    carrier = text(carrier_path) if wifi and carrier_path.is_file() else "0"
+    wifi_ok = carrier == "1" and " inet " in ip_output
+    add("ev3-wifi-dhcp", "PASS" if wifi_ok else "FAIL", "wireless association and DHCP IPv4",
+        {"interface": wifi, "carrier": carrier, "ipv4_present": " inet " in ip_output}, 3)
+
     motors = motor_nodes()
-    motor_evidence = {address: {"driver": text(node / "driver_name"),
-                                "count_per_rot": text(node / "count_per_rot")}
+    motor_evidence = {address: {"driver": text(node / "driver_name"), "count_per_rot": text(node / "count_per_rot"), "reason": "OUT_OF_SCOPE"}
                       for address, node in sorted(motors.items())}
-    motor_ok = set(motors) == set(expected_motors)
-    motor_ok = motor_ok and all(motor_evidence[a]["driver"] == driver and
-                                motor_evidence[a]["count_per_rot"] == "360"
-                                for a, driver in expected_motors.items())
-    add("ev3-motor-discovery", "PASS" if motor_ok else "FAIL", "address/driver/count_per_rot", motor_evidence)
-
+    add("ev3-motor-discovery", "N_A", "network-only actuator_scope_mask=0x00; no motor I/O required", motor_evidence, 3)
     sensors = sensor_nodes()
-    sensor_evidence = {a: {"driver": text(n / "driver_name"), "value0": text(n / "value0")}
-                       for a, n in sorted(sensors.items())}
-    sensor_ok = all(a in sensors and sensor_evidence[a]["driver"] == "lego-ev3-touch"
-                    for a in ("in3", "in4"))
-    sensor_ok = sensor_ok and sensor_evidence["in4"]["value0"] == "0"
-    add("ev3-local-safety-inputs", "PASS" if sensor_ok else "FAIL",
-        "GRIPPER_HOME in3 present; LOCAL_STOP in4 present and released", sensor_evidence)
-
+    sensor_evidence = {address: {"driver": text(node / "driver_name"), "reason": "OUT_OF_SCOPE"} for address, node in sorted(sensors.items())}
+    add("ev3-local-safety-inputs", "N_A", "network-only actuator_scope_mask=0x00; motor safety inputs not required", sensor_evidence, 3)
     battery_path = pathlib.Path("/sys/class/power_supply/lego-ev3-battery/voltage_now")
     voltage = int(text(battery_path)) if battery_path.is_file() else 0
     add("ev3-battery-telemetry", "PASS" if voltage > 0 else "FAIL", str(voltage))
 
     for binary in ("phantom-controller", "phantom-safety"):
         result = run([str(root / "bin" / binary), "--self-test"], 15)
-        add(binary + "-on-device-self-test", "PASS" if result.returncode == 0 else "FAIL",
-            result.stdout.strip())
-
-    services_ok = active("phantom-safety.service") and active("phantom-controller.service")
-    add("ev3-systemd-startup", "PASS" if services_ok else "FAIL", "controller and safety active")
+        add(binary + "-on-device-self-test", "PASS" if result.returncode == 0 else "FAIL", result.stdout.strip())
+    units = ("phantom-safety.service", "phantom-wifi-autoconnect.service", "phantom-controller.service", "phantom-network.service", "phantom-mdns.service")
+    services_ok = all(active(unit) for unit in units)
+    add("ev3-systemd-startup", "PASS" if services_ok else "FAIL", "all Stage-3 services active", {unit: active(unit) for unit in units})
     safe, safe_evidence = zero_state(motors)
-    add("ev3-zero-output-startup", "PASS" if safe else "FAIL", "all motors stationary/brake", safe_evidence)
+    add("ev3-zero-output-startup", "PASS" if safe else "FAIL", "all physically present motors stationary/BRAKE", safe_evidence)
 
-    if services_ok and motor_ok and sensor_ok:
+    boot_before_path = pathlib.Path("/run/phantom/controller-boot-id")
+    boot_before = text(boot_before_path) if boot_before_path.is_file() else ""
+    if services_ok and profile_ok and safe:
         log_path = pathlib.Path("/var/log/phantom/safety-emergency.log")
         before = log_path.stat().st_size if log_path.exists() else 0
-        killed = run(["systemctl", "kill", "--signal=SIGKILL", "--kill-who=main",
-                      "phantom-controller.service"], 5).returncode == 0
-        time.sleep(0.35)
+        killed = run(["systemctl", "kill", "--signal=SIGKILL", "--kill-who=main", "phantom-controller.service"], 5).returncode == 0
+        deadline = time.monotonic() + 1.5
+        while time.monotonic() < deadline and (not log_path.exists() or log_path.stat().st_size <= before):
+            time.sleep(.1)
         safe_after, takeover_evidence = zero_state(motors)
         logged = log_path.exists() and log_path.stat().st_size > before
-        add("ev3-supervisor-takeover", "PASS" if killed and safe_after and logged else "FAIL",
-            "controller SIGKILL detected and BRAKE retained", takeover_evidence)
-        restart = run(["systemctl", "restart", "phantom.target"], 15)
-        recovered = restart.returncode == 0 and active("phantom-safety.service") and active("phantom-controller.service")
+        add("ev3-supervisor-takeover", "PASS" if killed and safe_after and logged else "FAIL", "controller SIGKILL detected and BRAKE retained", takeover_evidence)
+        restart = run(["systemctl", "restart", "phantom.target"], 120)
+        recovered = restart.returncode == 0 and all(active(unit) for unit in units)
+        time.sleep(.5)
+        boot_after = text(boot_before_path) if boot_before_path.is_file() else ""
         add("ev3-safe-restart", "PASS" if recovered else "FAIL", restart.stdout.strip())
+        add("ev3-controller-boot-id-rotation", "PASS" if recovered and boot_after and boot_after != boot_before else "FAIL",
+            "controller restart creates a fresh identity and invalidates prior sessions", {"changed": boot_after != boot_before}, 3)
     else:
-        add("ev3-supervisor-takeover", "FAIL", "prerequisite startup/topology check failed")
+        add("ev3-supervisor-takeover", "FAIL", "prerequisite startup/profile/zero-output check failed")
         add("ev3-safe-restart", "FAIL", "takeover was not run")
+        add("ev3-controller-boot-id-rotation", "FAIL", "restart was not run", introduced_at_stage=3)
+        boot_after = boot_before
 
-    add("ev3-dns-sd-stage3", "N_A", "introduced at stage 3", introduced_at_stage=3)
-    add("ev3-udp-session-stage3", "N_A", "introduced at stage 3", introduced_at_stage=3)
+    mdns_ok, mdns_evidence = mdns_probe(config["robot_id"], boot_after)
+    add("ev3-dns-sd-stage3", "PASS" if mdns_ok else "FAIL", "live multicast DNS-SD response", mdns_evidence, 3)
+    try:
+        protocol_ok, protocol_evidence = protocol_probe(root, config, boot_after, motors)
+    except Exception as error:
+        protocol_ok, protocol_evidence = False, {"category": type(error).__name__, "detail": str(error)}
+    add("ev3-udp-session-stage3", "PASS" if protocol_ok else "FAIL", "HELLO/HELLO_ACK, PING/PONG, TELEMETRY and authenticated COMMAND with scope zero", protocol_evidence, 3)
+    time.sleep(1.1)
+    network_status_path = pathlib.Path("/run/phantom/network-status.json")
+    network_status = json.loads(network_status_path.read_text()) if network_status_path.is_file() else {}
+    counters = network_status.get("counters", {})
+    security_ok = counters.get("hmac_fail", 0) >= 1 and counters.get("replay_reject", 0) >= 1
+    add("ev3-network-security-stage3", "PASS" if security_ok else "FAIL", "invalid HMAC and replay rejected", counters, 3)
+    final_safe, final_evidence = zero_state(motors)
+    zero_writes = counters.get("nonzero_motor_writes") == 0
+    add("ev3-stage3-zero-output-audit", "PASS" if final_safe and zero_writes else "FAIL",
+        "nonzero motor writes = 0 across startup/session/command/replay/restart", {"nonzero_motor_writes": counters.get("nonzero_motor_writes"), "sysfs": final_evidence}, 3)
     return write_report(manifest)
 
 

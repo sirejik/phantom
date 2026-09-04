@@ -27,7 +27,7 @@ trap 'rm -rf "$stage"' EXIT
 cp -a /artifact/. "$stage/"
 find "$stage" -type d -exec chmod 0755 {} +
 find "$stage" -type f -exec chmod 0644 {} +
-chmod 0755 "$stage/bin/phantom-controller" "$stage/bin/phantom-safety" "$stage/bin/phantom-device-auto"
+chmod 0755 "$stage/bin/phantom-controller" "$stage/bin/phantom-safety" "$stage/bin/phantom-network" "$stage/bin/phantom-mdns" "$stage/bin/phantom-device-auto" "$stage/bin/phantom-wifi-autoconnect"
 cd "$stage"
 sha256sum -c SHA256SUMS
 tar --sort=name --mtime='UTC 1970-01-01' --owner=0 --group=0 --numeric-owner -cf - . | gzip -n > /packages/__ARCHIVE__

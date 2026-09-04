@@ -1,0 +1,50 @@
+#!/bin/sh
+set -eu
+
+# ConnMan 1.36 on ev3dev can miss the initial auto-connect when ath9k_htc
+# finishes probing after connmand starts.  Only reconnect profiles that were
+# explicitly provisioned as both Favorite and AutoConnect.  Never read or
+# print the Passphrase field.
+
+wifi_ready()
+{
+    for path in /sys/class/net/*; do
+        [ -d "$path/wireless" ] || continue
+        [ "$(cat "$path/carrier" 2>/dev/null || true)" = 1 ] || continue
+        ip -o -4 addr show dev "${path##*/}" 2>/dev/null | grep -q ' inet ' && return 0
+    done
+    return 1
+}
+
+attempt=1
+if ! wifi_ready; then
+    echo '{"event":"WIFI_LOST","source":"boot_autoconnect"}'
+fi
+while [ "$attempt" -le 12 ]; do
+    if wifi_ready; then
+        echo '{"event":"WIFI_AVAILABLE","source":"boot_autoconnect"}'
+        exit 0
+    fi
+
+    connmanctl enable wifi >/dev/null 2>&1 || true
+    connmanctl scan wifi >/dev/null 2>&1 || true
+
+    for settings in /var/lib/connman/wifi_*/settings; do
+        [ -f "$settings" ] || continue
+        grep -qx 'Favorite=true' "$settings" || continue
+        grep -qx 'AutoConnect=true' "$settings" || continue
+        service=${settings%/settings}
+        service=${service##*/}
+        timeout 25 connmanctl connect "$service" >/dev/null 2>&1 || true
+        if wifi_ready; then
+            echo '{"event":"WIFI_RECOVERED","source":"boot_autoconnect"}'
+            exit 0
+        fi
+    done
+
+    attempt=$((attempt + 1))
+    sleep 5
+done
+
+echo '{"event":"WIFI_RECOVERY_FAILED","source":"boot_autoconnect"}' >&2
+exit 1

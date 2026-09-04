@@ -49,15 +49,18 @@ def validate_schema(value,schema,path="$",
         if "pattern" in schema and not re.search(schema["pattern"],value):raise ValueError(path+": pattern")
     if isinstance(value,(int,float)) and not isinstance(value,bool):
         if "minimum" in schema and value<schema["minimum"]:raise ValueError(path+": minimum")
+        if "maximum" in schema and value>schema["maximum"]:raise ValueError(path+": maximum")
 def validate(name,obj):
     require(obj,["schema_version"],name)
     if obj["schema_version"]!=1: raise ValueError(name+" schema_version")
-    if name=="commissioning_bundle": require(obj,["revision","bundle_id","qualification_status","robot_geometry","drive_calibration","collision_model","joint_safe_sets","payload_profiles","safety_envelope"],name)
+    if name.startswith("commissioning_bundle"): require(obj,["revision","bundle_id","qualification_status","qualification_only","actuator_scope_mask","robot_geometry","drive_calibration","collision_model","joint_safe_sets","payload_profiles","safety_envelope"],name)
     else: require(obj,["robot_id","build_profile"],name)
-    if name=="ev3":
+    if name.startswith("ev3"):
         if obj["network"]["max_packet_bytes"]!=1024 or obj["network"]["max_payload_bytes"]!=928: raise ValueError("wire bounds")
         ports=[obj["axes"][x]["motor_port"] for x in ("base","shoulder","elbow","gripper")]
         if ports!=["outA","outB","outC","outD"] or obj["local_stop"]["sensor_port"]!="in4" or obj["gripper_home"]["sensor_port"]!="in3": raise ValueError("EV3 port contract")
+        if obj.get("build_profile")=="Release" and (obj.get("qualification_only",False) or obj.get("actuator_scope_mask",15)!=15): raise ValueError("Release scope contract")
+        if obj.get("build_profile")=="Diagnostic" and obj.get("qualification_only") is not True: raise ValueError("Diagnostic qualification contract")
     if name=="quest" and obj["space"].get("require_current_room"): raise ValueError("room mesh cannot gate core path")
 def measured_paths(name,value,path=""):
     found=[]
@@ -73,15 +76,17 @@ def main():
     protocol_hash=(ROOT/"protocol"/"generated"/"schema.sha256").read_text().split()[0]
     spec_hash=hashlib.sha256((ROOT/"docs"/"PHANTOM_SPECIFICATION.md").read_bytes()).hexdigest()
     results={};source_objects={}
-    for name in ("commissioning_bundle","ev3","quest"):
-        obj=load(ROOT/"config"/"source"/(name+".json"));source_objects[name]=obj;schema=load(ROOT/"config"/"schema"/(name+".schema.json"));validate_schema(obj,schema);validate(name,obj);artifact=canonical(obj);digest=hashlib.sha256(artifact).hexdigest();results[name]=digest
+    variants=(("commissioning_bundle","commissioning_bundle"),("commissioning_bundle-network-only","commissioning_bundle"),("ev3","ev3"),("ev3-network-only","ev3"),("quest","quest"))
+    for name,schema_name in variants:
+        obj=load(ROOT/"config"/"source"/(name+".json"));source_objects[name]=obj;schema=load(ROOT/"config"/"schema"/(schema_name+".schema.json"));validate_schema(obj,schema);validate(name,obj);artifact=canonical(obj);digest=hashlib.sha256(artifact).hexdigest();results[name]=digest
         path=out/(name+".generated.json")
         if args.check:
             if not path.exists() or path.read_bytes()!=artifact+b"\n": raise SystemExit("generated config stale: "+str(path))
         else: path.write_bytes(artifact+b"\n")
     measured=load(ROOT/"config"/"source"/"measured_parameters.json");validate_schema(measured,load(ROOT/"config"/"schema"/"measured_parameters.schema.json"))
     placeholders=set()
-    for name,obj in source_objects.items():placeholders.update(measured_paths(name,obj))
+    for name,obj in source_objects.items():
+        if "network-only" not in name:placeholders.update(measured_paths(name,obj))
     registered=set(measured["parameters"])
     if placeholders!=registered:raise ValueError("MEASURED registry mismatch missing=%s stale=%s"%(sorted(placeholders-registered),sorted(registered-placeholders)))
     for key,metadata in measured["parameters"].items():

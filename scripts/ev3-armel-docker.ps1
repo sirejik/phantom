@@ -21,13 +21,21 @@ foreach($profile in @("Release","Diagnostic")){
   New-Item -ItemType Directory -Force -Path $binOut | Out-Null
   docker run --rm --entrypoint sh --mount "type=bind,src=$workspace,dst=/workspace,readonly" --mount "type=bind,src=$binOut,dst=/out" $image /workspace/scripts/ev3-armel-build /out $profile
   if($LASTEXITCODE -ne 0){throw "EV3 armel Docker build failed: $profile"}
-  Copy-Item config/generated/ev3.generated.json "$profileOut/config.generated.json" -Force
+  $configSource=if($profile -eq "Diagnostic"){"config/generated/ev3-network-only.generated.json"}else{"config/generated/ev3.generated.json"}
+  $bundleSource=if($profile -eq "Diagnostic"){"config/generated/commissioning_bundle-network-only.generated.json"}else{"config/generated/commissioning_bundle.generated.json"}
+  Copy-Item $configSource "$profileOut/config.generated.json" -Force
+  Copy-Item $bundleSource "$profileOut/commissioning-bundle.generated.json" -Force
+  Copy-Item ev3/network/phantom_network.py "$binOut/phantom-network" -Force
+  Copy-Item ev3/network/phantom_mdns.py "$binOut/phantom-mdns" -Force
+  Copy-Item protocol/phantom_protocol.py "$binOut/phantom_protocol.py" -Force
+  Copy-Item protocol/wire_schema.yaml "$binOut/wire_schema.yaml" -Force
   Copy-Item deploy/scripts/device-auto.py "$binOut/phantom-device-auto" -Force
+  Copy-Item deploy/scripts/wifi-autoconnect "$binOut/phantom-wifi-autoconnect" -Force
   Copy-Item deploy/systemd "$profileOut/systemd" -Recurse -Force
   Copy-Item deploy/tmpfiles "$profileOut/tmpfiles" -Recurse -Force
   $manifest=[ordered]@{
-    schema_version=1;build_id="$commit-$($profile.ToLower())-armel";git_commit=$commit;source_tree_hash=$sourceHash;worktree_dirty=$dirty;target="ARMv5TEJ-armel-gnueabi";build_profile=$profile
-    protocol_version=1;specification_sha256=$specHash;protocol_schema_hash=$protocolHash;config_hash=$configHash
+    schema_version=1;build_id="$($commit.Substring(0,12))-$($profile.ToLower())-armel";git_commit=$commit;source_tree_hash=$sourceHash;worktree_dirty=$dirty;target="ARMv5TEJ-armel-gnueabi";build_profile=$profile
+    protocol_version=1;specification_sha256=$specHash;protocol_schema_hash=$protocolHash;config_hash=(Get-FileHash $configSource -Algorithm SHA256).Hash.ToLower();commissioning_bundle_hash=if($profile -eq "Diagnostic"){(Get-Content config/generated/config-manifest.json -Raw|ConvertFrom-Json).artifact_hashes.'commissioning_bundle-network-only'}else{(Get-Content config/generated/config-manifest.json -Raw|ConvertFrom-Json).artifact_hashes.commissioning_bundle}
     cross_image=$image;toolchain_facts=($facts -join " | ")
     controller_sha256=(Get-FileHash "$binOut/phantom-controller" -Algorithm SHA256).Hash.ToLower()
     safety_sha256=(Get-FileHash "$binOut/phantom-safety" -Algorithm SHA256).Hash.ToLower()

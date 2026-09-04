@@ -1,0 +1,21 @@
+[Unit]
+Description=PHANTOM DNS-SD publisher
+Requires=phantom-network.service avahi-daemon.service
+After=phantom-network.service avahi-daemon.service
+PartOf=phantom.target
+
+[Service]
+Type=notify
+NotifyAccess=main
+TimeoutStartSec=90
+User=phantom
+Group=phantom
+ExecStart=/opt/phantom/current/bin/phantom-mdns
+Restart=on-failure
+RestartSec=2
+NoNewPrivileges=true
+ProtectSystem=strict
+PrivateTmp=true
+
+[Install]
+WantedBy=phantom.target

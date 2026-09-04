@@ -159,7 +159,7 @@
   - [7.6. Привязка энкодера захвата к фактическому раскрытию](#sec-7-6)
   - [7.7. Основной цикл управления](#sec-7-7)
     - [7.7.1. Частота и планирование](#sec-7-7-1)
-    - [7.7.2. Подготовка до входа в `READY`](#sec-7-7-2)
+    - [7.7.2. Подготовка до допуска real-time движения](#sec-7-7-2)
     - [7.7.3. Состав критического участка](#sec-7-7-3)
     - [7.7.4. Политика превышения периода](#sec-7-7-4)
   - [7.8. Приём сетевой цели](#sec-7-8)
@@ -167,7 +167,7 @@
   - [7.10. Формирование опорной траектории q_ref](#sec-7-10)
   - [7.11. Регулятор суставов](#sec-7-11)
   - [7.12. Модель гравитации](#sec-7-12)
-  - [7.13. HOLD и SAFE_HOLD](#sec-7-13)
+  - [7.13. HOLD, SAFE_HOLD и qualification inhibit](#sec-7-13)
   - [7.14. Защита суставов от перегрузки, заклинивания и проскальзывания](#sec-7-14)
     - [7.14.1. Ошибка следования](#sec-7-14-1)
     - [7.14.2. Двухступенчатое обнаружение препятствия и заклинивания](#sec-7-14-2)
@@ -273,12 +273,15 @@
   - [10.1. Общая последовательность этапов](#sec-10-1)
   - [10.2. Сквозные требования к каждому этапу](#sec-10-2)
   - [10.3. Этап 1 — фундамент проекта](#sec-10-3)
-  - [10.4. Этап 2 — сборка и автономный запуск модулей](#sec-10-4)
-  - [10.5. Этап 3 — связь, телеметрия и наблюдаемость](#sec-10-5)
-  - [10.6. Этап 4 — инженерная калибровка робота](#sec-10-6)
-  - [10.7. Этап 5 — пользовательская цель и виртуальная проверка](#sec-10-7)
-  - [10.8. Этап 6 — сквозное физическое управление](#sec-10-8)
-  - [10.9. Этап 7 — стабилизация и финальная приёмка](#sec-10-9)
+  - [10.4. Этап 2 — автономный запуск модулей и доступного I/O](#sec-10-4)
+  - [10.5. Этап 3 — Wi-Fi EV3, Quest↔EV3 и телеметрия](#sec-10-5)
+  - [10.6. Этап 4 — физический Gripper: калибровка и локальная защита](#sec-10-6)
+  - [10.7. Этап 5 — Quest управляет реальным Gripper](#sec-10-7)
+  - [10.8. Этап 6 — завершение механики и поосевой bring-up Base/Shoulder/Elbow](#sec-10-8)
+  - [10.9. Этап 7 — инженерная калибровка всей роборуки](#sec-10-9)
+  - [10.10. Этап 8 — полная пользовательская цель и виртуальная проверка](#sec-10-10)
+  - [10.11. Этап 9 — сквозное физическое управление всей роборукой](#sec-10-11)
+  - [10.12. Этап 10 — стабилизация и финальная приёмка](#sec-10-12)
 - [11. Приложения](#sec-11)
   - [11.1. Формулы](#sec-11-1)
     - [11.1.1. Абсолютное отображение движения пользователя](#sec-11-1-1)
@@ -337,16 +340,18 @@ Meta Quest 3 отслеживает правую руку пользовател
 | `backlash` | служебное имя величины механического люфта передачи: диапазона движения моторного вала при смене направления до движения выходного звена |
 | `Base` | поворотное основание манипулятора |
 | `BOOT` | начальное состояние после запуска, в котором actuator motion запрещён и выполняется локальная инициализация |
-| `USER_CALIBRATION` | состояние выбора/проверки пользовательского профиля и калибровки `human_arm_reach` до сетевого управления роботом |
+| `USER_CALIBRATION` | состояние подготовки пользовательских входов, необходимых активному профилю: для полного PHANTOM включает `human_arm_reach` и Shoulder/Wrist tracking; для gripper-only qualification не требует Body Tracking/`human_arm_reach` и проверяет только grasp/Left Grip и применимые XR capability |
 | `DISCOVERY` | состояние поиска ожидаемого `robot_id` через DNS-SD/mDNS до создания authenticated session |
 | `CONNECTED_UNREFERENCED` | authenticated connection установлено, но `JointReference`/`GripperReference` ещё не подтверждены; автоматическое движение запрещено |
 | `ROBOT_CALIBRATION` | обычная startup-процедура QR-локализации и привязки энкодеров без автоматического движения робота |
-| `COMMISSIONING` | инженерное состояние, разрешающее строго ограниченные калибровочные движения только после локального arm и commissioning-аутентификации |
+| `COMMISSIONING` | инженерное состояние после локального arm и commissioning-аутентификации. Имеет две взаимоисключающие фазы: `CALIBRATION` для ограниченных `CALIBRATION_JOG` при `MOTION_ENABLE=0` и `ACTUATOR_QUALIFICATION` для HIL-проверки штатного `COMMAND` только на явно разрешённом `actuator_scope_mask`; ни одна фаза не считается `READY` |
 | `Body Tracking` | Meta XR Movement SDK Body Tracking; непрерывная оценка позы тела пользователя |
 | `Body_RightShoulder` | сустав правого плеча Meta Body Tracking; источник `HumanShoulderCenter` во время работы. Это оценка Body Tracking, а не физически прямой датчик плеча. |
-| `TrackingQualificationProfile` | зафиксированная комбинация runtime/SDK/feature flags и критериев качества Wrist/Shoulder, прошедшая HIL/physical qualification и разрешённая для actuator path. |
+| `TrackingQualificationProfile` | зафиксированная комбинация runtime/SDK/feature flags и критериев качества входов, используемых данным actuator scope. Полный A/B/C path квалифицирует Wrist+Shoulder+Multimodal; gripper-only qualification — grasp+левый Touch Plus и применимые XR lifecycle условия без требования Body Tracking. |
 | `BRAKE` | пассивное электрическое торможение ev3dev после снятия управляющей мощности; не является активным удержанием позиции и не гарантирует удержание нагрузки |
 | `CALIBRATION_JOG` | инженерная транзакция ограниченного движения одной оси; используется только при инженерной калибровке до QR-измерения |
+| `ACTUATOR_QUALIFICATION` | инженерная фаза `COMMISSIONING`, в которой через тот же `COMMAND` path разрешается движение только приводов из `actuator_scope_mask`; требует локального подтверждения на EV3, commissioning session, валидной калибровки/reference для разрешённых приводов и никогда не разрешает переход в `READY` при неполной механике |
+| `actuator_scope_mask` | 4-битная маска приводов, физически/конфигурационно доступных текущему engineering/profile контексту: bit0=A, bit1=B, bit2=C, bit3=D. В `COMMISSIONING/CALIBRATION` она задаёт допустимый набор осей для `CALIBRATION_JOG`, при этом одновременно движется только выбранный `axis`; в `ACTUATOR_QUALIFICATION` она является жёсткой верхней границей authority штатного `COMMAND`. Полный Release использует `0x0F`; gripper-only стенд — `0x08`; network-only диагностика — `0x00`. Маска входит в хэш `CommissioningBundle`, а EV3 является authoritative |
 | `CI` | Continuous Integration; автоматический конвейер сборки, модульных/property-тестов и проверок артефактов |
 | `COMMAND` | штатная аутентифицированная UDP-команда с последними абсолютными `q_target` и `grip_intent`; не содержит PWM |
 | `controller_boot_id` | случайный идентификатор текущего запуска `phantom-controller`; меняется после его перезапуска |
@@ -527,10 +532,10 @@ PHANTOM должен повторять пространственное нап�
 | `FR-TRK-02` | Приложение Quest должно получать положение `HMD`, состояние левого Touch Plus Controller и аналоговое значение `Left Grip`. |
 | `FR-TRK-03` | Приложение Quest должно получать непрерывное значение сжатия правой кисти и отдельно признак его валидности. |
 | `FR-TRK-04` | `Left Grip` должен использоваться как разрешение движения с асимметричным гистерезисом: `squeeze <= 0.45` немедленно запрещает движение; `squeeze >= 0.60` может разрешить движение только при armed-latch и новом rising edge; в диапазоне `0.45..0.60` сохраняется текущее логическое состояние. Для выключения искусственная задержка запрещена; для включения допускается короткий квалифицированный debounce. |
-| `FR-TRK-05` | Отпускание `Left Grip` должно немедленно снимать `MOTION_ENABLE` и переводить EV3 в `HOLD`. |
+| `FR-TRK-05` | Отпускание `Left Grip` должно немедленно снимать `MOTION_ENABLE`. В полном пользовательском `TRACKING` EV3 переходит в `HOLD`; в инженерной фазе `ACTUATOR_QUALIFICATION` система остаётся в `COMMISSIONING`, но разрешённые приводы переходят к безопасному удержанию/остановке согласно их локальной политике. |
 | `FR-TRK-06` | После любого выхода в `SAFE_HOLD` автоматическое возобновление движения по всё ещё удерживаемому `Left Grip` запрещено. После устранения причины система переходит в `HOLD`, должна зафиксировать состояние `Grip released`, вооружить (`armed`) разрешение и только новый rising edge `Left Grip` может вернуть `TRACKING`. То же правило применяется при первом входе в готовое состояние, если Grip уже был удержан. |
 | `FR-TRK-07` | Приложение Quest должно на каждом доступном обновлении Body Tracking получать позицию, доступные SDK validity/quality/fidelity признаки и доступную временную информацию сустава `Body_RightShoulder`. Спецификация не предполагает существование универсального числового `confidence`, если конкретный pinned API его не предоставляет. |
-| `FR-TRK-08` | Actuator path должен работать только при активном `TrackingQualificationProfile`, который фиксирует версии runtime/SDK, Multimodal и Body Tracking feature flags, фактически доступные validity/quality/fidelity признаки и пройденные критерии §9.6. Приложение не должно требовать от SDK несуществующий универсальный per-sample enum `DIRECT/INFERRED` или числовой confidence; правый `Wrist` берётся из Hand Tracking, а `Body_RightShoulder` признаётся оценкой Body Tracking и допускается только после квалификации этой комбинации. |
+| `FR-TRK-08` | Actuator path должен работать только при активном scope-specific `TrackingQualificationProfile`. Для полного A/B/C управления профиль фиксирует Wrist, Body Tracking `Body_RightShoulder`, Multimodal и критерии §9.6; для gripper-only `actuator_scope_mask=0x08` до этапа полной руки обязательны только квалифицированные grasp/Hand Tracking, левый Touch Plus, application focus и применимый XR lifecycle. Приложение не должно требовать от SDK несуществующий универсальный per-sample enum `DIRECT/INFERRED` или числовой confidence. |
 
 <a id="sec-3-1-2"></a>
 ### 3.1.2. XR-возможности и запуск приложения
@@ -540,9 +545,9 @@ PHANTOM должен повторять пространственное нап�
 | `FR-XR-01` | До перехода в `READY` приложение должно проверить: активную OpenXR session, валидный `LOCAL_FLOOR`, Spatial Data permission, включённые Scene/Anchor capabilities, требуемые для MRUK QR Trackables, и работоспособный QR Trackable service. Предварительно сохранённая room mesh или отдельный floor anchor не являются обязательным условием core actuator path. |
 | `FR-XR-02` | Scene/Room understanding, распознавание мебели и сохранённая room mesh являются опциональными UX-возможностями и не должны блокировать `READY`, если обязательные `LOCAL_FLOOR` и QR capabilities валидны. |
 | `FR-XR-03` | `Space Setup` вызывается только для включённой scene-aware функции, которая действительно требует Room/Scene anchors, либо по явному действию пользователя. После возврата приложение повторно проверяет требуемую capability; успешное завершение API само по себе не считается доказательством готовности, поскольку пользователь мог отменить системную процедуру. |
-| `FR-XR-04` | `XrEventDataReferenceSpaceChangePending` для используемого `LOCAL_FLOOR`, его Unity/Meta-эквивалент, потеря валидности reference space либо смена tracking origin во время движения должны немедленно снимать `MOTION_ENABLE`, переводить систему в `SAFE_HOLD`, инвалидировать `RobotLocalization` и требовать новой QR-локализации плюс deliberate re-arm. |
-| `FR-XR-05` | После pause/focus loss/resume приложение должно заново проверить/включить Multimodal и все Tracking capabilities; возврат приложения не может автоматически восстанавливать `TRACKING`, даже если `Left Grip` продолжает удерживаться. |
-| `FR-XR-06` | До начала разработки физического actuator path exact pinned Quest 3 platform matrix (`Horizon OS/runtime + Unity + Meta XR Core + Movement SDK + MRUK + OpenXR Plugin`) должна пройти короткий zero-interaction P0 compatibility AUTO §9.6, а затем отдельные bounded live-observation/manual cases для правого Hand Tracking `Wrist`/grasp, `Body_RightShoulder`, левого Touch Plus Grip/haptics, passthrough, Multimodal lifecycle и QR Trackables. Неактивный XR/focus на лежащем HMD не является software FAIL; явный provider/API conflict является. Если любой обязательный gate не пройден, физическое движение блокируется и архитектура/версии пересматриваются; silent HMD→Shoulder или иной fallback запрещён. |
+| `FR-XR-04` | `XrEventDataReferenceSpaceChangePending` для используемого `LOCAL_FLOOR`, его Unity/Meta-эквивалент, потеря валидности reference space либо смена tracking origin во время движения должны немедленно снимать `MOTION_ENABLE` и очищать armed-latch. В полном A/B/C path система переходит в `SAFE_HOLD`, инвалидирует `RobotLocalization` и требует новой QR-локализации плюс deliberate re-arm. В gripper-only qualification, где D управляется только скалярным `grip_intent` и локальным encoder reference, изменение reference space само по себе не инвалидирует `GripperReference`; после восстановления focus/XR требуется повторная проверка grasp/Left Grip/QR capability и deliberate re-arm, а при сомнении в JAW↔encoder привязке выполняется новая D-only `GripperReference`. |
+| `FR-XR-05` | После pause/focus loss/resume приложение должно заново проверить capability/input stack, реально используемый active scope. Полный A/B/C path повторно проверяет Multimodal, Hand/Body Tracking, `LOCAL_FLOOR` и required QR capabilities; gripper-only qualification — Hand/grasp, левый Touch Plus, focus/lifecycle и JAW QR capability без требования Body Shoulder/Wrist. Возврат приложения никогда не восстанавливает физическое движение автоматически при всё ещё удерживаемом `Left Grip`. |
+| `FR-XR-06` | До любого физического actuator milestone exact pinned Quest 3 platform matrix (`Horizon OS/runtime + Unity + Meta XR Core + Movement SDK + MRUK + OpenXR Plugin`) должна пройти zero-interaction P0 compatibility AUTO. Перед gripper-only qualification дополнительно квалифицируются реально используемые grasp/Hand Tracking, левый Touch Plus Grip/haptics, passthrough, Multimodal/focus lifecycle и QR Trackables; отсутствие/качество Body Shoulder/Wrist не блокирует D-only движение. До первого физического пользовательского движения A/B/C обязательна полная §9.6 qualification Wrist+`Body_RightShoulder`+Multimodal. Неактивный XR/focus на лежащем HMD не является software FAIL; явный provider/API conflict является. Если любой применимый active-scope gate не пройден, соответствующее физическое движение блокируется; silent HMD→Shoulder или иной provider fallback запрещён. |
 
 <a id="sec-3-1-3"></a>
 ### 3.1.3. Калибровка пользователя
@@ -554,7 +559,7 @@ PHANTOM должен повторять пространственное нап�
 | `FR-CAL-03` | Пользовательская калибровка должна определять только рабочую длину полностью выпрямленной правой руки `human_arm_reach` по расстоянию `Body_RightShoulder → Wrist` ровно в трёх устойчивых позах. Антропометрический диапазон длины руки не используется как ограничение. |
 | `FR-CAL-04` | Положение и ориентация HMD не должны вручную применяться к `HumanShoulderCenter`: шаг, приседание и поворот корпуса учитываются через обновляемый сустав Body Tracking, а поворот головы сам по себе не должен переносить плечо. |
 | `FR-CAL-05` | При `graspReady=true` базовое v1 отображение должно использовать нормированный OpenXR `grasp_ext/value` напрямую: `humanGrip=clamp(rawGrasp,0,1)`. Обязательная пользовательская калибровка endpoint не требуется. Опциональный `GripRemapProfile` допускается только как явно выбранный accessibility/operator profile с валидным монотонным диапазоном; `graspReady=false` всегда делает текущий gripper command невалидным и не интерпретируется как `0`. |
-| `FR-CAL-06` | Кратковременный пропуск валидного `Body_RightShoulder` **или Wrist** обрабатывается одинаково как потеря обязательных данных отслеживания: внутри соответствующего `*_dropout_grace_ms` замораживается последняя **полностью time-aligned валидная actuator-цель**, а stale точка никогда не комбинируется со свежей второй точкой. После grace используется `SAFE_HOLD`. После восстановления tracking filter reseed выполняется от текущего согласованного вектора, а физическое движение продолжается только после deliberate re-arm. Событие и его диагностический контекст обязательно журналируются. |
+| `FR-CAL-06` | Для full A/B/C mapping кратковременный пропуск валидного `Body_RightShoulder` **или Wrist** обрабатывается одинаково как потеря обязательных данных отслеживания: внутри соответствующего `*_dropout_grace_ms` замораживается последняя **полностью time-aligned валидная actuator-цель**, stale точка никогда не комбинируется со свежей второй точкой, после grace используется `SAFE_HOLD`, а после восстановления filter reseed и deliberate re-arm обязательны. Это требование не является gate gripper-only scope `0x08`, где Shoulder/Wrist не входят в actuator input; там отдельно действует validity/freshness `graspReady`. События обязательно журналируются. |
 
 <a id="sec-3-1-4"></a>
 ### 3.1.4. Отображение руки в движение робота
@@ -575,14 +580,15 @@ PHANTOM должен повторять пространственное нап�
 
 | ID | Требование |
 |---|---|
-| `FR-GRP-01` | В `TRACKING` целевое состояние захвата должно задаваться непосредственно текущим `humanGrip`. |
+| `FR-GRP-01` | В полном `TRACKING`, а также в `COMMISSIONING/ACTUATOR_QUALIFICATION` при `actuator_scope_mask` с bit D, целевое состояние захвата должно задаваться непосредственно текущим `humanGrip` через тот же `COMMAND` path. |
 | `FR-GRP-02` | После возобновления движения захват должен сразу получить текущий `grip_intent`; отдельная синхронизация положения кисти с физическим захватом не требуется. |
 | `FR-GRP-03` | Физическое движение захвата к новой цели должно ограничиваться локальной скоростью и `duty`, поэтому мгновенный скачок команды не должен превращаться в мгновенный механический удар. |
 | `FR-GRP-04` | При подтверждённом контакте с объектом дальнейшее закрытие должно прекращаться до команды на открывание или изменения политики контакта. |
 | `FR-GRP-05` | Заклинивание захвата при открывании должно считаться неисправностью, а заклинивание при закрывании должно различаться между нормальным контактом и неисправностью по состоянию автомата. |
-| `FR-GRP-06` | QR-маркеры на губках должны использоваться только при инженерной калибровке и привязке захвата при запуске для построения/восстановления соответствия энкодера фактическому раскрытию; после `READY` управление захватом выполняется по энкодеру без QR. |
+| `FR-GRP-06` | QR-маркеры на губках должны использоваться только при инженерной калибровке и привязке захвата при запуске для построения/восстановления соответствия энкодера фактическому раскрытию; после валидной `GripperReference` как в `READY`, так и в gripper-only `ACTUATOR_QUALIFICATION`, управление захватом выполняется по энкодеру без QR. |
 | `FR-GRP-07` | Инженерный closed/home endpoint Gripper должен определяться отдельным `GRIPPER_HOME`. Неожиданный stall до home является fault и не может считаться успешной калибровочной границей. |
 | `FR-GRP-08` | При стартовой `GripperReference` предыдущая hysteresis-ветвь считается `UNKNOWN`; QR-измеренная точка якорит текущее раскрытие, а opening/closing branch выбирается только первым последующим направлением движения. |
+| `FR-GRP-09` | В Diagnostic/HIL gripper-only profile допускается `actuator_scope_mask=0x08`: A/B/C могут физически отсутствовать, их motor output всегда запрещён, полный `JointReference`, `RobotLocalization`, `JointSafeSet` и `human_arm_reach` не являются prerequisites движения D. Для D обязательны собственные `DriveCalibration`, `GripperReference`, `GRIPPER_HOME`, commissioning authorization, `Left Grip`, grasp validity и общие stop/watchdog predicates. |
 
 <a id="sec-3-1-6"></a>
 ### 3.1.6. QR-локализация и калибровка приводов
@@ -627,9 +633,10 @@ PHANTOM должен повторять пространственное нап�
 | `FR-SAFE-06` | При смене направления управляющее воздействие `duty` мотора должно плавно снижаться до нуля перед сменой знака; высокоэнергетический мгновенный реверс запрещён. |
 | `FR-SAFE-07` | EV3 должен независимо от Quest проверять каждый `q_target` и **весь дискретный путь каждого шага `q_ref`** по активному `JointSafeSet` v1 — versioned 3D conservative occupancy grid по Base/Shoulder/Elbow для текущего `PayloadProfile`. Runtime не должен перескакивать через unsafe cell. |
 | `FR-SAFE-08` | Для движения с предметом должны быть одновременно выбраны установленный квалифицированный `PayloadProfile`, его совместимый `JointSafeSet` и подтверждён `PayloadState=LOADED`; неизвестная/неподтверждённая нагрузка или отсутствующий safe-set запрещают `TRACKING`. `RobotCollisionModel` Gripper использует union-envelope всех разрешённых раскрытий, а каждый PayloadProfile добавляет консервативный payload collision primitive и собственный 3D safe-set. Speed/accel/duty limits выбранного профиля действуют уже при его выборе, payload gravity feed-forward — только в `LOADED`. Переходы разрешены только в `READY/HOLD` при полной остановке и требуют re-arm. |
-| `FR-STOP-01` | `LOCAL_STOP` должен независимо от Quest и сетевой команды запрещать движение и переводить все моторы в `BRAKE`/`STOPPED`; он остаётся программно обрабатываемым входом того же EV3 и не считается независимым safety channel. |
+| `FR-STOP-01` | `LOCAL_STOP` должен независимо от Quest и сетевой команды запрещать движение и переводить все физически обнаруженные моторы в `BRAKE`/`STOPPED`; отсутствие out-of-scope оси на qualification stand не является ошибкой stop path. `LOCAL_STOP` остаётся программно обрабатываемым входом того же EV3 и не считается независимым safety channel. |
 | `FR-STOP-02` | Для физических HIL/acceptance и дальнейшей эксплуатации должен быть установлен независимый от EV3/Linux аппаратный `POWER_CUT`, снимающий энергию с приводов и доступный оператору вне swept volume. |
-| `FR-STOP-03` | После `POWER_CUT` питание EV3/приводов должно пройти новый boot; старая session/reference/armed-latch не восстанавливается. До движения требуются механическая проверка, новая QR-привязка и deliberate re-arm. |
+| `FR-STOP-03` | После `POWER_CUT` питание EV3/приводов должно пройти новый boot; старая session/reference/armed-latch не восстанавливается. До движения требуются механическая проверка, новая применимая QR-привязка и deliberate re-arm. |
+| `FR-SAFE-09` | EV3 обязан локально hard-inhibit все оси вне `actuator_scope_mask`: сетевой `COMMAND`, ошибка Quest или неверные q-поля не могут создать motor write на disabled axis. В `COMMISSIONING/CALIBRATION` на этапах 6–7 scope может включать несколько уже физически собранных/поддержанных A/B/C/D, но каждый `CALIBRATION_JOG` всё равно выбирает ровно одну ось и одновременно движется только она; наличие оси в scope не разрешает штатный `COMMAND`. `ACTUATOR_QUALIFICATION` со scope, содержащим A/B/C, запрещён до валидных полного `RobotGeometry`, `JointReference` и `JointSafeSet` и допускается лишь при поэтапной HIL-квалификации этапа 9. |
 
 <a id="sec-3-1-9"></a>
 ### 3.1.9. Пользовательский интерфейс и диагностика
@@ -638,8 +645,9 @@ PHANTOM должен повторять пространственное нап�
 |---|---|
 | `FR-UI-01` | Весь пользовательский UI, пользовательские ошибки, мастер запуска и инструкции должны быть на русском языке. |
 | `FR-UI-02` | Физически или пространственно неоднозначные действия должны сопровождаться локальной иллюстрацией, схемой или короткой 3D-анимацией, а не только текстом. |
-| `FR-UI-03` | Мастер запуска должен пошагово проверить пространство, выполнить калибровку пользователя и виртуальную проверку управления, затем обнаружить EV3, выполнить QR-калибровку/привязку робота и только после этого разрешить переход в `READY`. |
+| `FR-UI-03` | Полный Release-мастер запуска должен пошагово проверить пространство, выполнить калибровку пользователя и виртуальную проверку управления, затем обнаружить EV3, выполнить полную QR-привязку робота и только после этого разрешить переход в `READY`. |
 | `FR-UI-04` | В `TRACKING` UI должен показывать только эксплуатационно нужные состояния; инженерные поля должны быть скрыты. |
+| `FR-UI-05` | Diagnostic gripper-only мастер обязан быть отдельным явно инженерным потоком того же приложения: показать Wi-Fi/session, совместимость D calibration, JAW QR reference, инструкцию локального `LOCAL_COMMISSION_ARM`/`ENTER`, затем `Left Grip`, grasp и телеметрию. UI обязан явно показывать, что локальный `ENTER` — физическое действие на EV3, а не подтверждённый сетью state transition; реальное actuator authority всё равно определяется только внутренним FSM EV3 и не может возникнуть из UI. Мастер не должен требовать `human_arm_reach`, Body Shoulder/Wrist, десять QR роборуки, `RobotLocalization` или PayloadProfile и обязан постоянно показывать, что это `COMMISSIONING`, а не `READY`. |
 | `FR-DIAG-01` | Quest и EV3 должны иметь профили `Release` и `Diagnostic` с одинаковой логикой управления и safety. |
 | `FR-DIAG-02` | `Release` должен записывать переходы состояний, ошибки, события безопасности, идентификаторы сборки/конфигурации и минимальные агрегированные показатели. |
 | `FR-DIAG-03` | `Diagnostic` может дополнительно записывать сырые/частые данные калибровки, энкодеров, duty, сетевых задержек и XR-трекинга. |
@@ -670,14 +678,14 @@ PHANTOM должен повторять пространственное нап�
 | ID | Требование |
 |---|---|
 | `NFR-PERF-01` | EV3 должен выполнять основной цикл управления с периодом `20 мс` (`50 Гц`). |
-| `NFR-PERF-02` | При полной штатной нагрузке `p99` интервала цикла EV3 должен быть `≤25 мс`; интервал `>60 мс` вызывает `SAFE_HOLD`, `>100 мс` — `FAULT_LOOP_OVERRUN`. |
+| `NFR-PERF-02` | При полной штатной нагрузке `p99` интервала цикла EV3 должен быть `≤25 мс`; интервал `>60 мс` немедленно запрещает дальнейшее движение (`SAFE_HOLD` в полном режиме, scoped qualification inhibit в `ACTUATOR_QUALIFICATION`), `>100 мс` — `FAULT_LOOP_OVERRUN`. |
 | `NFR-PERF-03` | Quest должен иметь отдельный logical control sender около `60 Гц`, использующий последний согласованный tracking snapshot и не зависящий от частоты рендеринга. Изменение refresh rate HMD не должно менять семантику управления; избыточные дубликаты не обязательны, кроме приоритетного OFF/HOLD burst. |
 | `NFR-PERF-04` | Штатная телеметрия EV3 должна передаваться около `20 Гц`; диагностические потоки автоматически ограничиваются так, чтобы не ухудшать цикл управления моторами. |
-| `NFR-PERF-05` | В исправной локальной сети `Left Grip release → HOLD` должен иметь `p95 ≤80 мс`. |
-| `NFR-PERF-06` | Полная потеря потока команд должна приводить к `SAFE_HOLD` с `p95 ≤150 мс`. |
-| `NFR-PERF-07` | Переход в `TRACKING` запрещён при возрасте последней валидной штатной телеметрии более `100 мс`. |
-| `NFR-PERF-08` | Критический цикл управления моторами EV3 не должен выполнять динамическое выделение памяти, форматирование текста, HMAC, DNS, файловый ввод-вывод или блокирующий сетевой ввод-вывод; sysfs-файлы моторов должны быть найдены и открыты до входа в `READY`. |
-| `NFR-PERF-09` | Отслеживание QR на Quest должно быть выключено после успешной привязки при запуске и включаться только для инженерной калибровки, новой привязки или явной инженерной проверки, поскольку оно потребляет системные ресурсы и не нужно во время обычной работы. |
+| `NFR-PERF-05` | В исправной локальной сети `Left Grip release → локальный запрет дальнейшего движения` должен иметь `p95 ≤80 мс`. В полном режиме наблюдаемое состояние — `HOLD`; в `ACTUATOR_QUALIFICATION` EV3 остаётся в `COMMISSIONING`, но scoped actuator немедленно получает hold/stop policy. |
+| `NFR-PERF-06` | Полная потеря свежего потока команд должна запрещать дальнейшее actuator motion с `p95 ≤150 мс`. В полном режиме это `SAFE_HOLD`; в `ACTUATOR_QUALIFICATION` qualification motion деармируется/останавливается без перехода в product `READY/HOLD`. |
+| `NFR-PERF-07` | Новое физическое разрешение движения (`TRACKING` либо `ACTUATOR_QUALIFICATION`) запрещено на Quest при возрасте последней валидной штатной телеметрии более `100 мс`. |
+| `NFR-PERF-08` | Критический цикл управления моторами EV3 не должен выполнять динамическое выделение памяти, форматирование текста, HMAC, DNS, файловый ввод-вывод или блокирующий сетевой ввод-вывод; sysfs-файлы всех приводов active scope должны быть найдены и открыты до входа в `READY` либо `ACTUATOR_QUALIFICATION`. |
+| `NFR-PERF-09` | Отслеживание QR на Quest должно быть выключено после успешной применимой startup-reference (`JointReference` полного PHANTOM либо D-only `GripperReference`) и включаться только для инженерной калибровки, новой привязки или явной инженерной проверки, поскольку оно потребляет системные ресурсы и не нужно во время encoder-based движения. |
 | `NFR-PERF-10` | Профиль `Release` EV3 должен собираться как оптимизированная нативная C++-сборка; разбор конфигурации, проверка схемы и подготовка таблиц/коэффициентов выполняются до запуска цикла управления моторами. |
 | `NFR-PERF-11` | После прогрева критический путь Quest `tracking → time alignment → mapping → IK → command` не должен создавать повторяющиеся управляемые выделения памяти на каждом control tick/XR update; тяжёлое форматирование/сериализация выполняется вне критического пути кадра. |
 | `NFR-PERF-12` | Quest `Release` должен удерживать выбранную частоту XR-рендеринга в независимых ограниченных performance-кейсах длительностью `<=60 s` (предпочтительно `30 s`), повторённых для холодного, прогретого и воспроизводимо термически ограниченного состояния; пропуски кадров, паузы GC, время CPU/GPU на кадр и тепловое снижение производительности измеряются в каждом кейсе и блокируют приёмку при устойчивом нарушении бюджета кадра. |
@@ -737,16 +745,17 @@ PHANTOM должен повторять пространственное нап�
 | `NFR-SEC-05` | Исполнительный UDP-порт не должен публиковаться в Internet. |
 | `NFR-SEC-06` | HMAC обеспечивает целостность и аутентификацию, но не конфиденциальность. v1 должен работать только в доверенной/изолированной LAN; если требуется недоверенная сеть, используется стандартный проверенный защищённый транспорт (например, DTLS/VPN/AEAD), а не самодельное шифрование. |
 | `NFR-SEC-07` | До вычислительно дорогой HMAC-проверки RX должен выполнить дешёвые проверки длины/magic/version и применить HIL-квалифицированный token-bucket rate limiter и bounded queue так, чтобы входящий UDP-трафик не мог вытеснить 50-Hz motor loop. |
+| `NFR-SEC-08` | Wi-Fi SSID/credential EV3 является локальным provisioning secret: не хранится в Git, build artifacts, обычных логах или `CommissioningBundle`, устанавливается через доверенный инженерный provisioning path и хранится с минимальными file permissions. V1 не передаёт Wi-Fi пароль через исполнительный UDP protocol и не требует onboarding Wi-Fi из Quest-приложения. |
 
 <a id="sec-3-2-7"></a>
 ### 3.2.7. Сопровождаемость и воспроизводимость
 
 | ID | Требование |
 |---|---|
-| `NFR-MNT-01` | `RobotGeometry`, `DriveCalibration`, `RobotCollisionModel`, `JointSafeSet`, `SafetyEnvelope` и осевые настройки должны входить в единый versioned `CommissioningBundle` с `bundle_id`, schema version и SHA-256. Хэш JSON-артефактов вычисляется по RFC 8785 JCS UTF-8 bytes; Quest и EV3 сравнивают именно artifact hash, а не повторно сериализованные runtime-объекты. |
+| `NFR-MNT-01` | `RobotGeometry`, `DriveCalibration`, `RobotCollisionModel`, `JointSafeSet`, `SafetyEnvelope` и осевые настройки должны входить в единый versioned `CommissioningBundle` с `bundle_id`, schema version и SHA-256. Для Diagnostic/HIL допускается `qualification_only=true` с явным `actuator_scope_mask` и только теми geometry/calibration subset, которые нужны разрешённым приводам; такой bundle никогда не разрешает `READY`. Полный Release требует `qualification_only=false`, `actuator_scope_mask=0x0F` и полный комплект safety-critical артефактов. Compatibility hash вычисляется по RFC 8785 JCS UTF-8 bytes **только от semantic payload/component hashes**; локальные provenance-поля (`created_at`, host timestamp, operator/workstation metadata) не входят в hash и хранятся отдельно. Quest и EV3 сравнивают именно semantic bundle hash. |
 | `NFR-MNT-02` | Quest и EV3 должны сообщать точные `build_id`, `specification_sha256`, `protocol_schema_hash`, версию протокола и `commissioning_bundle_hash`. |
 | `NFR-MNT-03` | Изменение передачи, знака оси, крепления QR или геометрии должно инвалидировать совместимость существующей калибровки до повторной инженерной калибровки/проверки. |
-| `NFR-MNT-04` | `Release` и `Diagnostic` должны собираться из одного исходного кода; различаться могут только уровень журналирования, диагностические конечные точки и символы/инструменты отладки. |
+| `NFR-MNT-04` | `Release` и `Diagnostic` должны собираться из одного control/state/safety исходного кода. `Diagnostic` дополнительно может включать явно инженерные qualification surfaces (`qualification_only`, scoped commissioning UI/commands, расширенную телеметрию, symbols/profiling), но они обязаны использовать те же контроллеры/защиты, требовать локальный arm и быть недоступны в Release. Различие профиля не может ослаблять safety predicates. |
 | `NFR-MNT-05` | Каждая механическая revision должна иметь versioned LEGO Studio/CAD assembly artifact с однозначной геометрией узлов, QR-креплений, фазировкой парных передач и cable routing; его hash входит в release/commissioning metadata. |
 | `NFR-MNT-06` | EV3 software base считается legacy/EOL. Релиз обязан фиксировать exact image/toolchain hashes, SBOM и vulnerability/risk record; control core должен быть отделён от EV3 sysfs через `MotorBackend`, чтобы миграция контроллера не требовала переписывания state/safety/control logic. |
 | `NFR-MNT-07` | Quest build manifest обязан фиксировать Unity editor, Meta XR Core SDK, Movement SDK/provider, MRUK и Unity OpenXR Plugin versions. Связанный DEVICE/P0 report фиксирует exact tested Horizon OS/runtime build конкретного Quest и `apk_sha256`. Любое изменение одного элемента этой объединённой platform matrix инвалидирует P0 capability qualification до сокращённого regression gate §9.6. |
@@ -908,13 +917,14 @@ flowchart LR
 stateDiagram-v2
   [*] --> BOOT
   BOOT --> USER_CALIBRATION: пространство Quest готово
-  USER_CALIBRATION --> DISCOVERY: user calibration valid
-  DISCOVERY --> CONNECTED_UNREFERENCED: EV3 обнаружен + HELLO_ACK
-  CONNECTED_UNREFERENCED --> ROBOT_CALIBRATION: QR set доступен для обычной привязки
-  CONNECTED_UNREFERENCED --> COMMISSIONING: local commissioning arm + commissioning session
-  COMMISSIONING --> CONNECTED_UNREFERENCED: завершить или отменить, references invalid
+  USER_CALIBRATION --> DISCOVERY: inputs active scope valid
+  DISCOVERY --> CONNECTED_UNREFERENCED: CONTROL HELLO_ACK
+  CONNECTED_UNREFERENCED --> DISCOVERY: CONTROL session закрыта/потеряна
+  DISCOVERY --> COMMISSIONING: LOCAL_COMMISSION_ARM + HELLO role=COMMISSIONING
+  CONNECTED_UNREFERENCED --> ROBOT_CALIBRATION: полный Release, QR set доступен
+  COMMISSIONING --> DISCOVERY: завершить/отменить/потеря commissioning session
   COMMISSIONING --> FAULT: calibration/safety failure
-  ROBOT_CALIBRATION --> READY: JointReference + RobotLocalization valid
+  ROBOT_CALIBRATION --> READY: full JointReference + RobotLocalization valid
   READY --> TRACKING: armed + новый Left Grip rising edge
   TRACKING --> HOLD: Left Grip released
   HOLD --> TRACKING: armed + новый Left Grip rising edge
@@ -924,22 +934,34 @@ stateDiagram-v2
   TRACKING --> STOPPED: LOCAL_STOP
   HOLD --> STOPPED: LOCAL_STOP
   SAFE_HOLD --> STOPPED: LOCAL_STOP
+  COMMISSIONING --> STOPPED: LOCAL_STOP
   ROBOT_CALIBRATION --> FAULT: calibration/reference failure
   TRACKING --> FAULT: stall / slip / controller / configuration fault
   HOLD --> FAULT: controller/safety fault
-  FAULT --> HOLD: RECOVERABLE_LATCHED + cause fixed + explicit ACK + re-arm pending
-  FAULT --> CONNECTED_UNREFERENCED: REFERENCE_INVALIDATING + cause fixed + explicit ACK
+  FAULT --> HOLD: full CONTROL session valid + RECOVERABLE_LATCHED fixed/ACK + full reference valid
+  FAULT --> CONNECTED_UNREFERENCED: full CONTROL session valid + reference invalid/incomplete + cause fixed/ACK
+  FAULT --> DISCOVERY: commissioning/qualification origin или CONTROL session отсутствует + cause fixed/ACK
   FAULT --> FAULT: MAINTENANCE_REQUIRED until maintenance complete
-  STOPPED --> HOLD: explicit reset + LOCAL_STOP released + reference valid
-  STOPPED --> CONNECTED_UNREFERENCED: explicit reset + reference invalid
+  STOPPED --> HOLD: explicit reset + LOCAL_STOP released + full CONTROL session/reference valid
+  STOPPED --> CONNECTED_UNREFERENCED: explicit reset + CONTROL session valid + reference incomplete
+  STOPPED --> DISCOVERY: explicit reset + CONTROL session отсутствует / предыдущий mode=COMMISSIONING
 ```
 
-`READY` — устойчивое disarmed/active-hold состояние готовой системы, а не мгновенный переход в `HOLD`: если Grip был удержан во время завершения startup, робот остаётся в `READY` до наблюдаемого release, затем armed-latch разрешает только новый rising edge. `COMMISSIONING` физически отделён от обычного пользовательского режима: войти в него только сетевой командой нельзя — требуется локальный commissioning-arm на EV3 и сессия с ролью `commissioning`. `SAFE_HOLD` всегда снимает armed-latch движения. После устранения временной причины система возвращается в `HOLD`; оператор должен отпустить `Left Grip`, после чего новый rising edge разрешает переход в `TRACKING`. Это предотвращает неожиданное движение при восстановлении tracking/network/reference. `FAULT` дополнительно требует устранения причины и явного подтверждения; fault class может также инвалидировать `JointReference`.
+`READY` остаётся состоянием **только полностью собранного и полностью откалиброванного PHANTOM**. Неполный стенд никогда не маскируется под `READY`. `CONNECTED_UNREFERENCED` и `HOLD` являются состояниями CONTROL-domain: они могут сохранять stale-but-replaceable control context при сетевом recovery, но никогда не используются как recovery state бывшей commissioning session. `LOCAL_STOP`/fault в `COMMISSIONING` уничтожает session-local commissioning authority; после reset/ACK ранний стенд возвращается в `DISCOVERY` и для нового actuator authority обязан снова пройти `LOCAL_COMMISSION_ARM → HELLO role=COMMISSIONING → local ENTER`.
+
+`COMMISSIONING` имеет две внутренние, взаимоисключающие фазы, которые не добавляют новый wire-state code:
+
+1. `CALIBRATION` — разрешены только ограниченные `CALIBRATION_JOG`, `MOTION_ENABLE=0`;
+2. `ACTUATOR_QUALIFICATION` — разрешается штатный `COMMAND` только на приводах из authoritative `actuator_scope_mask` текущего `qualification_only` bundle. Переход в эту фазу возможен только после валидных calibration/reference разрешённых приводов и **явного локального подтверждения `ENTER` на EV3**, пока commissioning session активна. При входе `qualification_armed=false`; сам `ENTER` никогда не разрешает motion. EV3 должен затем в той же session принять безопасный OFF/HOLD `COMMAND` (`MOTION_ENABLE=0`, `HOLD_REQUEST=1`) после фактического release Left Grip на Quest, и только последующий новый rising edge может установить motion permission. Сетевой пакет сам по себе не может включить фазу, а локальный ENTER сам по себе не может вооружить движение.
+
+Для раннего gripper-only стенда допускается только `actuator_scope_mask=0x08`. В этой фазе A/B/C либо физически отсутствуют, либо остаются hard-inhibited; `JointReference A/B/C`, `RobotLocalization`, `JointSafeSet`, Body Shoulder/Wrist и `human_arm_reach` не требуются. Потеря commissioning session, `LOCAL_STOP`, fault, process/safety heartbeat или несовместимость bundle немедленно запрещают scoped motor output и выводят из qualification phase. Потеря/восстановление grasp или `Left Grip` не может автоматически возобновить движение: требуется наблюдаемое release и новый rising edge.
+
+В полном пользовательском режиме `SAFE_HOLD` всегда снимает armed-latch движения. После устранения временной причины система возвращается в `HOLD`; оператор должен отпустить `Left Grip`, после чего новый rising edge разрешает `TRACKING`. `FAULT` дополнительно требует устранения причины и явного подтверждения; reference-invalidating fault инвалидирует соответствующий `JointReference` и/или `GripperReference`.
 
 <a id="sec-4-4"></a>
 ## 4.4. Последовательность запуска
 
-При запуске приложение сначала знакомится с пользователем и получает параметры его управления. Подключение и калибровка физического PHANTOM начинаются только после успешной пользовательской калибровки.
+При полном Release приложение сначала получает пользовательские параметры, необходимые для A/B/C mapping, и только затем переходит к discovery/привязке PHANTOM. В Diagnostic qualification profile `USER_CALIBRATION` зависит от `actuator_scope_mask`: network-only scope `0x00` не требует пользовательских измерений, gripper-only `0x08` проверяет grasp и `Left Grip`, но не требует `Body_RightShoulder`, Wrist-vector mapping или `human_arm_reach`.
 
 ```mermaid
 sequenceDiagram
@@ -985,6 +1007,28 @@ sequenceDiagram
     Q->>E: COMMAND current absolute q_target + grip_intent
   end
 ```
+
+
+Полная sequence diagram выше описывает production startup до `READY`. Для раннего gripper-only стенда используется отдельный **инженерный путь внутри того же приложения и протокола**, без фиктивной полной привязки:
+
+```text
+Quest app (Diagnostic, qualification_only, scope=D)
+→ grasp + Left Grip readiness
+→ discovery нужного robot_id без создания CONTROL session
+→ приложение просит локально активировать LOCAL_COMMISSION_ARM на EV3
+→ ENTER+UP на EV3 открывает bounded commissioning-arm window в DISCOVERY
+→ HELLO role=COMMISSIONING в пределах этого окна → прямой переход в COMMISSIONING
+→ при необходимости инженерная калибровка D (§5.16.8)
+→ CALIBRATION_SAMPLE только применимого scope
+→ QR JAW_LEFT/RIGHT → jaw_opening
+→ SET_JOINT_REFERENCE с D-scope semantics
+→ REFERENCE_ACK: joint_reference_valid=0, gripper_reference_valid=1
+→ пользователь отпускает Left Grip
+→ локально нажимает ENTER на EV3: перейти в COMMISSIONING/ACTUATOR_QUALIFICATION
+→ новый Left Grip rising edge разрешает COMMAND.grip_intent только для D
+```
+
+Полная кривая `DriveCalibration[D]` **не пересчитывается при каждом запуске**. Она сохраняется после этапа 4 и повторяется только после изменения механики/`GRIPPER_HOME`/QR-to-contact geometry или провала валидации. Обычный запуск gripper-only стенда выполняет только быструю `GripperReference` текущего запуска.
 
 <a id="sec-4-5"></a>
 ## 4.5. Последовательность движения
@@ -1098,7 +1142,7 @@ HMAC-SHA-256(PSK, header || payload)
 Session lifecycle:
 
 - одновременно существует не более одной `CONTROL` session; пока она свежая или `TRACKING` активен, иной `CONTROL HELLO` получает `ERR_CONTROL_SESSION_BUSY`;
-- `COMMISSIONING` session создаётся только при отсутствии активной CONTROL session, состоянии `CONNECTED_UNREFERENCED` и действующем `LOCAL_COMMISSION_ARM`; normal control session и commissioning session одновременно не существуют;
+- `COMMISSIONING` session создаётся только при отсутствии активной CONTROL session, состоянии `DISCOVERY` и действующем локальном arm-window `LOCAL_COMMISSION_ARM`; успешный `HELLO role=COMMISSIONING` напрямую переводит EV3 `DISCOVERY → COMMISSIONING`. Normal CONTROL и commissioning session одновременно не существуют. Если приложение уже имело `CONNECTED_UNREFERENCED` CONTROL session, оно сначала явно закрывает её/возвращается в `DISCOVERY`, затем просит локальный arm. Та же commissioning session может после калибровки перейти во внутреннюю фазу `ACTUATOR_QUALIFICATION`; потеря session немедленно завершает эту фазу;
 - после timeout/перехода в `HOLD`/`SAFE_HOLD` новая валидная CONTROL session может заменить старую, при этом moving target/sequence/armed-latch старой session инвалидируются;
 - duplicate `HELLO` с тем же `(endpoint, role, client_nonce)` внутри `hello_retry_window_ms` возвращает тот же cached `HELLO_ACK`/session id и не сбрасывает sequence;
 - после retry window такой HELLO является новым handshake и получает новый server-generated session id; replay старых COMMAND не подходит к нему по `session_id`/HMAC;
@@ -1139,13 +1183,13 @@ Session lifecycle:
 <a id="sec-4-7-5"></a>
 ### 4.7.5. Сообщения инженерной калибровки и привязки
 
-`CALIBRATION_QUERY` не двигает моторы. EV3 создаёт атомарный снимок текущих абсолютных отсчётов энкодеров и возвращает `CALIBRATION_SAMPLE` с уникальным `sample_id`, текущим `controller_boot_id`, скоростью мотора и монотонным временем.
+`CALIBRATION_QUERY` не двигает моторы. EV3 создаёт атомарный снимок применимого `actuator_scope_mask` и возвращает `CALIBRATION_SAMPLE` с уникальным `sample_id`, текущим `controller_boot_id`, скоростью и монотонным временем. Поля массивов A/B/C/D сохраняют фиксированный wire layout: оси вне active scope передаются каноническими нулями и **игнорируются обеими сторонами**; отсутствие оси внутри scope является hardware/config failure. Scope не передаётся отдельным полем протокола — он входит в `CommissioningBundle`, хэш которого обязан совпадать на Quest и EV3; EV3 остаётся authoritative.
 
-`CALIBRATION_JOG` разрешён только в `COMMISSIONING`, когда одновременно активны: локальный commissioning-arm EV3, сессия role=`COMMISSIONING`, commissioning PSK, `MOTION_ENABLE=0` и остальные safety predicates. UDP-команда сама по себе не может перевести EV3 в `COMMISSIONING`. Пакет содержит минимум:
+`CALIBRATION_JOG` разрешён только в `COMMISSIONING/CALIBRATION`, когда одновременно активны: session-local authority, полученная из физического `LOCAL_COMMISSION_ARM`, сессия role=`COMMISSIONING`, commissioning PSK, `MOTION_ENABLE=0` и остальные применимые safety predicates. UDP-команда сама по себе не может перевести EV3 в `COMMISSIONING`. Пакет содержит минимум:
 
 ```text
 transaction_id
-axis                    # A/B/C/D
+axis                    # A/B/C/D; axis обязан входить в actuator_scope_mask
 signed_direction        # +1 / -1
 max_encoder_delta
 max_duration_ms
@@ -1153,7 +1197,9 @@ max_speed_counts_s
 max_duty_pct
 ```
 
-EV3 **не принимает из Quest целевой физический угол для `CALIBRATION_JOG`**. Он только ограниченно вращает вал мотора в заданном направлении и прекращает движение при первом из условий: `max_encoder_delta`, `max_duration_ms`, локальное ограничение скорости или `duty`, признак препятствия/заклинивания, `LOCAL_STOP`, потеря heartbeat процесса безопасности или другая неисправность. Ограничения из пакета могут быть только строже локальных: фактический предел равен `min(requested_limit, local_engineering_limit)`, поэтому Quest не может сетевой командой увеличить разрешённые скорость, `duty`, длительность или изменение энкодера. После управляемого плавного торможения и `BRAKE` EV3 возвращает `JOG_ACK`:
+EV3 **не принимает из Quest целевой физический угол для `CALIBRATION_JOG`**. Он только ограниченно вращает вал выбранного мотора и прекращает движение при первом из условий: `max_encoder_delta`, `max_duration_ms`, локальное ограничение скорости или `duty`, признак препятствия/заклинивания, `LOCAL_STOP`, потеря heartbeat процесса безопасности или другая неисправность. Ограничения из пакета могут быть только строже локальных: фактический предел равен `min(requested_limit, local_engineering_limit)`, поэтому Quest не может сетевой командой увеличить разрешённые скорость, `duty`, длительность или изменение энкодера.
+
+После управляемого плавного торможения и `BRAKE` EV3 возвращает `JOG_ACK`:
 
 ```text
 transaction_id
@@ -1166,15 +1212,27 @@ stop_reason
 sample_id
 ```
 
-Quest принимает `JOG_ACK`, ждёт полной остановки механики и только затем измеряет новый физический угол или раскрытие по QR. `COMMISSIONING_SAMPLE` содержит согласованную пару `sample_id + encoder_count + q_qr/jaw_opening + direction + QR quality` для журнала процедуры. Расчёт `DriveCalibration` выполняется на Quest/PC, а не в 50-Гц цикле EV3.
+Quest принимает `JOG_ACK`, ждёт полной остановки механики и только затем измеряет новый физический угол или раскрытие по QR. `COMMISSIONING_SAMPLE` содержит согласованную пару `sample_id + encoder_count + physical_value/q_qr/jaw_opening + direction + QR quality` для журнала процедуры. Расчёт `DriveCalibration` выполняется на Quest/PC, а не в 50-Hz цикле EV3.
 
-После проверки на контрольных положениях Quest передаёт `SET_DRIVE_CALIBRATION`. Полезная часть содержит `transaction_id`, хэш `RobotGeometry`, новую редакцию/хэш калибровки, измеренные параметры A/B/C/D и метрики проверки. Для Gripper передаются две ограниченные по размеру монотонные таблицы `(delta_encoder, opening_mm)` — для открытия и закрытия — плюс закрытая граница, QR-измеренный максимум и люфт. Число узлов таблицы фиксируется схемой протокола и выбирается минимальным, достаточным для прохождения ошибки §9.14; произвольный неограниченный массив в пакет не допускается. EV3 принимает операцию только при `MOTION_ENABLE=0`, полностью остановленных моторах, инженерном состоянии калибровки, совпавшем `RobotGeometry` и отсутствии неисправности безопасности; проверяет конечность и допустимость чисел, схему данных, записывает новый файл через временный файл + `fsync` + атомарное переименование и только после успешного повторного чтения возвращает `DRIVE_CALIBRATION_ACK`. Неуспешная транзакция не повреждает последнюю подтверждённую `DriveCalibration`. Новая `DriveCalibration` инвалидирует текущие `JointReference`/`GripperReference`.
+После проверки на независимых контрольных положениях Quest передаёт `SET_DRIVE_CALIBRATION`. Полезная часть содержит `transaction_id`, хэш применимой `RobotGeometry`, новую редакцию/хэш калибровки, измеренные параметры и метрики проверки. Для Gripper передаются две ограниченные по размеру монотонные таблицы `(delta_encoder, opening_mm)` — для открытия и закрытия — плюс закрытая граница, QR-измеренный максимум и люфт. Число узлов таблицы фиксируется схемой протокола и выбирается минимальным, достаточным для прохождения ошибки §9.14; произвольный неограниченный массив в пакет не допускается.
+
+`SET_DRIVE_CALIBRATION` сохраняет **только calibration subset active scope**. Fixed wire payload остаётся прежним: значения осей вне scope обязаны быть каноническими нулями и не валидируются как физическая калибровка. В gripper-only scope `0x08` учитываются поля D/curves/validation[D], а A/B/C игнорируются. `robot_geometry_hash` при этом относится к qualification bundle, содержащему как минимум версионированную gripper geometry (`JAW_* → contact` transforms); полная геометрия роборуки не требуется и такой bundle не разрешает `READY`.
+
+EV3 принимает `SET_DRIVE_CALIBRATION` только при `MOTION_ENABLE=0`, полностью остановленных **всех физически обнаруженных моторах**, инженерном состоянии калибровки, совпавшей применимой `RobotGeometry`, корректном active scope и отсутствии неисправности безопасности. Он проверяет конечность и допустимость чисел, schema/ranges/монотонность таблиц, записывает candidate через временный файл + `fsync` + атомарное переименование и только после успешного повторного чтения возвращает `DRIVE_CALIBRATION_ACK`. Неуспешная транзакция не повреждает последнюю подтверждённую `DriveCalibration`.
+
+Успешный `SET_DRIVE_CALIBRATION` **создаёт новую `CommissioningBundle` revision**, а не редактирует активный bundle «на месте». Для этой сериализованной transaction обе стороны обязаны детерминированно использовать `new_bundle_revision = previous_bundle_revision + 1`; переполнение/неожиданный revision gap является config error. EV3 атомарно формирует candidate bundle из новой revision, текущих неизменённых semantic components + принятого `DriveCalibration`, canonicalize по тем же правилам JCS и только затем активирует новый `commissioning_bundle_hash`. Quest по тем же детерминированным компонентам вычисляет ожидаемый новый hash и после успешного ACK атомарно сохраняет локальную candidate bundle revision; старая локальная revision сохраняется для rollback до подтверждения нового `HELLO_ACK`. Несовпадение после повторного чтения/`HELLO_ACK` является `ERR_HASH_MISMATCH` и запрещает motion.
+
+Любое принятое изменение `DriveCalibration` инвалидирует текущие `JointReference` и `GripperReference`: reference текущего запуска связан с конкретной calibration revision/hash и не переносится через её изменение. Текущая commissioning/control session после успешной смены bundle помечается `CONFIG_STALE`: actuator authority остаётся нулевой, session завершается, а следующая reference/qualification выполняется только после нового discovery/`HELLO` уже с активной revision. Поэтому этап 4 заканчивается сохранённой/перезагруженной D calibration, а этап 5 начинает новую session и делает только быструю `GripperReference`.
 
 `SET_JOINT_REFERENCE` содержит `transaction_id`, хэш `DriveCalibration`, `sample_id`, `q_qr[3]`, `jaw_opening_qr_mm` и соответствующий атомарный снимок энкодеров A/B/C/D. EV3 принимает привязку только для текущего запуска и совместимой конфигурации и отвечает `REFERENCE_ACK` с вычисленными `q_actual`, `grip_actual` и состоянием привязки.
 
-`RESET_STOPPED` принимается только когда физический `LOCAL_STOP` уже released, моторы stationary, нет maintenance-required fault и operation transaction новая. Успех не вооружает движение: состояние переходит в `HOLD`/unreferenced согласно валидности reference и требует normal re-arm.
+Для gripper-only scope `0x08` тот же fixed wire layout используется без фиктивной полной reference: Quest передаёт `q_qr[3]=0` и `raw_encoder_count[A/B/C]=0`; EV3 игнорирует эти поля, проверяет `jaw_opening_qr_mm + raw_encoder_count[D]` и при успехе устанавливает только `GripperReference`. `REFERENCE_ACK.reference_flags` в этом случае обязан вернуть `JOINT_REFERENCE_VALID=0`, `GRIPPER_REFERENCE_VALID=1`. Для полного Release scope `0x0F` действуют обычные требования полной startup-привязки A/B/C/D.
+
+`RESET_STOPPED` принимается только когда физический `LOCAL_STOP` уже released, **все физически обнаруженные моторы stationary**, нет maintenance-required fault и operation transaction новая. Успех не вооружает движение и не восстанавливает session-local commissioning authority: при живой CONTROL session следующий state выбирается между `HOLD`/`CONNECTED_UNREFERENCED` по reference, а после бывшей commissioning session — `DISCOVERY`.
 
 `SET_PAYLOAD_PROFILE` выбирает только установленный в `CommissioningBundle` профиль **вместе с его `JointSafeSet`**. `SET_PAYLOAD_STATE` содержит `transaction_id + profile_id + payload_state + operator_confirmation_nonce`. Обе операции принимаются только при `state in {READY,HOLD}`, `MOTION_ENABLE=0`, stationary A/B/C/D и отсутствии latched fault. До ACK нового профиля EV3 загружает/валидирует его safe-set вне 50-Hz loop и атомарно меняет active profile+safe-set; при отсутствии/несовпадении hash операция отклоняется `FAULT_PAYLOAD_PROFILE`. После любого изменения armed-latch очищается и требуется release→новый rising edge. Профиль `EMPTY` обязан иметь `PayloadState=EMPTY`; профиль предмета может быть выбран заранее, но до подтверждения `LOADED` payload feed-forward не применяется. `LOADED` не выводится автоматически из motor stall.
+
+`SET_PAYLOAD_PROFILE` и `SET_PAYLOAD_STATE` недоступны в `qualification_only` gripper stand и не являются prerequisite этапов 4–5; приведённая выше семантика полностью сохраняется для production `READY/HOLD`.
 
 <a id="sec-4-7-6"></a>
 ### 4.7.6. `COMMAND`
@@ -1195,23 +1253,52 @@ bit2 TRACKING_VALID
 bit3 GRASP_VALID
 ```
 
-Валидное движение требует `MOTION_ENABLE=1`, `HOLD_REQUEST=0`, `TRACKING_VALID=1`. Все float-поля проверяются на finite и допустимый протокольный диапазон.
+В полном `TRACKING` валидное движение требует `MOTION_ENABLE=1`, `HOLD_REQUEST=0`, `TRACKING_VALID=1`; при включённом D дополнительно требуется `GRASP_VALID=1` для изменения gripper target.
+
+В `COMMISSIONING/ACTUATOR_QUALIFICATION` тот же wire `COMMAND` используется без отдельного gripper-протокола. EV3 исполняет **только** поля приводов active `actuator_scope_mask`. Для gripper-only `0x08` поля `q_base/q_shoulder/q_elbow` обязаны быть finite и канонически равны `0`, но не участвуют в actuator path; требуются `MOTION_ENABLE=1`, `HOLD_REQUEST=0`, `TRACKING_VALID=1`, `GRASP_VALID=1`. Здесь `TRACKING_VALID` означает валидность input stack, требуемого active scope, и не подразумевает Body Shoulder/Wrist.
+
+OFF/HOLD `COMMAND` с `MOTION_ENABLE=0` или `HOLD_REQUEST=1` всегда обрабатывается fail-safe раньше movement predicates и не требует `TRACKING_VALID`/`GRASP_VALID` для снятия разрешения. В новой `ACTUATOR_QUALIFICATION` phase такой пакет после реального release на Quest фиксирует session-local `release_seen=true`; первый последующий moving packet допускается только как новый false→true enable edge при `release_seen=true`, после чего обычные scope/input predicates снова обязательны.
+
+Все float-поля проверяются на finite и допустимый протокольный диапазон. Ось вне scope всегда hard-inhibited локально независимо от содержимого пакета.
 
 <a id="sec-4-7-7"></a>
 ### 4.7.7. Принятие команды
 
-Пакет может изменить цель только если одновременно:
+Общие условия:
 
 ```text
 HMAC valid
 session binding (включая expected robot_id)/controller_boot valid
 sequence > last_accepted_sequence
-state допускает движение
-JointReference valid
-DriveCalibration revision/hash valid
 нет latched fault
 numeric fields valid
+CommissioningBundle/profile hash compatible
 ```
+
+Далее применяется state/scope gate:
+
+```text
+если state == TRACKING:
+    qualification_only == false
+    actuator_scope_mask == 0x0F
+    JointReference A/B/C valid
+    GripperReference valid, если D участвует
+    full DriveCalibration/RobotGeometry/JointSafeSet valid
+
+если state == COMMISSIONING и phase == ACTUATOR_QUALIFICATION:
+    session role == COMMISSIONING
+    qualification_only == true
+    local qualification confirmation current
+    requested fields outside actuator_scope_mask never execute
+    calibration/reference valid только для приводов active scope
+    если scope == 0x08:
+        GripperReference + DriveCalibration[D] valid
+        JointReference/RobotLocalization/JointSafeSet не требуются
+    если scope включает A/B/C:
+        это допускается только после полной RobotGeometry + JointReference A/B/C + JointSafeSet qualification gate этапа 9
+```
+
+Таким образом `JointReference` не является глобальным prerequisite Motor D, что согласуется с инвариантами S6/S7. Любая несовместимость scope или попытка задействовать disabled axis отклоняется без motor write и журналируется.
 
 <a id="sec-4-7-8"></a>
 ### 4.7.8. `TELEMETRY`
@@ -1240,9 +1327,13 @@ payload_state
 build_profile
 ```
 
+В `qualification_only` profile значения `q_actual/q_speed` для осей вне `actuator_scope_mask` передаются каноническими нулями и не интерпретируются как реальные измерения. Quest знает scope из локально установленного `CommissioningBundle`, совпадение которого доказано `commissioning_bundle_hash`; отдельное wire-поле scope не вводится, чтобы не менять v1 payload layout/golden vectors.
+
 `incident_id` равен нулю/пустому значению при отсутствии активного инцидента и содержит текущий корреляционный ID при latched fault/incident package.
 
-`status_flags` bit layout v1 задан в §11.8 и включает `joint_reference_valid`, `gripper_reference_valid`, `commissioning_bundle_valid`, `local_stop_active`, `safety_supervisor_alive`, `grasp_contact`, `battery_derated`, `payload_profile_valid`, `active_joint_safe_set_valid`.
+В protocol v1 внутренняя фаза `COMMISSIONING/CALIBRATION` vs `COMMISSIONING/ACTUATOR_QUALIFICATION` намеренно **не кодируется отдельным wire-state/flag**: wire contract, reserved bits, `protocol_schema_hash` и golden vectors этапа 1 не меняются. Локальный `ENTER` изменяет только внутренний FSM/authority EV3. Quest показывает инженерную инструкцию и собственный workflow-state, но этот UI-state не является доказательством или источником actuator authority; если локальный переход не состоялся, следующий `COMMAND` остаётся неисполняемым на EV3. Любой reconnect/session loss, `LOCAL_STOP`, fault или выход из qualification заставляет мастер снова пройти применимые локальные шаги.
+
+`status_flags` bit layout v1 задан в §11.8 и включает `joint_reference_valid`, `gripper_reference_valid`, `commissioning_bundle_valid`, `local_stop_active`, `safety_supervisor_alive`, `grasp_contact`, `battery_derated`, `payload_profile_valid`, `active_joint_safe_set_valid`; reserved bits остаются нулевыми.
 
 `loop_health_flags` сообщает нормальное состояние или факт недавнего overrun без передачи полного массива диагностических timing-счётчиков.
 
@@ -1273,7 +1364,9 @@ SDK-зависимый код изолирован от математики PHA
 <a id="sec-5-2"></a>
 ## 5.2. Условия запуска и XR readiness
 
-Переход в `READY` запрещён, пока не выполнены минимальные условия core actuator path:
+Readiness оценивается относительно active profile; требования полного `READY` нельзя применять к раннему D-only стенду и затем обходить вручную.
+
+**Полный Release (`qualification_only=false`, `actuator_scope_mask=0x0F`).** Переход в `READY` запрещён, пока не выполнены:
 
 ```text
 OpenXR session active
@@ -1281,7 +1374,7 @@ LOCAL_FLOOR valid
 Spatial Data permission granted
 Scene Support = Required и Anchor Support = Enabled (для MRUK QR Trackables)
 QR tracking capability available when startup reference is required
-right Hand Tracking available
+right Hand Tracking / Wrist available
 upper-body Body Tracking available
 Body_RightShoulder valid
 left Touch Plus available
@@ -1289,13 +1382,30 @@ Multimodal active
 TrackingQualificationProfile matches qualified build/runtime configuration
 ```
 
-Сохранённая room mesh, semantic furniture и отдельный Scene floor anchor **не требуются** для вычисления `HumanArmVector`, `RobotBaseFrame` или `q_target`. Уровень пола core path получает из `LOCAL_FLOOR`, а положение робота — из QR. Это устраняет лишнюю зависимость обычного запуска от предварительно отсканированной комнаты.
+**Gripper-only qualification (`Diagnostic`, `qualification_only=true`, `actuator_scope_mask=0x08`).** До получения D-only `GripperReference` и входа в `COMMISSIONING/ACTUATOR_QUALIFICATION` требуются только применимые этому actuator path условия:
 
-`Space Setup` остаётся доступным только для опциональных scene-aware UI/room features или когда пользователь явно запускает такую функцию. Если эта функция включена, после `OVRScene.RequestSpaceSetup(...)` приложение обязательно повторно проверяет реально требуемые anchors: успешный task может означать и возврат после cancel. Отмена scene setup не блокирует core actuator path, если обязательные условия выше валидны.
+```text
+OpenXR session active + application focus valid
+LOCAL_FLOOR / общий XR reference space valid
+Spatial Data permission + QR Trackable capability available для JAW reference
+right Hand Tracking + graspReady available
+left Touch Plus + Left Grip available
+Multimodal active
+scope-specific TrackingQualificationProfile matches qualified build/runtime configuration
+```
 
-При pause/focus loss приложение снимает `MOTION_ENABLE`. После resume оно заново проверяет Multimodal, Hand/Body Tracking, `LOCAL_FLOOR` и QR capability; движение может вернуться только через `HOLD` и deliberate re-arm.
+`Body_RightShoulder`, Wrist-vector mapping, `human_arm_reach`, `RobotLocalization` и полный QR-набор роборуки для scope `0x08` не требуются.
 
-При событии изменения `LOCAL_FLOOR` (`XrEventDataReferenceSpaceChangePending` или эквивалент, предоставленный Unity/Meta) приложение заранее снимает `MOTION_ENABLE`, после change time инвалидирует `RobotLocalization`, повторно получает стабильный QR `RobotBaseFrame` и только затем может вернуться в `HOLD`.
+Сохранённая room mesh, semantic furniture и отдельный Scene floor anchor **не требуются** ни полному core actuator path, ни D-only qualification. Полный path использует `LOCAL_FLOOR` и QR для `RobotBaseFrame`; D-only path использует общий XR space только для согласованного JAW QR measurement.
+
+`Space Setup` остаётся доступным только для опциональных scene-aware UI/room features или когда пользователь явно запускает такую функцию. После возврата приложение повторно проверяет действительно требуемые anchors; cancel не блокирует core actuator path, если scope-specific prerequisites остаются валидны.
+
+При pause/focus loss приложение немедленно снимает `MOTION_ENABLE` и очищает armed-latch. После resume:
+
+- полный A/B/C path заново проверяет Multimodal, Hand/Body Tracking, `LOCAL_FLOOR`, QR capability и при необходимости `RobotLocalization`; физическое движение возвращается только через `HOLD` и deliberate re-arm;
+- gripper-only path заново проверяет Hand/grasp, левый Touch Plus, focus/lifecycle и JAW QR capability; система остаётся в `COMMISSIONING`, D остаётся dearmed до deliberate release→new rising edge. Body Shoulder/Wrist не являются gate.
+
+При `XrEventDataReferenceSpaceChangePending` или эквивалентной смене tracking origin `MOTION_ENABLE` снимается заранее. В полном A/B/C path `RobotLocalization` инвалидируется и требуется новая QR-локализация. В D-only qualification сама смена XR origin не инвалидирует `GripperReference`, поскольку runtime D использует локальный encoder reference и скалярный `grip_intent`; при сомнении в непрерывности JAW↔encoder привязки выполняется новая D-only `GripperReference`.
 
 <a id="sec-5-3"></a>
 ## 5.3. Внутренняя структура приложения
@@ -2000,21 +2110,35 @@ QR может двигаться вместе со своим элементом
 <a id="sec-5-16-1"></a>
 ### 5.16.1. Предусловия инженерной калибровки
 
-До любого автоматического калибровочного движения должны выполняться одновременно:
+До любого автоматического калибровочного движения выполняются **общие** условия:
 
-1. `LOCAL_FLOOR`, Spatial Data/QR capabilities и `TrackingQualificationProfile` валидны; Room/Scene capture не требуется;
-2. неподвижная опорная пара `SHOULDER_LEFT/RIGHT` и rotating `TURRET_LEFT/RIGHT` видимы и согласованы для операций, где требуется Base yaw;
-3. `LOCAL_STOP` доступен и отпущен;
-4. `MOTION_ENABLE=0`;
-5. `phantom-safety` работает;
-6. моторы A/B/C/D и их порты однозначно определены;
-7. зона вокруг робота очищена;
-8. известна предварительная геометрия звеньев и габаритных объёмов;
-9. перед каждым движением рассчитан консервативный свободный объём;
-10. одновременно автоматически движется только один привод;
-11. EV3 локально armed в `COMMISSIONING`, а сессия аутентифицирована commissioning key;
-12. установлен и проверен `POWER_CUT`, оператор находится вне swept volume;
-13. для Gripper исправен `GRIPPER_HOME`.
+1. активна OpenXR session и доступны именно те QR capabilities, которые нужны текущему измерению; Room/Scene capture не требуется;
+2. `LOCAL_STOP` доступен и отпущен;
+3. `MOTION_ENABLE=0`, phase=`COMMISSIONING/CALIBRATION`;
+4. `phantom-safety` работает;
+5. выбранный `axis` входит в authoritative `actuator_scope_mask` и соответствующий motor/sensor I/O однозначно обнаружен;
+6. зона движения выбранного узла очищена, перед jog задан консервативный bounded travel;
+7. одновременно автоматически движется только один привод;
+8. commissioning session аутентифицирована commissioning key и имеет current `local_commission_authority`, полученную из локального `LOCAL_COMMISSION_ARM`;
+9. установлен и проверен `POWER_CUT`, оператор находится вне swept/pinch volume выбранного узла.
+
+Дополнительные prerequisites зависят от scope.
+
+**Gripper-only (`actuator_scope_mask=0x08`):**
+
+- A/B/C, `SHOULDER_*`, `TURRET_*`, `ELBOW_*`, полная геометрия звеньев и `JointSafeSet` **не требуются**;
+- D/Medium Motor и `GRIPPER_HOME` обязательны;
+- для QR-измерения раскрытия видимы `JAW_LEFT/RIGHT`, а qualification bundle содержит валидные `T_marker_to_contact`/gripper geometry revision;
+- захват жёстко закреплён на стенде либо на уже безопасно собранном Forearm так, чтобы его движение не могло перемещать неоткалиброванные A/B/C.
+
+**Калибровка A/B/C:**
+
+- требуются соответствующие приводы, механические опоры, hard stops и QR-пары, необходимые конкретному измерению;
+- до операций Base yaw видимы/согласованы `SHOULDER_LEFT/RIGHT` и `TURRET_LEFT/RIGHT`;
+- известна предварительная геометрия звеньев и консервативные габаритные объёмы;
+- зависимости безопасных поз предыдущих осей выполняются по порядку D → C → B → A.
+
+Scope `qualification_only=true`, включающий A/B/C **до** полной `RobotGeometry`/`JointSafeSet`, запрещён для пользовательского `COMMAND`; до этапа 9 A/B/C двигаются только через bounded `CALIBRATION_JOG`.
 
 <a id="sec-5-16-2"></a>
 ### 5.16.2. Как Quest определяет физические углы Base, Shoulder и Elbow
@@ -2238,9 +2362,9 @@ opening_curve_closing: (delta_encoder → jaw_opening_mm)
 <a id="sec-5-16-9"></a>
 ### 5.16.9. Привязка при обычном запуске
 
-Обычный запуск не двигает робота ради калибровки.
+Обычный **полный Release** запуск не двигает робота ради калибровки. Gripper-only qualification startup использует сокращённую D-only reference процедуру §4.4/§4.7.5 и не строит `RobotBaseFrame`.
 
-Quest:
+Quest при полном Release:
 
 1. строит `RobotBaseFrame` по `SHOULDER_LEFT/RIGHT`;
 2. вычисляет `q_base_qr` по `TURRET_LEFT/RIGHT` относительно неподвижного `RobotBaseFrame`; отдельно вычисляет `ShoulderCenter`, `ElbowCenter`, `GripperCenter`, затем `q_shoulder_qr/q_elbow_qr` из звеньев;
@@ -2250,7 +2374,7 @@ Quest:
 
 EV3 связывает текущие абсолютные энкодерные отсчёты с измеренными физическими углами. Для Gripper текущий QR-зазор и encoder snapshot создают `GripperReference={E0, opening0, branch=UNKNOWN}`. До первого последующего движения не выбирается opening/closing hysteresis-ветвь; первый sign движения выбирает соответствующую calibrated branch с консервативным backlash take-up. Если обе ветви в стартовой точке несовместимы с QR-зазором в пределах calibrated hysteresis envelope, reference отклоняется.
 
-После подтверждения привязки повторное QR-измерение проверяет согласованность. Только затем разрешается `READY`.
+После подтверждения полной привязки повторное QR-измерение проверяет согласованность. Только full scope `0x0F` с complete bundle может разрешить `READY`; D-only `GripperReference` разрешает лишь инженерную qualification phase и никогда не повышает систему до `READY`.
 
 <a id="sec-5-16-10"></a>
 ### 5.16.10. Причины отклонения калибровки или привязки
@@ -2312,7 +2436,7 @@ flowchart LR
 <a id="sec-5-17-3"></a>
 ### 5.17.3. Мастер запуска
 
-Шаги:
+Полный Release-мастер до `READY`:
 
 ```text
 1. XR и отслеживание
@@ -2326,6 +2450,22 @@ flowchart LR
 9. Выбор PayloadProfile / подтверждение EMPTY
 10. ГОТОВО
 ```
+
+Diagnostic gripper-only мастер этапа 5 является отдельным явно инженерным flow того же приложения:
+
+```text
+1. XR session + Hand/grasp + левый Touch Plus
+2. Поиск PHANTOM и проверка qualification bundle scope=D
+3. Если DriveCalibration[D] отсутствует/несовместима → перейти в инженерную калибровку этапа 4
+4. Попросить LOCAL_COMMISSION_ARM: ENTER+UP на EV3
+5. Создать commissioning session
+6. Показать JAW_LEFT/RIGHT → получить быструю GripperReference текущего запуска
+7. Попросить локальное ENTER для ACTUATOR_QUALIFICATION; UI не симулирует сетевое подтверждение этого физического шага
+8. Дождаться Left Grip released → armed
+9. ЗАХВАТ ГОТОВ — ИНЖЕНЕРНЫЙ РЕЖИМ
+```
+
+Этот flow не просит `human_arm_reach`, Body Shoulder/Wrist, полный набор QR, `RobotLocalization` или PayloadProfile и никогда не показывает продуктовый статус «ГОТОВО/READY».
 
 Примеры текста:
 
@@ -2428,9 +2568,9 @@ PHANTOM — ДВИЖЕНИЕ
 <a id="sec-5-18"></a>
 ## 5.18. Ошибки Quest и восстановление
 
-Quest снимает `MOTION_ENABLE` при:
+Quest снимает `MOTION_ENABLE` при применимой текущему actuator scope ошибке. Для полного A/B/C path это включает:
 
-- потере валидного `Wrist` дольше краткого допустимого окна;
+- потерю валидного `Wrist` дольше краткого допустимого окна;
 - потере левого Controller или `Left Grip` release;
 - потере application focus;
 - изменении/потере `LOCAL_FLOOR`;
@@ -2440,7 +2580,9 @@ Quest снимает `MOTION_ENABLE` при:
 - несовпадении geometry/calibration hash;
 - fault от EV3.
 
-При временной причине используется `SAFE_HOLD`. После устранения причины система возвращается в `HOLD`, снимает armed-latch и требует наблюдаемого `Left Grip released` плюс нового rising edge. Автоматическое движение по удерживаемому до сбоя Grip запрещено. При зафиксированном `FAULT` требуется явное подтверждение после исправления; fault class может дополнительно требовать новую reference или обслуживание.
+При временной причине полного A/B/C path используется `SAFE_HOLD`. После устранения причины система возвращается в `HOLD`, снимает armed-latch и требует наблюдаемого `Left Grip released` плюс нового rising edge. Автоматическое движение по удерживаемому до сбоя Grip запрещено. При зафиксированном `FAULT` требуется явное подтверждение после исправления; fault class может дополнительно требовать новую reference или обслуживание.
+
+Для gripper-only `actuator_scope_mask=0x08` потеря `Body_RightShoulder`, Wrist-vector mapping, `RobotLocalization` или `human_arm_reach` не является причиной остановки D, потому что эти данные не входят в его actuator path. Обязательными остаются `graspReady`, левый Touch Plus/`Left Grip`, application focus, свежая authenticated session/telemetry, `GripperReference`, локальные safety predicates и совместимый qualification bundle. Потеря любого из них снимает `MOTION_ENABLE`; восстановление не возобновляет движение без release→нового rising edge.
 
 <a id="sec-5-19"></a>
 ## 5.19. Конфигурация Quest
@@ -2449,6 +2591,11 @@ Quest снимает `MOTION_ENABLE` при:
 schema_version: 1
 robot_id: phantom01
 
+qualification:
+  qualification_only: false   # Release=false; Diagnostic gripper bench=true
+  actuator_scope_mask: 0x0F   # Release 0x0F; network-only 0x00; gripper-only 0x08
+  required_user_inputs: FULL_ARM  # FULL_ARM | GRIPPER_ONLY | NONE
+
 human_mapping:
   robot_nominal_reach_m: 0.35
   arm_reach_min_technical_m: MEASURED
@@ -2456,13 +2603,15 @@ human_mapping:
   max_mapping_scale: MEASURED
 
 hand_tracking:
-  required: true
+  required_for_full_arm: true
+  required_grasp_for_gripper_only: true
   wrist_joint: Wrist
   wrist_max_pose_age_ms: 50
   wrist_dropout_grace_ms: MEASURED
 
 body_tracking:
-  required: true
+  required_for_full_arm: true
+  required_for_gripper_only: false
   joint_set: UPPER_BODY
   shoulder_joint: Body_RightShoulder
   require_iobt: false
@@ -2486,6 +2635,9 @@ space:
   scene_aware_ux_enabled: false
 
 qr:
+  # В полном Release required_markers = все 10 ниже.
+  # При qualification_only scope=D обязательны только JAW_LEFT/JAW_RIGHT;
+  # остальные marker requirements являются N_A для этого стенда.
   required_markers:
     - SHOULDER_LEFT
     - SHOULDER_RIGHT
@@ -2527,11 +2679,13 @@ network:
   default_port: 30470
   protocol_version: 1
   control_key_id: phantom01-control
-  commissioning_key_id: null    # ordinary Release build does not carry commissioning secret
+  commissioning_key_id: null    # Release=null; Diagnostic actuator qualification uses separately provisioned commissioning key_id
   telemetry_max_age_ms: 100
 
 build_profile: Release   # Release | Diagnostic
 ```
+
+Поля Quest `qualification.qualification_only` и `qualification.actuator_scope_mask` являются **ожидаемым локальным profile selection**, а не источником actuator authority. Authoritative значения находятся в установленном `CommissioningBundle` EV3; Quest обязан загрузить совпадающий локальный semantic bundle и проверить его `commissioning_bundle_hash` через `HELLO_ACK`. Любое расхождение local expected profile ↔ bundle (`qualification_only`, scope, required inputs) блокирует motion и отображается как configuration mismatch; сеть не может расширить scope.
 
 <a id="sec-6"></a>
 # 6. Конструкция манипулятора
@@ -2912,12 +3066,12 @@ ForearmVector  = GripperCenter - ElbowCenter
 - быть доступен без входа рукой в рабочий объём шестерён;
 - иметь однозначные состояния pressed/released;
 - контролироваться `phantom-safety` независимо от Quest и сетевого соединения;
-- при нажатии фиксировать `STOPPED` и переводить все четыре мотора в `BRAKE`/`stop`;
+- при нажатии фиксировать `STOPPED` и переводить **все физически обнаруженные моторы** в `BRAKE`/`stop`; отсутствие out-of-scope A/B/C на qualification stand является `N_A`, а не ошибкой stop path;
 - требовать явного восстановления после отпускания.
 
 `LOCAL_STOP` не является сертифицированным промышленным E-stop и работает через тот же EV3/software stack.
 
-Отдельно должен быть установлен **аппаратный `POWER_CUT`**, физически снимающий энергию с приводов независимо от Linux, `phantom-controller`, `phantom-safety` и сети. Его орган управления располагается вне swept volume, имеет однозначное состояние и проверяется перед HIL с автоматическим движением. Для EV3 power topology `POWER_CUT` должен физически разрывать питание Brick/моторных выходов (например, внешним latching disconnect в цепи питания); программный GPIO/Touch Sensor этим требованием не является. После его срабатывания питание запускается заново, старая session/reference теряется, затем выполняются startup reference и re-arm.
+Отдельно должен быть установлен **аппаратный `POWER_CUT`**, физически снимающий энергию с приводов независимо от Linux, `phantom-controller`, `phantom-safety` и сети. Его орган управления располагается вне swept volume, имеет однозначное состояние и проверяется перед HIL с автоматическим движением. Для EV3 power topology `POWER_CUT` должен физически разрывать питание Brick/моторных выходов (например, внешним latching disconnect в цепи питания); программный GPIO/Touch Sensor этим требованием не является. После его срабатывания питание запускается заново, старая session/reference теряется, затем выполняются **применимая active scope startup reference** и deliberate re-arm.
 
 <a id="sec-6-11"></a>
 ## 6.11. Фиксация основания
@@ -3115,7 +3269,7 @@ QR `JAW_LEFT/RIGHT` закрепляются на движущихся губк�
 | 3 | EV3 Large Motor | Base, Shoulder, Elbow |
 | 1 | EV3 Medium Motor | захват |
 | 2 | EV3 Touch Sensor или эквивалент | `LOCAL_STOP` (`in4`) и `GRIPPER_HOME` (`in3`) |
-| 1 | совместимый Wi-Fi adapter | Quest↔EV3 |
+| 1 | Netgear `WNA1100` / N150 Wireless USB Adapter | штатный Wi-Fi adapter Quest↔EV3 для этой сборки |
 | 1 | microSDHC | ev3dev |
 | 10 | физические QR-маркеры с жёсткими держателями | `SHOULDER_LEFT/RIGHT`, `TURRET_LEFT/RIGHT`, `ELBOW_LEFT/RIGHT`, `GRIPPER_LEFT/RIGHT`, `JAW_LEFT/RIGHT` |
 | 1 опционально | `TCP_CAL` маркер | инженерная калибровка TCP |
@@ -3158,7 +3312,7 @@ axles 12L — только там, где действительно нужны
 <a id="sec-6-19"></a>
 ## 6.19. Конфигурация механики
 
-Все результаты устанавливаются как единый immutable `CommissioningBundle`. Quest хранит геометрическую часть, EV3 — полный safety-critical subset; `READY` возможен только при совпадении общего bundle hash. Частичное обновление одного подфайла без новой bundle revision запрещено.
+Все результаты устанавливаются как единый immutable `CommissioningBundle`. Quest хранит геометрическую часть, EV3 — authoritative safety/control subset. Полный `READY` возможен только при `qualification_only=false`, `actuator_scope_mask=0x0F`, полном bundle и совпадении общего hash. Для этапов 3–5 Diagnostic допускает отдельную qualification-only revision: scope `0x00` или `0x08`, неполные A/B/C geometry/safe-set sections и полный gripper subset; она может разрешить только `COMMISSIONING`, никогда `READY`. Любое изменение subset всё равно создаёт новую bundle revision; скрытое частичное редактирование файла запрещено.
 
 После сборки инженерная калибровка фиксирует:
 
@@ -3306,11 +3460,12 @@ flowchart LR
 
 Он:
 
+- при запуске независимо от `phantom-controller` перечисляет физически присутствующие EV3 tacho-motor devices по `address=outA..outD`, открывает необходимый stop/takeover I/O заранее и обновляет этот bounded hardware snapshot только вне takeover critical path; отсутствие ожидаемого scoped устройства сообщается controller/device-auto, но физически присутствующая out-of-scope ось всё равно входит в emergency stop set;
 - независимо читает `LOCAL_STOP`;
 - контролирует heartbeat `phantom-controller`;
 - в штатном режиме не пишет управляющее воздействие `duty` мотора;
 - при потере heartbeat выполняет takeover;
-- устанавливает duty=0, `stop_action=brake`, `stop` для всех четырёх моторов;
+- устанавливает duty=0, `stop_action=brake`, `stop` для всех физически обнаруженных моторных портов; оси вне qualification scope тоже тормозятся, если устройство присутствует;
 - фиксирует причину;
 - не снимает fault автоматически.
 
@@ -3330,7 +3485,7 @@ heartbeat controller просрочен
 → иначе phantom-safety получает exclusive motor-control lease
 → duty = 0
 → stop_action = brake
-→ stop всех моторов
+→ stop всех физически обнаруженных моторов
 → latch FAULT_CONTROLLER_PROCESS
 ```
 
@@ -3346,18 +3501,24 @@ heartbeat controller просрочен
 При каждом запуске `phantom-controller` должен:
 
 1. создать случайный `controller_boot_id` 128 bit;
-2. загрузить и валидировать `CommissioningBundle`, `RobotGeometry`, `DriveCalibration`, `JointSafeSet`, payload profiles и их общий hash;
-3. открыть motor, `LOCAL_STOP` и `GRIPPER_HOME` I/O;
-4. установить все моторы в безопасное состояние;
-5. установить `JointReference=invalid` для A/B/C и `GripperReference=invalid` для D;
-6. начать heartbeat с `phantom-safety`;
-7. запустить DNS-SD/mDNS publication и UDP listener;
-8. разрешить чтение raw отсчёты энкодера для QR-привязка;
-9. запрещать любое автоматическое движение до валидной reference и остальных safety predicates.
+2. загрузить и валидировать текущий `CommissioningBundle`, включая `qualification_only` и authoritative `actuator_scope_mask`;
+3. проверить профиль:
+   - `Release`: `qualification_only=false`, scope=`0x0F`, полный `RobotGeometry/DriveCalibration/JointSafeSet/payload profiles` обязателен;
+   - `Diagnostic`: на этапах 3–5 scope может быть `0x00` или `0x08`; на этапах 6–7 engineering `COMMISSIONING/CALIBRATION` может использовать одну versioned mask всех фактически подключённых осей текущего стенда (например, `0x0F` после полной сборки), но motor authority выдаётся только отдельному `CALIBRATION_JOG.axis`; partial bundle допускается лишь для функций текущего calibration gate, а `ACTUATOR_QUALIFICATION` A/B/C остаётся запрещён до этапа 9;
+4. открыть `LOCAL_STOP`, battery и только **обязательные для active scope** motor/sensor I/O; `GRIPPER_HOME` обязателен, если scope содержит D;
+5. дополнительно обнаружить прочие A/B/C/D, если они физически подключены, но держать все оси вне scope hard-inhibited;
+6. установить все обнаруженные моторы в безопасное состояние;
+7. установить `JointReference=invalid` для A/B/C и `GripperReference=invalid` для D;
+8. начать heartbeat с `phantom-safety`;
+9. запустить DNS-SD/mDNS publication и UDP listener;
+10. разрешить чтение raw энкодеров scoped осей для QR-привязки;
+11. запрещать любое автоматическое движение до валидной reference именно для active scope и выполнения остальных применимых safety predicates.
 
-Перезапуск не восстанавливает старые `q_target`, `q_hold`, session offsets, сетевая сессия или motion permission. Persistent `DriveCalibration` сохраняется только как коэффициенты конкретной механики; текущий encoder offset всегда устанавливается заново по QR.
+В fixed-size snapshots/telemetry поля осей вне scope заполняются каноническими нулями. Это не означает encoder=0; эти значения семантически `N_A` и никогда не участвуют в actuator расчётах.
 
-Успешное открытие/проверка hardware backend и допуск к движению являются разными результатами. При полном исправном I/O, но ещё не завершённом commissioning, процессы продолжают работать в `SAFE_HOLD` с нулевым output и предоставляют диагностику. Ошибка обнаружения/открытия обязательного motor/sensor/battery I/O должна быть явно залогирована и завершать соответствующий service с ненулевым кодом; запрещено оставлять process `active`, если backend фактически не инициализирован.
+Перезапуск не восстанавливает старые `q_target`, `q_hold`, session, reference или motion permission. Persistent `DriveCalibration` сохраняется только как коэффициенты совместимой механики; текущая encoder reference устанавливается заново по применимой QR-привязке.
+
+Успешное открытие hardware backend и допуск к движению являются разными результатами. Ошибка обнаружения/открытия любого общего обязательного I/O (`LOCAL_STOP`, battery telemetry) либо любого I/O active scope должна быть явно залогирована и завершать соответствующий service с ненулевым кодом; запрещено оставлять process `active`, если обязательный backend фактически не инициализирован. Отсутствие A/B/C при `qualification_only=true, scope=0x08` является ожидаемой конфигурацией, а не fault; попытка motor write на такую ось остаётся невозможной. Полный Release при отсутствии любого A/B/C/D, `LOCAL_STOP`, battery telemetry или `GRIPPER_HOME` обязан fail-closed.
 
 <a id="sec-7-5"></a>
 ## 7.5. Реализация QR↔энкодерной калибровки Base/Shoulder/Elbow на EV3
@@ -3386,9 +3547,9 @@ q += measured_speed * dt     # запрещено как источник пол
 <a id="sec-7-5-2"></a>
 ### 7.5.2. `CALIBRATION_JOG`
 
-`CALIBRATION_JOG` доступен только в состоянии `COMMISSIONING`, при `LOCAL_COMMISSION_ARM`, role=`COMMISSIONING`, валидном commissioning key и `MOTION_ENABLE=0`.
+`CALIBRATION_JOG` доступен только в состоянии `COMMISSIONING/CALIBRATION`, при `local_commission_authority=true`, полученной из физического `LOCAL_COMMISSION_ARM` для текущей session, role=`COMMISSIONING`, валидном commissioning key и `MOTION_ENABLE=0`.
 
-`LOCAL_COMMISSION_ARM` v1 активируется только на EV3: одновременно удерживать физические кнопки `ENTER+UP` не менее `2000 ms` при `HOLD/STOPPED`, всех остановленных моторах, отпущенном `LOCAL_STOP` и без latched fault. Открывается окно максимум `60000 ms`; LED/UI показывают engineering state. Любой `LOCAL_STOP`, fault, потеря safety heartbeat, выход из commissioning session или timeout немедленно закрывает окно. Сетевой пакет не может симулировать эти кнопки.
+`LOCAL_COMMISSION_ARM` v1 активируется только на EV3: одновременно удерживать физические кнопки `ENTER+UP` не менее `2000 ms` **в `DISCOVERY`**, при всех физически обнаруженных моторах stationary, отпущенном `LOCAL_STOP` и без latched fault. Жест создаёт одноразовое локальное arm-window максимум на `60000 ms`. Только `HELLO role=COMMISSIONING` с валидным commissioning key внутри этого окна может его consume и одновременно latch `local_commission_authority=true` на срок созданной commissioning session. После этого исходное окно закрыто, но session-local authority остаётся до выхода/timeout/fault/`LOCAL_STOP`; сетевой пакет не может создать или продлить её. Если до arm существовала CONTROL session, приложение сначала закрывает её и возвращает EV3 в `DISCOVERY`. LED/UI всё время явно показывают engineering state. Для перехода из `CALIBRATION` в `ACTUATOR_QUALIFICATION` после валидной scoped reference требуется отдельное короткое локальное подтверждение кнопкой `ENTER`; network-only transition запрещён. Переход всегда устанавливает `qualification_armed=false`. После него EV3 обязан увидеть в этой же commissioning session безопасный OFF/HOLD `COMMAND` (`MOTION_ENABLE=0`, `HOLD_REQUEST=1`), сформированный Quest после фактического `Left Grip released`; только следующий новый rising edge может разрешить scoped motion. Поэтому состояние Grip не требуется угадывать/доверять UI в момент физического ENTER.
 
 Запрос содержит:
 
@@ -3552,40 +3713,45 @@ sleep = clock_nanosleep(..., TIMER_ABSTIME, next_deadline)
 Пропущенный период не компенсируется несколькими быстрыми итерациями подряд. Следующий временной предел вычисляется от абсолютной временной сетки, а не как `now + period`, чтобы дрожание не превращался в накопленный дрейф частоты цикла.
 
 <a id="sec-7-7-2"></a>
-### 7.7.2. Подготовка до входа в `READY`
+### 7.7.2. Подготовка до допуска real-time движения
 
-До real-time работы процесс должен:
+До входа в полный `READY` **или** `COMMISSIONING/ACTUATOR_QUALIFICATION` процесс должен подготовить только authoritative active scope и всё общее safety/I/O:
 
-- найти motor devices по `address=outA..outD`, а не по номеру `/sys/class/tacho-motor/motorN`;
-- проверить `driver_name` и `count_per_rot`;
-- открыть необходимые sysfs FD один раз;
+- найти motor devices по `address`, а не по номеру `/sys/class/tacho-motor/motorN`; полный Release требует `outA..outD`, D-only qualification — `outD`, а physically present out-of-scope motors дополнительно обнаруживаются для zero-output inhibit;
+- проверить `driver_name` и `count_per_rot` всех scoped моторов;
+- открыть необходимые sysfs FD один раз до real-time движения;
 - заранее подготовить fixed-size структуры controller state, telemetry snapshot и FlightRecorder;
-- загрузить/валидировать YAML вне real-time loop;
-- вычислить коэффициенты `DriveCalibration`, bounds и controller constants в native numeric representation;
+- загрузить/валидировать YAML/JSON и active `CommissioningBundle` вне real-time loop;
+- вычислить коэффициенты только применимого `DriveCalibration`, bounds и controller constants в native numeric representation;
 - создать network/logger threads и bounded queues;
 - по возможности prefault/lock рабочую память процесса и использовать фиксированные размеры буферов;
 - установить приоритеты так, чтобы safety stop path имел более высокий приоритет, чем цикл управления моторами, а цикл управления моторами — выше network/logging work; конкретные scheduler settings допускаются только после HIL-проверки отсутствия starvation.
 
-Release build EV3 компилируется с оптимизацией (`-O2` или эквивалентной проверенной конфигурацией). Исключительно диагностический код не должен менять управляющую математику.
+Release build EV3 компилируется с оптимизацией (`-O2` или эквивалентной проверенной конфигурацией). Исключительно диагностический код не должен менять управляющую математику или safety predicates.
 
 <a id="sec-7-7-3"></a>
 ### 7.7.3. Состав критического участка
 
-На каждой итерации:
+На каждой итерации выполняется scope-aware последовательность:
 
 ```text
-1. прочитать absolute encoder_count и motor speed из заранее открытых FD
-2. обновить q_actual через JointReference + backlash model
-3. проверить `JointSafeSet`, LOCAL limits, LOCAL_STOP, watchdog и motor protection
-4. атомарно прочитать latest_target
-5. проверить свежесть/flags target
-6. обновить ограниченный q_ref
-7. вычислить PD + feed-forward
-8. применить duty/reversal/stress limits
-9. записать motor duty через заранее открытые FD
-10. записать fixed-size sample в RAM FlightRecorder
-11. опубликовать малый telemetry snapshot в bounded queue
+1. прочитать encoder_count/speed только scoped и physically present motor FD
+2. для scoped A/B/C: обновить q_actual через JointReference + backlash model
+   для scoped D: обновить grip_actual через GripperReference + calibrated branch
+3. проверить общие LOCAL_STOP/watchdog/battery/motor protection
+   + JointSafeSet/independent joint limits только для исполняемых A/B/C
+   + gripper range/contact/jam predicates только для D
+4. атомарно прочитать latest_target и проверить freshness/flags/state/scope
+5. для A/B/C: обновить bounded q_ref и PD/feed-forward controller
+   для D: обновить bounded Gripper FSM target/controller
+6. применить duty/reversal/stress limits scoped приводов
+7. hard-inhibit все оси вне actuator_scope_mask до motor-write layer
+8. записать motor output только через заранее открытые scoped FD
+9. записать fixed-size sample в RAM FlightRecorder
+10. опубликовать малый telemetry snapshot в bounded queue
 ```
+
+D-only scope **не вычисляет** `JointReference`, `JointSafeSet`, joint-space `q_ref` или A/B/C PD/feed-forward. Out-of-scope поля fixed wire/snapshot остаются каноническими `N_A` и никогда не становятся motor input.
 
 В критическом участке запрещены:
 
@@ -3616,13 +3782,18 @@ dt <= 25 ms
     serious overrun event + FlightRecorder marker
 
 60 ms < dt <= 100 ms
-    SAFE_HOLD
+    transient motion inhibit:
+      full READY/TRACKING path -> SAFE_HOLD
+      ACTUATOR_QUALIFICATION -> clear qualification armed-latch + scoped hold/stop,
+                                state remains COMMISSIONING
 
 dt > 100 ms
-    FAULT_LOOP_OVERRUN + BRAKE
+    FAULT_LOOP_OVERRUN + BRAKE/stop всех физически обнаруженных моторов
 ```
 
-Событие overrun сохраняет текущую CPU/load diagnostic context вне цикл управления моторами. Diagnostic telemetry автоматически снижает собственную частоту, если очередь/CPU budget приближаются к пределу.
+После transient inhibit motion не возобновляется автоматически. Полный path использует обычный `SAFE_HOLD → HOLD → release → new rising edge`; qualification остаётся инженерным `COMMISSIONING`, но требует устранения причины, observed `Left Grip released` и нового rising edge. Новый локальный `ENTER` не требуется только для transient inhibit, пока та же commissioning session/local qualification authority остаётся валидной.
+
+Событие overrun сохраняет текущую CPU/load diagnostic context вне цикла управления моторами. Diagnostic telemetry автоматически снижает собственную частоту, если очередь/CPU budget приближаются к пределу.
 
 <a id="sec-7-8"></a>
 ## 7.8. Приём сетевой цели
@@ -3660,17 +3831,26 @@ command_timeout_ms = 120
 command_age = now_monotonic - last_valid_command_receive_time
 ```
 
-При превышении порога в состоянии, где движение ожидалось:
+При превышении порога в состоянии/фазе, где ожидалось движение, старая движущаяся цель всегда инвалидируется, но state semantics зависят от режима:
 
 ```text
-→ SAFE_HOLD
-→ q_hold = q_actual
-→ удалить старую движущуюся цель
+full READY/TRACKING path:
+    -> SAFE_HOLD
+    -> q_hold = q_actual; grip_hold = current safe grip position
+    -> clear armed-latch
+
+COMMISSIONING/ACTUATOR_QUALIFICATION:
+    -> MOTION_ENABLE locally forbidden for active scope
+    -> scoped hold/stop from current actual position
+    -> clear qualification armed-latch
+    -> remain COMMISSIONING while authenticated commissioning session is still valid
 ```
 
-После восстановления authenticated потока команд старый target не восстанавливается. Система остаётся/переходит в `HOLD`, armed-latch сброшен; новый `TRACKING` допускается только после наблюдаемого `Left Grip released` и последующего нового rising edge.
+Если сама commissioning session потеряна/истекла, qualification phase немедленно завершается и возврат к actuator authority требует нового `LOCAL_COMMISSION_ARM` + commissioning `HELLO` + локального `ENTER` согласно §7.5.2. Если transport восстановился в ещё валидной session после обычного command timeout, старый target всё равно не восстанавливается: сначала требуется `Left Grip released`, затем новый rising edge.
 
-Порог допускается изменять только после сетевого HIL-теста, при сохранении требования `p95 link-loss → HOLD ≤150 мс`. При локальном обнаружении release Quest немедленно передаёт приоритетный короткий burst пакетов `MOTION_ENABLE=0/HOLD_REQUEST=1` в течение `hold_burst_ms`; OFF-пакеты не coalesce'ятся с обычными motion updates. Это уменьшает риск задержки HOLD при потере одного UDP-пакета и проверяется с искусственной packet loss.
+Нормативный предел формулируется как `p95 link/command freshness loss → запрет дальнейшего actuator motion ≤150 ms`. Для полного режима наблюдаемое состояние — `SAFE_HOLD/HOLD`; для gripper-only qualification — scoped inhibit/hold внутри `COMMISSIONING`, без фиктивного перехода в product `HOLD`.
+
+При локальном обнаружении release Quest немедленно передаёт приоритетный короткий burst пакетов `MOTION_ENABLE=0/HOLD_REQUEST=1` в течение `hold_burst_ms`; OFF-пакеты не coalesce'ятся с обычными motion updates. Это уменьшает риск задержки HOLD/inhibit при потере одного UDP-пакета и проверяется с искусственной packet loss.
 
 <a id="sec-7-10"></a>
 ## 7.10. Формирование опорной траектории q_ref
@@ -3763,9 +3943,9 @@ g * [
 Вместо аналитической модели допускается измеренная таблица feed-forward, если она даёт меньшую ошибку и проходит те же испытания.
 
 <a id="sec-7-13"></a>
-## 7.13. HOLD и SAFE_HOLD
+## 7.13. HOLD, SAFE_HOLD и qualification inhibit
 
-При входе в HOLD:
+При входе полного PHANTOM в `HOLD`:
 
 ```text
 q_hold = q_actual
@@ -3780,14 +3960,9 @@ gripper target = grip_hold
 
 `READY` и `HOLD` используют одну и ту же active position-hold law от текущего `q_actual`; различается FSM-смысл: `READY` — startup-ready/disarmed до первого разрешающего edge, `HOLD` — уже эксплуатировавшаяся сессия после release/temporary recovery. `HOLD` используется при штатном отпускании Left Grip.
 
-`SAFE_HOLD` используется при ненормальной ситуации, при которой сохранение движения невозможно или небезопасно:
+`SAFE_HOLD` является **product state полного PHANTOM** для временной ненормальной ситуации, при которой сохранение движения невозможно или небезопасно: потеря команд/tracking/focus, изменение необходимой системы координат либо иная временная потеря full-path prerequisite. Он отменяет старую moving target, очищает armed-latch и после восстановления ведёт в `HOLD`, а не сразу обратно в `TRACKING`.
 
-- потеря команд;
-- потеря отслеживания/фокуса;
-- изменение системы координат OpenXR;
-- временная потеря необходимого состояния системы.
-
-Оба состояния отменяют старую движущуюся цель. Разница состоит в причине и требованиях к восстановлению.
+В `COMMISSIONING/ACTUATOR_QUALIFICATION` transient причины, которые в полном path дали бы `SAFE_HOLD` (command timeout, focus/grasp loss, умеренный loop overrun, battery stop threshold), **не переводят систему в product `SAFE_HOLD/HOLD`**. EV3 остаётся в `COMMISSIONING`, немедленно запрещает новое scoped motion, фиксирует безопасный текущий hold/stop target и очищает qualification armed-latch. После устранения причины требуется observed release → new rising edge; при потере commissioning session/local authority qualification phase завершается полностью и требует новой локальной процедуры. Latched `FAULT` и `STOPPED` остаются общими state и не маскируются qualification inhibit.
 
 <a id="sec-7-14"></a>
 ## 7.14. Защита суставов от перегрузки, заклинивания и проскальзывания
@@ -3943,13 +4118,15 @@ battery_stop_mv <= battery_mv < battery_warn_mv
     DERATED: speed *= battery_derate_speed_factor; duty_limit *= battery_derate_duty_factor
 
 battery_mv < battery_stop_mv for battery_stop_debounce_ms
-    cancel moving target → SAFE_HOLD
+    cancel moving target
+    full path -> SAFE_HOLD
+    ACTUATOR_QUALIFICATION -> scoped qualification inhibit/hold, remain COMMISSIONING
 
 battery_mv < battery_stop_mv continuously for battery_fault_ms
     FAULT_BATTERY_LOW (RECOVERABLE_LATCHED) + BRAKE/stop
 ```
 
-Возврат выше `battery_warn_mv` не возобновляет motion автоматически: после `SAFE_HOLD`/FAULT действует обычный re-arm/ACK policy. Нельзя компенсировать низкое питание повышением duty. Пороги/времена задаются после испытаний конкретного питания EV3; 50-Hz loop получает только snapshot `battery_health`.
+Возврат выше `battery_warn_mv` не возобновляет motion автоматически. После full-path `SAFE_HOLD` действует обычный deliberate re-arm; после qualification inhibit также требуется release→new rising edge. После `FAULT_BATTERY_LOW` дополнительно требуется явный ACK после устранения причины. Нельзя компенсировать низкое питание повышением duty. Пороги/времена задаются после испытаний конкретного питания EV3; 50-Hz loop получает только snapshot `battery_health`.
 
 <a id="sec-7-15"></a>
 ## 7.15. Автомат захвата
@@ -3970,13 +4147,13 @@ stateDiagram-v2
 <a id="sec-7-15-1"></a>
 ### 7.15.1. Обычное управление
 
-При `TRACKING` и валидном grasp:
+При полном `TRACKING` **или** `COMMISSIONING/ACTUATOR_QUALIFICATION` с bit D в `actuator_scope_mask`, валидном `GripperReference`, `GRASP_VALID` и `MOTION_ENABLE`:
 
 ```text
 gripTarget = grip_intent = humanGrip
 ```
 
-Локальный контроллер ограничивает скорость, duty и физический диапазон. После повторного включения управления используется актуальное значение `grip_intent` без ожидания синхронизации с предыдущим физическим положением.
+Локальный контроллер ограничивает скорость, duty и физический диапазон. В qualification phase q-поля A/B/C не участвуют, а motor writes вне scope запрещены до controller layer. После повторного включения управления используется актуальное значение `grip_intent` без ожидания синхронизации с предыдущим физическим положением.
 
 <a id="sec-7-15-2"></a>
 ### 7.15.2. Кандидат контакта
@@ -4069,7 +4246,7 @@ command = stop
 stop latch = true
 ```
 
-Если software takeover не завершился в bounded timeout, состояние остаётся небезопасно неопределённым и оператор использует независимый `POWER_CUT`; software не может заявить успешный STOP только по записи события. Сетевые команды не могут снять `STOPPED` без `RESET_STOPPED`, отпущенного физического входа, живого `phantom-safety`, валидной reference и последующего re-arm.
+Если software takeover не завершился в bounded timeout, состояние остаётся небезопасно неопределённым и оператор использует независимый `POWER_CUT`; software не может заявить успешный STOP только по записи события. Сетевые команды не могут снять `STOPPED` без `RESET_STOPPED`, отпущенного физического входа и живого `phantom-safety`. Дальнейший state зависит от session semantics: полный PHANTOM с живой CONTROL session возвращается в `HOLD` либо `CONNECTED_UNREFERENCED` согласно reference; бывший `COMMISSIONING/ACTUATOR_QUALIFICATION` после reset возвращается в `DISCOVERY`, даже если D `GripperReference` физически ещё согласована, потому что session-local commissioning authority после `LOCAL_STOP` всегда потеряна. Новое qualification motion требует новой локальной commissioning procedure и deliberate re-arm.
 
 <a id="sec-7-18"></a>
 ## 7.18. Поведение при потере питания
@@ -4152,7 +4329,7 @@ Diagnostic telemetry никогда не должна блокировать ц�
 <a id="sec-7-20"></a>
 ## 7.20. Логирование, FlightRecorder и профили сборки
 
-Управляющая и safety-логика одинакова в `Release` и `Diagnostic`. Различается только объём сохраняемой диагностики.
+Product control/safety core, регуляторы, limits, fault logic и обычные `READY/TRACKING/HOLD` semantics одинаковы в `Release` и `Diagnostic`. `Diagnostic` дополнительно может экспонировать qualification-only commissioning surfaces, описанные §4.3/§7.5.2; они используют те же motor protection/safety primitives, требуют локальный arm и не существуют как доступная функция Release. Для одного и того же product-mode входа различается только объём диагностики, а actuator result обязан совпадать.
 
 <a id="sec-7-20-1"></a>
 ### 7.20.1. Структурированные события
@@ -4308,12 +4485,14 @@ Production state и журналы располагаются соответст
 <a id="sec-7-21"></a>
 ## 7.21. Конфигурация EV3
 
-YAML является authoring-форматом. Build/commissioning pipeline валидирует schema и формирует JSON artifact; его SHA-256 считается по RFC 8785 JCS UTF-8 bytes. Runtime не пересериализует объект ради хэша — он проверяет hash установленных artifact bytes до real-time режима.
+YAML является authoring-форматом. Build/commissioning pipeline валидирует schema и формирует **два логически раздельных артефакта**: canonical semantic JSON и необязательный provenance sidecar. Compatibility `content_hash`/`commissioning_bundle_hash` считается по RFC 8785 JCS UTF-8 bytes именно semantic artifact; `created_at`, workstation/operator/evidence metadata находятся только в provenance sidecar и не входят в compatibility hash. Runtime ничего не пересериализует ради actuator-совместимости — он хэширует установленные canonical semantic artifact bytes и сравнивает их с ожидаемым hash до real-time режима. Provenance может иметь собственный file hash, но не влияет на `READY`/qualification.
 
 ```yaml
 schema_version: 1
 robot_id: phantom01
 build_profile: Release
+qualification_only: false       # Diagnostic early bench may set true
+actuator_scope_mask: 0x0F       # A=1, B=2, C=4, D=8; Release must be 0x0F
 commissioning_bundle_hash: SHA256
 protocol_schema_hash: SHA256
 specification_sha256: SHA256
@@ -4478,6 +4657,8 @@ logging:
 ```
 
 Параметры `MEASURED` не получают произвольное значение по умолчанию во время работы в actuator path: до qualification соответствующая функция остаётся в engineering/disabled состоянии. Safety-critical `MEASURED` (границы, payload envelope, `POWER_CUT` status, rate/loop limits, mapping sanity bounds) дополнительно блокируют переход в `READY` до заполнения и прохождения соответствующих acceptance tests.
+
+Для `build_profile=Release` schema обязана отклонять `qualification_only=true` или `actuator_scope_mask != 0x0F`. На этапах 3–5 ранний Diagnostic стенд разрешает только `0x00` (network-only) и `0x08` (Gripper). На этапах 6–7 Diagnostic `COMMISSIONING/CALIBRATION` может использовать versioned scope всех фактически подключённых осей текущего стенда, если их motor/mechanics/safety prerequisites §5.16.1 выполнены; отдельный `CALIBRATION_JOG.axis` выбирает единственную движущуюся ось, а штатный `COMMAND` для A/B/C при этом запрещён. После этапа 7 scoped A/B/C `ACTUATOR_QUALIFICATION` допускается только с полными `RobotGeometry`, `JointReference` и `JointSafeSet` в рамках этапа 9.
 
 <a id="sec-7-22"></a>
 ## 7.22. Обнаружение EV3 и установление соединения
@@ -4740,7 +4921,7 @@ Release
 Diagnostic
 ```
 
-Оба профиля должны содержать одинаковую управление и безопасность логику и отличаться только logging/diagnostic surfaces и символами/инструментами отладки.
+Оба профиля должны собираться из одного control/state/safety core. Для product-mode одинаковые входы обязаны давать одинаковые state/control results; различаться могут logging/diagnostic surfaces и символы/инструменты отладки. `Diagnostic` дополнительно может включать явно инженерные qualification-only entry/UI/commissioning surfaces, но они обязаны использовать общий controller/safety implementation, требовать локальную физическую авторизацию и быть compile/config-disabled либо недоступны в `Release`.
 
 Воспроизводимая baseline-кросс-сборка EV3 выполняется в legacy-образе `ev3dev/debian-stretch-cross:latest`, но release/CI никогда не полагается на изменяемый тег и запускает образ по digest:
 
@@ -4865,11 +5046,14 @@ Quest также имеет два build профиль. APK разрешает�
 <a id="sec-8-8-2"></a>
 ### 8.8.2. Diagnostic
 
-- тот же control/state code;
+- тот же control/state/safety code;
 - расширенный engineering UI;
 - `DIAGNOSTIC_TELEMETRY`;
+- явно сконфигурированный `qualification_only`/`actuator_scope_mask` для HIL milestones, причём actuator authority всё равно требует commissioning key + локальный arm/confirmation;
 - QR/encoder residuals, raw tracking и сетевые counters при явном включении;
 - developer symbols/профилирование допускаются согласно build policy.
+
+Diagnostic qualification не является альтернативным пользовательским режимом и не может перейти в `READY`, если bundle неполный. Release binary/config отвергает `qualification_only=true`.
 
 Оба APK фиксируют:
 
@@ -4917,23 +5101,44 @@ Build-time manifest фиксирует версии Unity и пакетов. Ф�
 <a id="sec-8-9"></a>
 ## 8.9. Совместимость конфигурации
 
-Каждая persistent конфигурация содержит:
+Каждая persistent конфигурация разделяет детерминированное содержимое и provenance:
 
 ```text
-schema_version
-revision
-content_hash
-created_by_build
-created_at
+semantic_payload:
+  schema_version
+  revision
+  safety/config fields или component hashes
+content_hash = SHA-256(JCS(semantic_payload))
+
+provenance_sidecar:         # отдельный artifact; не входит в content_hash
+  semantic_content_hash
+  created_by_build
+  created_at
+  transaction_id / evidence reference, если применимо
 ```
+
+Build/commissioning pipeline сохраняет `semantic_payload` как отдельный canonical JCS JSON artifact и provenance как отдельный sidecar/envelope. Runtime actuator path проверяет SHA-256 **установленных semantic artifact bytes**; повторная runtime-сериализация объекта ради hash запрещена. Provenance sidecar может иметь собственный file hash и обязан ссылаться на `semantic_content_hash`, но его отсутствие/другое время создания не меняет actuator compatibility.
+
+`CommissioningBundle` использует тот же принцип. `commissioning_bundle_hash` нельзя зависеть от wall-clock Quest/EV3, имени workstation или иных локально созданных metadata; иначе две стороны не смогут независимо доказать идентичность candidate revision. Provenance сохраняется в журналах/evidence, но не участвует в actuator compatibility decision.
+
+Чтобы `bundle_id` не создавал циклический или недетерминированный hash, он **не входит** в `semantic_payload`. После вычисления `commissioning_bundle_hash` он детерминированно выводится как:
+
+```text
+bundle_id = "cb-" + lowercase_hex(first_16_bytes(commissioning_bundle_hash))
+```
+
+Следовательно, Quest и EV3 независимо получают один и тот же `bundle_id`; случайный UUID/timestamp/hostname не может участвовать в идентичности bundle.
 
 Правила:
 
 - изменение передачи, motor mounting, encoder semantics или `encoder_scale` требует новой `DriveCalibration`;
 - изменение QR-держателя/крепления, оси, `L1`, `L2`, положения пола относительно Shoulder или TCP требует новой `RobotGeometry` revision;
 - изменение Base mechanical hard-stop/cable routing или pitch mechanical range требует повторной инженерной калибровки safe bounds;
-- перезапуск EV3 не уничтожает persistent `DriveCalibration`, но всегда инвалидирует запуск `JointReference`;
-- смена HMAC key требует новой сетевая сессия;
+- перезапуск EV3 не уничтожает persistent `DriveCalibration`, но всегда инвалидирует runtime `JointReference`/`GripperReference` текущего запуска;
+- принятие нового `DriveCalibration` создаёт новую immutable `CommissioningBundle` revision детерминированной заменой только соответствующего component и `new_bundle_revision = previous_bundle_revision + 1`; скрытое редактирование уже активной revision запрещено;
+- после активации новой bundle revision все существующие sessions считаются config-stale для actuator authority и закрываются; новый `HELLO` обязан увидеть новый `commissioning_bundle_hash` до reference/motion;
+- Quest и EV3 независимо вычисляют hash candidate bundle из одних canonical components; mismatch блокирует motion и требует исправления provisioning/artefacts;
+- смена HMAC key требует новой сетевой сессии;
 - изменение только UI не инвалидирует RobotGeometry/DriveCalibration.
 
 <a id="sec-8-10"></a>
@@ -4954,19 +5159,32 @@ JointReference = invalid
 <a id="sec-8-11"></a>
 ## 8.11. Первичное сопряжение Quest и EV3
 
-Процедура:
+PHANTOM использует **два независимых PSK**, а не один общий секрет:
 
-1. EV3 создаёт 32 случайных байта секрета;
-2. секрет сохраняется в защищённом локальном файле, доступном только сервису PHANTOM;
-3. секрет передаётся на Quest вне исполнительного UDP-протокола;
-4. Quest сохраняет секрет в приватном хранилище приложения/ОС;
-5. конфигурация использует `key_id`, не сам секрет;
-6. ротация ключа выполняется только при запрещённом движении и требует обновления обеих сторон.
+```text
+control PSK        -> HELLO role=CONTROL / обычный COMMAND
+commissioning PSK  -> HELLO role=COMMISSIONING / CALIBRATION_JOG / calibration writes / ACTUATOR_QUALIFICATION
+```
+
+Процедура provisioning:
+
+1. доверенная commissioning workstation генерирует CSPRNG **два независимых секрета минимум по 32 случайных байта каждый**;
+2. секреты получают разные `key_id`/key slots (`phantom01-control`, `phantom01-commissioning`) и не выводятся друг из друга KDF без отдельного пересмотра threat model;
+3. оба секрета устанавливаются на EV3 в раздельные защищённые credential files/slots с минимальными permissions;
+4. control PSK передаётся на Quest вне исполнительного UDP-протокола и хранится в приватном storage обычного приложения;
+5. commissioning PSK устанавливается только в доверенный Diagnostic/engineering credential store; Release profile не должен иметь доступного `commissioning_key_id`/секрета;
+6. role/key-slot mismatch отклоняется до создания session: control PSK не авторизует commissioning operations, commissioning role не повышается из CONTROL session;
+7. ротация каждого ключа выполняется независимо только при запрещённом actuator motion; после ротации соответствующие sessions инвалидируются и обе стороны должны получить согласованный новый credential;
+8. секреты не входят в Git, build manifest, `CommissioningBundle`, обычные логи или telemetry; там допускаются только `key_id`/slot metadata.
+
+Такое разделение является обязательным для этапов 4–5: раннее управление Gripper остаётся engineering qualification и не получает commissioning authority из обычного control credential.
 
 <a id="sec-8-12"></a>
 ## 8.12. Сетевая изоляция
 
 EV3 должен принимать исполнительный UDP-трафик только из настроенной локальной сети.
+
+Первичная настройка SSID/пароля для WNA1100 является инженерным provisioning шагом (локальная консоль/USB/SSH из доверенной сети или эквивалентный администрируемый path) и выполняется до обычного запуска этапа 3. Credential хранится только в локальной сетевой конфигурации EV3 с ограниченными правами, не экспортируется в PHANTOM logs/bundle и не передаётся через UDP protocol. После provisioning EV3 обязан автоматически поднимать эту сеть при boot/reconnect без PC; смена сети является отдельной инженерной операцией.
 
 SSH используется только для инженерного обслуживания. Для него должны применяться ключи, а не пароль как основной способ автоматического развёртывания.
 
@@ -5148,7 +5366,7 @@ artifact SHA-256 recorded
 - отсутствует crash/exception при входе/выходе из приложения и повторном запуске;
 - Release не содержит включённых инженерных механизмов, которые должны быть Diagnostic-only.
 
-Штатный Quest stage-2 runner — `scripts/quest-device-auto.ps1`. Он принимает только APK со смежным build manifest и существующим `results/quest/pre-install/report.json` со статусом `PASS`, содержащим тот же `build_id`; проверяет единственный авторизованный ADB target `Quest 3/eureka`, SHA-256 APK, выполняет `adb install -r -g`, первый запуск, `force-stop` и повторный запуск. Запуск через ADB не использует неограниченный `am start -W`: runner автоматически посылает bounded wake event, отдельно и с конечным timeout проверяет PID и появление app report; ручное пробуждение/разблокирование не требуется и не запрашивается. Неактивные XR session/focus и отсутствие live observations на лежащем шлеме записываются как `NOT_RUN` environment evidence без software FAIL. Встроенный zero-output self-test проверяет build/config identity, `LOCAL_FLOOR`, permissions, passthrough/MRUK/Multimodal configuration, tracking/grasp/controller/haptic adapters и выбранный Body provider; при pause сохраняет тот же классифицированный snapshot, а Diagnostic выполняет полный synthetic suite без `RobotTransport`. Raw logcat обоих запусков и объединённый host/app report сохраняются под `results/quest/device-auto/<build_id>/`; серийный номер в отчёт не попадает, используется только сокращённый SHA-256 идентификатор.
+Штатный Quest stage-2 runner — `scripts/quest-device-auto.ps1`. Он принимает только APK со смежным build manifest и существующим `results/quest/pre-install/report.json` со статусом `PASS`, содержащим тот же `build_id`; проверяет единственный авторизованный ADB target `Quest 3/eureka`, SHA-256 APK, выполняет `adb install -r -g`, первый запуск, `force-stop` и повторный запуск. Запуск через ADB не использует неограниченный `am start -W`: runner автоматически посылает bounded wake event, отдельно и с конечным timeout проверяет PID и появление app report; ручное пробуждение/разблокирование не требуется и не запрашивается. Неактивные XR session/focus и отсутствие live observations на лежащем шлеме записываются как `NOT_RUN` environment evidence без software FAIL. Встроенный zero-output self-test проверяет build/config identity, `LOCAL_FLOOR`, permissions, passthrough/MRUK/Multimodal configuration и все adapters, но stage PASS определяется active profile: full-arm profile требует выбранный Body provider/Wrist path, gripper-only profile требует Hand/grasp + left Controller, а Body/Wrist live/provider qualification помечается `N_A` для этого stage gate и остаётся blocker будущего этапа 8/9. При pause сохраняется тот же классифицированный snapshot, а Diagnostic выполняет полный synthetic suite без `RobotTransport`. Raw logcat обоих запусков и объединённый host/app report сохраняются под `results/quest/device-auto/<build_id>/`; серийный номер в отчёт не попадает, используется только сокращённый SHA-256 идентификатор.
 
 Quest `DEVICE AUTO PASS` доказывает запуск конкретного установленного APK и software/platform compatibility, но не доказывает качество реальных Wrist/Shoulder/grasp/Touch/QR observations. Он не заменяет bounded live-observation cases §9.6, camera/QR measurement §9.10 и ручные pause/resume/HMD/haptics сценарии. Provider классифицируется раздельно: API отсутствует — `FAIL`; provider явно отключён или несовместим — `FAIL`; provider сконфигурирован, но XR/focus неактивен и live samples отсутствуют — compatibility `PASS`, live evidence `NOT_RUN`; provider инициализирован — `PASS`, а live sample является дополнительным evidence.
 
@@ -5157,7 +5375,7 @@ Quest `DEVICE AUTO PASS` доказывает запуск конкретног�
 - `phantom-controller` и `phantom-safety` запускаются через `systemd`;
 - версии и `build_id` соответствуют установленному пакету;
 - конфигурация читается и проходит schema/hash checks;
-- sysfs devices обнаружены по `address=outA..outD`, а не по нестабильному имени `motorN`; проверены типы `Large/Large/Large/Medium`, `count_per_rot=360`, `GRIPPER_HOME in3`, `LOCAL_STOP in4` и battery telemetry, но автоматический motion остаётся запрещён до valid reference;
+- sysfs devices обнаруживаются по `address`, а не по нестабильному имени `motorN`; DEVICE AUTO проверяет **ровно обязательный motor/sensor I/O active profile**: Release требует `outA/outB/outC/outD + GRIPPER_HOME + LOCAL_STOP`, gripper-only Diagnostic требует `outD + GRIPPER_HOME + LOCAL_STOP`, network-only Diagnostic не требует motor I/O; battery telemetry является общим обязательным I/O для всех профилей; любой physically present disabled motor дополнительно проверяется на zero-output inhibit; для scoped моторов проверяются ожидаемые `driver_name`/тип и `count_per_rot=360`;
 - выполняется короткий timing self-test критического цикла с `duty=0`/безопасным backend;
 - DNS-SD/mDNS service публикуется;
 - Quest/PC test client может выполнить `HELLO/HELLO_ACK`, `PING/PONG` и получить `TELEMETRY`;
@@ -5169,7 +5387,7 @@ EV3 stage-2 DEVICE AUTO выполняется установленным `/opt/
 
 On-device timing self-test выполняет не менее 250 итераций по абсолютной 20-ms сетке с безопасным backend, требует `p99 <= 25 ms`, `max < 50 ms`, нулевое число nonzero motor writes и проверяет latched `LOCAL_STOP` logic. Supervisor test при уже нулевом output посылает `SIGKILL` controller, подтверждает новый emergency event и сохранение `duty=0`, `speed=0`, `stop_action=brake`, после чего полностью перезапускает target для снятия takeover lease/inhibit. Ни один DEVICE AUTO step не выставляет ненулевой duty.
 
-Неполный bench-комплект моторов/датчиков может проходить отдельные E0/stationary проверки, но не превращает обязательный stage-2 I/O discovery в `PASS` или `N_A`. Полный DEVICE AUTO запускается только при подключённых production A/B/C/D, `LOCAL_STOP` и `GRIPPER_HOME`; отсутствие элемента даёт `FAIL`/`NOT_RUN` с причиной без попытки движения.
+DEVICE AUTO оценивает комплект относительно versioned profile, а не относительно будущей финальной механики. Scope-aware classification является изменением этой ревизии и получает `introduced_at_stage=3` (network-only) / `introduced_at_stage=4` (gripper-only): она не переписывает исторический Stage-2 report, но перед соответствующим новым gate обязательно выполняется regression текущего autonomous-startup behavior. При таком regression gripper-bench report может быть `PASS` при scope `0x08`, если D/`GRIPPER_HOME`/`LOCAL_STOP` присутствуют и A/B/C явно помечены `N_A` с `reason=OUT_OF_SCOPE`; это **не** является evidence production hardware completeness. Финальный Release DEVICE AUTO всё равно требует A/B/C/D, `LOCAL_STOP` и `GRIPPER_HOME`; отсутствие любого обязательного элемента даёт `FAIL`/`NOT_RUN` без попытки движения.
 
 EV3 не имеет надёжного RTC, поэтому control/watchdog/safety freshness используют только `CLOCK_MONOTONIC`. DEVICE AUTO дополнительно фиксирует wall-clock/NTP state; неверные календарные часы не ослабляют stop path, но блокируют использование отчёта как хронологического release/HIL evidence до синхронизации либо надёжной корреляции с host timestamp.
 
@@ -6189,20 +6407,35 @@ physical stop
 - причина восстановилась, Grip всё ещё held → робот **остаётся в HOLD**, движения нет;
 - после этого Grip released → armed-latch становится готовым;
 - только новый rising edge Grip → разрешён `TRACKING` к **текущей абсолютной** цели руки;
-- потерянный OFF/HOLD UDP datagram не должен нарушать `Left Grip release → HOLD p95 ≤80 мс` при квалифицированном packet-loss профиле.
+- в полном `TRACKING` потерянный OFF/HOLD UDP datagram не должен нарушать `Left Grip release → HOLD p95 ≤80 мс`; отдельный stage-5 gripper qualification case проверяет тот же `≤80 мс` предел до scoped hold/inhibit без требования состояния `HOLD`.
 
 <a id="sec-9-22"></a>
 ## 9.22. Физические тесты Quest
 
-**Уровень:** `MANUAL ACCEPTANCE` установленного Quest build.
+**Уровень:** `MANUAL ACCEPTANCE` установленного Quest build; применимость определяется active stage/profile и фиксируется через `applicable_to_stage`/`N_A`.
 
-На реальном Quest 3 выполняется серия независимых cases длительностью `5..60 s` с единым агрегированным отчётом. Нормальная работа, lifecycle faults, QR и performance проверяются раздельно, чтобы ни один case не требовал более `60 s`. Проверяются:
+Для **этапа 5 / gripper-only `0x08`** выполняется отдельный ограниченный subset физических Quest cases:
+
+- одновременная работа правого Hand Tracking/grasp и левого Touch Plus/`Left Grip`;
+- применимые haptics предупреждения/подтверждения левого Touch Plus;
+- passthrough presentation реального Gripper без нарушения выбранной Multimodal комбинации;
+- application focus/pause/resume и Multimodal lifecycle;
+- `LOCAL_FLOOR`/Spatial Data/QR Trackable capability, необходимая для JAW startup reference;
+- устойчивость `JAW_LEFT/RIGHT` measurement при D-only reference;
+- standard grasp signal и optional `GripRemapProfile`, только если он включён;
+- русский engineering gripper UI, telemetry и deliberate re-arm после focus/grasp/network interruption;
+- stage-5 latency/performance/thermal cases, не требующие full-arm mapping;
+- отключение QR Tracking после успешной D-only `GripperReference`.
+
+`Body_RightShoulder`, Wrist-vector time alignment, `human_arm_reach`, full `RobotLocalization`, полный QR-набор, IK/FK overlay и абсолютное A/B/C mapping для этого gate имеют `N_A` с `reason=OUT_OF_SCOPE` и становятся обязательными на этапах 8–9. Они не могут скрыто блокировать завершение этапа 5.
+
+Для **финального полного Release** на реальном Quest 3 выполняется серия независимых cases длительностью `5..60 s` с единым агрегированным отчётом. Нормальная работа, lifecycle faults, QR и performance проверяются раздельно, чтобы ни один case не требовал более `60 s`. Проверяются:
 
 - одновременная работа правого Hand Tracking и левого Touch Plus;
 - `LOCAL_FLOOR`, Spatial Data/Scene/Anchor/QR capabilities; опциональный Space Setup тестируется только при включённом scene-aware UX;
-- устойчивость и качество распознавания QR в предусмотренных позах;
+- устойчивость и качество распознавания полного предусмотренного QR-набора;
 - Body Tracking правого плеча и временное согласование с `Wrist`;
-- совпадение runtime feature flags с `TrackingQualificationProfile`; базовый estimated `Body_RightShoulder` допускается только в квалифицированной комбинации;
+- совпадение runtime feature flags с full-arm `TrackingQualificationProfile`; базовый estimated `Body_RightShoulder` допускается только в квалифицированной комбинации;
 - калибровка/повторное использование `human_arm_reach` профиля и проверка standard grasp signal; optional `GripRemapProfile` тестируется только когда включён;
 - абсолютное отображение движения без накопления смещения;
 - русский пользовательский интерфейс и визуальные подсказки;
@@ -6211,7 +6444,7 @@ physical stop
 - стабильность температуры и производительности;
 - удержание выбранной частоты XR-рендеринга и бюджета кадра без устойчивого снижения частоты;
 - отсутствие повторяющихся управляемых выделений памяти в критическом коде управления/UI после прогрева;
-- отключение QR Tracking после завершения привязки, подтверждённое профилировщиком и состоянием приложения.
+- отключение QR Tracking после завершения применимой привязки, подтверждённое профилировщиком и состоянием приложения.
 
 <a id="sec-9-23"></a>
 ## 9.23. UI/UX-приёмка
@@ -6219,6 +6452,18 @@ physical stop
 **Уровень:** `MANUAL ACCEPTANCE` установленного Release candidate.
 
 Испытание проводится с пользователями, которые не читали техническую часть спецификации и получают только короткое описание назначения PHANTOM.
+
+
+До финальной Release-приёмки этап 5 имеет отдельный `MANUAL HIL` UI gate для gripper-only Diagnostic profile. Он не засчитывается вместо финального §9.23 и проверяет только ранний scope D:
+
+```text
+приложение явно показывает ИНЖЕНЕРНЫЙ РЕЖИМ, а не READY
+LOCAL_COMMISSION_ARM и локальный ENTER невозможно пропустить
+мастер не просит human_arm_reach / Body Shoulder/Wrist / полный QR-набор
+пользователь видит connection, gripper reference, grip_intent/grip_actual, contact/fault и battery
+потеря focus/network/grasp или Left Grip release визуально подтверждает запрет дальнейшего движения
+после recovery UI требует deliberate re-arm, а не показывает ложное автоматическое восстановление
+```
 
 Проверяются два разных сценария:
 
@@ -6261,13 +6506,13 @@ UI показывает конкретный отсутствующий или �
 
 **Уровень:** `PRE-INSTALL AUTO` + `DEVICE AUTO` + HIL для реальных инцидентов.
 
-Оба профиля проходят одинаковые функциональные тесты и тесты безопасности. Различается только объём диагностики.
+Оба профиля проходят одинаковые **product-mode** функциональные тесты и тесты безопасности. Diagnostic qualification-only surfaces проверяются отдельными stage/HIL cases и не засчитываются как различие product control semantics.
 
 Проверяется, что:
 
-- `Release` и `Diagnostic` используют одну реализацию управления и безопасности;
-- включение `Diagnostic` не меняет `q_target`, переходы состояний, безопасные границы или коэффициенты регуляторов;
-- при одинаковом воспроизведённом входе команды приводам совпадают в пределах детерминированной численной погрешности;
+- `Release` и `Diagnostic` используют один control/state/safety core и одинаковые regulator/protection coefficients для одного CommissioningBundle;
+- для одного и того же full product-mode входа включение `Diagnostic` не меняет `q_target`, переходы `READY/TRACKING/HOLD/SAFE_HOLD`, безопасные границы или команды приводам сверх детерминированной численной погрешности;
+- qualification-only `COMMISSIONING/ACTUATOR_QUALIFICATION` surface доступна только Diagnostic, требует локальные `ENTER+UP`/`ENTER` gates и не ослабляет motor protection/safety; Release build/runtime не должен иметь доступного пути включить её;
 - дополнительная диагностическая нагрузка не нарушает временные критерии §9.17.
 
 <a id="sec-9-24-1"></a>
@@ -6382,45 +6627,62 @@ broken_internal_links = 0
 <a id="sec-10"></a>
 # 10. Порядок реализации
 
-Разработка PHANTOM организуется как последовательность крупных состояний готовности всей системы. Внутри каждого этапа Quest, EV3 и механика могут разрабатываться параллельно, если уже определены их общие контракты.
+Разработка PHANTOM организуется как последовательность проверяемых состояний готовности. Этап закрывается не по факту «код написан», а только когда получен наблюдаемый результат и выполнен его критерий завершения. Этапы 1 и 2 на момент этой ревизии считаются завершёнными; изменение требований этой главы не требует повторять их целиком, но изменённые protocol/config regressions должны оставаться зелёными.
 
-Отдельный этап не создаётся только ради отладки EV3 по искусственным пользовательским командам. Тестовый исполнитель, replay и заранее заданные `q_target` допускаются как инструменты автоматических и HIL-тестов, но штатный физический путь управления остаётся тем же, что и в готовой системе:
+Главный принцип последующих этапов — **наращивать один и тот же конечный путь вертикальными срезами**. Сначала реальная сеть, затем один физический исполнитель D, затем вся механика A/B/C, затем полный mapping/IK и общий actuator path. Отдельный gripper-протокол или отдельное приложение не создаются.
+
+Штатный полный физический путь управления остаётся тем же, что и в исходной архитектуре:
 
 ```text
 Quest tracking
 → Shoulder/Wrist mapping
 → IK
 → q_target / grip_intent
-→ сеть
-→ EV3
-→ q_ref / регуляторы / защита
-→ моторы
+→ штатный COMMAND
+→ Wi-Fi
+→ EV3 state/safety gate
+→ q_ref / регуляторы / Gripper FSM / защита
+→ A/B/C/D
+→ TELEMETRY
+→ Quest UI
 ```
 
-Безопасность, восстановление, журналирование, точность, производительность, удобство использования и автоматические тесты являются **сквозными требованиями**, а не поздними этапами. Функция не считается завершённой, если она работает функционально, но ещё не удовлетворяет применимым требованиям этих направлений.
+Ранний D-only vertical slice **не заменяет** этот путь, а использует его подмножество:
+
+```text
+Quest Hand/grasp + Left Grip
+→ grip_intent
+→ тот же COMMAND
+→ Wi-Fi
+→ EV3 commissioning/state/safety gate
+→ Gripper FSM
+→ Motor D
+→ TELEMETRY
+→ Quest UI
+```
+
+Для ранних этапов используется `build_profile=Diagnostic`, `qualification_only=true` и explicit `actuator_scope_mask`. Полный `READY/TRACKING` остаётся доступен только Release-compatible complete PHANTOM.
 
 <a id="sec-10-1"></a>
 ## 10.1. Общая последовательность этапов
 
 ```mermaid
 flowchart TD
-    S1["1. Фундамент проекта"]
-    S2["2. Сборка и автономный запуск модулей"]
-    S3["3. Связь, телеметрия и наблюдаемость"]
-    S4["4. Инженерная калибровка"]
-    S5["5. Пользовательская цель и виртуальная проверка"]
-    S6["6. Сквозное физическое управление"]
-    S7["7. Стабилизация и финальная приёмка"]
+    S1["1. Фундамент проекта ✅"]
+    S2["2. Автономный запуск модулей ✅"]
+    S3["3. Wi-Fi + Quest↔EV3 + telemetry"]
+    S4["4. Физический Gripper: calibration + protection"]
+    S5["5. Quest hand → Wi-Fi → real Gripper"]
+    S6["6. Достроить A/B/C + поосевой bring-up"]
+    S7["7. Полная инженерная калибровка роборуки"]
+    S8["8. Полная пользовательская цель виртуально"]
+    S9["9. Полное физическое управление PHANTOM"]
+    S10["10. Stabilization + Release acceptance"]
 
-    S1 --> S2
-    S2 --> S3
-    S3 --> S4
-    S4 --> S5
-    S5 --> S6
-    S6 --> S7
+    S1 --> S2 --> S3 --> S4 --> S5 --> S6 --> S7 --> S8 --> S9 --> S10
 ```
 
-Последовательность задаёт точки интеграции, но не запрещает опережающую разработку. Например, IK, регуляторы EV3, обработчики ошибок или UI калибровки могут быть написаны раньше и проверены на симуляторах. Однако системный этап закрывается только после выполнения его общего критерия завершения и всех применимых сквозных требований §10.2.
+Механическая сборка A/B/C может идти параллельно этапам 3–5. Разработка Shoulder/Wrist mapping и IK также может идти параллельно, но системный gate этапа 8 закрывается после появления финальной `RobotGeometry`, чтобы виртуальная модель проверялась уже против реальной сборки.
 
 <a id="sec-10-2"></a>
 ## 10.2. Сквозные требования к каждому этапу
@@ -6429,20 +6691,23 @@ flowchart TD
 
 | Направление | Что обязательно проверяется на каждом применимом этапе |
 |---|---|
-| Безопасность и восстановление | отказ входных данных, потеря связи, неверное состояние или выход за допустимые границы не должны приводить к неконтролируемому движению; до первого физического движения должны уже работать базовые ограничения, `LOCAL_STOP`, watchdog и безопасное отключение моторного выхода |
+| Безопасность и восстановление | отказ входных данных, потеря связи, неверное состояние или выход за допустимые границы не должны приводить к неконтролируемому движению; до первого физического движения конкретного узла уже работают его локальные limits, `LOCAL_STOP`, watchdog/`phantom-safety`, безопасное отключение motor output и проверенный `POWER_CUT` |
+| Scope isolation | любой привод вне `actuator_scope_mask` имеет hard-inhibit на стороне EV3; сетевой пакет, ошибка Quest или неверное поле `COMMAND` не могут расширить scope |
 | Журналирование и диагностируемость | значимые переходы состояний, ошибки и отказы должны оставлять структурированный диагностический след; новые классы отказов добавляются в события и, где требуется, в `FlightRecorder` |
 | Точность | для новой функции заранее определяется измеряемая ошибка; расчёты не должны накапливать программный drift; физические допуски проверяются по мере появления соответствующего оборудования |
 | Производительность | новая функция не должна нарушать бюджет кадра Quest, 50-Hz цикл EV3, ограничения очередей, памяти и сетевого обмена; критический путь профилируется сразу, а не в конце проекта |
 | Удобство использования | пользовательские действия и ошибки сразу проектируются с русскими понятными сообщениями; инженерные детали не попадают в обычный UI; новые обязательные действия не добавляются без необходимости |
 | Автоматические тесты | всё, что можно проверить без человека и физической неопределённости, получает unit/property/protocol/replay/simulation regression и входит в `PRE-INSTALL AUTO` |
-| Аппаратные и ручные проверки | по мере появления физической функции добавляются `DEVICE AUTO`, HIL и необходимые ручные safety/UX проверки из главы 9 |
+| Аппаратные и ручные проверки | по мере появления физической функции добавляются `DEVICE AUTO`, HIL и необходимые ручные safety/UX проверки из главы 9; применимость определяется active stage/profile, но финальный Release требует полный production комплект |
 
-Если дефект обнаружен на более позднем этапе, исправление возвращается в тот самый слой, где оно должно было быть обнаружено. Если дефект воспроизводим программно, вместе с исправлением добавляется автоматический regression test.
+Если дефект обнаружен на более позднем этапе, исправление возвращается в тот слой, где он должен был быть обнаружен. Если дефект воспроизводим программно, вместе с исправлением добавляется автоматический regression test. После исправления повторяется затронутый stage gate и применимый regression.
 
 <a id="sec-10-3"></a>
 ## 10.3. Этап 1 — фундамент проекта
 
-Цель этапа — создать общий технический фундамент, позволяющий Quest и EV3 разрабатываться независимо без расхождения в математике, состояниях и формате данных.
+**Статус:** завершён по исходному gate.
+
+Цель этапа — создать общий технический фундамент, позволяющий Quest и EV3 разрабатываться независимо без расхождения в математике, состояниях и формате данных. Текущая переразбивка не меняет wire layout/reserved bits/state/fault numeric contract завершённого этапа 1; новые scope/profile runtime rules имеют `introduced_at_stage >= 3` и проверяются соответствующими regression gates, а не задним числом превращают исторический Stage-1 PASS в FAIL.
 
 | Направление | Работы |
 |---|---|
@@ -6453,115 +6718,223 @@ flowchart TD
 
 С самого этапа 1 действуют проверки протокола, парсинга, математических контрактов, ограниченности очередей/буферов и отсутствия секретов в артефактах. До перехода к этапу 2 выполняется zero-interaction P0 Quest platform compatibility AUTO §9.6 на exact pinned version matrix; его FAIL является архитектурным blocker, а не отложенной задачей интеграции. Качество реальных tracking observations квалифицируется отдельными bounded physical cases и не подменяет этот software gate.
 
-**Критерий завершения этапа:** чистый checkout воспроизводимо собирается; `PRE-INSTALL AUTO` проходит; Quest способен работать с симулятором EV3, EV3 controller — с mock-моторами; P0 software/platform compatibility AUTO на реальном Quest 3 пройден даже когда HMD лежит на столе; ошибки фундамента наблюдаемы и журналируются. Live tracking quality здесь не требуется, но до первого actuator milestone обязательно проходит отдельную §9.6 physical qualification.
+**Этап считается выполненным, если:** чистый checkout воспроизводимо собирается; `PRE-INSTALL AUTO` проходит; Quest способен работать с симулятором EV3, EV3 controller — с mock-моторами; P0 software/platform compatibility AUTO на реальном Quest 3 пройден, включая корректную классификацию лежащего/неактивного HMD без ложного software FAIL; ошибки фундамента наблюдаемы и журналируются. Live tracking quality здесь не требуется. Scope-specific live qualification выполняется непосредственно перед первым соответствующим actuator milestone: для D-only — grasp/Left Grip/QR; полный Shoulder/Wrist §9.6 обязателен до пользовательского движения A/B/C, а не до первого движения Gripper.
 
 <a id="sec-10-4"></a>
-## 10.4. Этап 2 — сборка и автономный запуск модулей
+## 10.4. Этап 2 — автономный запуск модулей и доступного I/O
 
-Цель этапа — получить три самостоятельных модуля: физический PHANTOM, установленный EV3 runtime и приложение Quest, каждый из которых можно проверить отдельно.
+**Статус:** завершён по исходному autonomous-startup gate.
 
-| Направление | Работы |
-|---|---|
-| Механика | окончательная Studio/LDraw-компоновка и BOM; Base, Shoulder, Elbow, Forearm, Gripper; противовес; кабели; физические ограничители; `LOCAL_STOP`; `GRIPPER_HOME`; аппаратный `POWER_CUT`; десять QR-креплений |
-| EV3 | ev3dev; Wi-Fi; обнаружение A/B/C/D и `LOCAL_STOP`; реальный sysfs `MotorBackend`; 50-Hz цикл; `phantom-safety`; безопасные startup/shutdown; телеметрические источники |
-| Quest | OpenXR; `LOCAL_FLOOR`; Spatial Data/Scene/Anchor/QR capabilities; Multimodal lifecycle; Hand Tracking; Body Tracking; левый Touch Plus; распознавание всех типов QR; базовый русский UI состояния |
+Цель — Quest и EV3 запускаются независимо; EV3 безопасен при zero output. Полная механика и Wi-Fi не являются gate. Исторический Stage-2 PASS сохраняется; новые `qualification_only`/`actuator_scope_mask` и scope-aware DEVICE AUTO строки вводятся начиная с этапов 3–4. До первого движения D на этапе 4 установленный build обязан повторно пройти применимый DEVICE AUTO уже с gripper-only profile; это regression/migration gate новой функции, а не задним числом изменение старого отчёта этапа 2.
 
-До первого автоматического движения обязательно выполняются ручные механические safety-проверки §9.1.6. Моторный код уже должен иметь ограничения мощности/времени и безопасный stop path, даже если полноценное сквозное управление ещё отсутствует.
-
-**Критерий завершения этапа:** механика проходит сухую проверку; EV3 стабильно работает на реальном Brick без неконтролируемого motor output; Quest автономно запускается, имеет требуемые XR/QR adapters и проходит P0 software/platform compatibility AUTO на столе; `PRE-INSTALL AUTO` и применимые `DEVICE AUTO` проходят для текущих артефактов. Качество живых XR/QR observations фиксируется отдельными bounded physical cases и блокирует первый actuator milestone, но отсутствие live samples у лежащего HMD не блокирует software compatibility. Сборка observation-only модулей при недоступном оборудовании допустима как промежуточный результат, но этап 2 не считается завершённым без связанного P0 report, EV3 DEVICE AUTO и механического evidence; неожиданный `NOT_RUN` не является PASS.
+**Этап считается выполненным, если:** Quest и EV3 воспроизводимо запускаются на реальном оборудовании; `phantom-controller`/`phantom-safety` heartbeat и takeover проходят zero-output tests; scoped I/O обнаруживается корректно; отсутствующий out-of-scope I/O не считается fault; ни startup, ни shutdown не создают ненулевой motor output; применимые `PRE-INSTALL AUTO`/`DEVICE AUTO` имеют PASS.
 
 <a id="sec-10-5"></a>
-## 10.5. Этап 3 — связь, телеметрия и наблюдаемость
+## 10.5. Этап 3 — Wi-Fi EV3, Quest↔EV3 и телеметрия
 
-Цель этапа — соединить реальные Quest и EV3 и сделать состояние системы полностью наблюдаемым до разрешения пользовательского движения.
+Цель — реальная сеть без actuator motion. Используется `qualification_only=true`, `actuator_scope_mask=0x00` либо эквивалентный network diagnostic profile.
 
 | Направление | Работы |
 |---|---|
-| Quest | DNS-SD/mDNS; UDP/HMAC client; установка и восстановление сессии; приём `TELEMETRY`; отображение состояния, энкодеров, батареи и ошибок |
-| EV3 | публикация сервиса; parser/HMAC; session/sequence/transaction semantics; watchdog; штатная и диагностическая телеметрия |
-| Диагностика | общие `build_id`, config hashes и `incident_id`; структурированные события соединения; базовые `FlightRecorder`; видимость потерь/дубликатов/перезапусков |
-| Проверка | golden/protocol/fuzz tests; смена IP; потеря пакетов; reconnect; process restart; повторяемые telemetry bursts по `<=60 s`; контроль bounded queues и CPU/network budget |
+| EV3/Wi-Fi | подключить и проверить `N150 Wireless USB Adapter WNA1100`; один раз provision SSID/credential через trusted engineering path; DHCP; auto reconnect после boot; DNS-SD/mDNS `_phantom-ev3._udp.local`; network logs без credential |
+| Security | provision независимый `control` PSK/key_id по §8.11 и проверить CONTROL-authenticated network-only session; commissioning PSK является отдельным secret и может быть provisioned заранее, но не требуется для закрытия network-only gate этапа 3 |
+| Quest | discovery по `robot_id`; `HELLO/HELLO_ACK`; HMAC; `PING/PONG`; receive `TELEMETRY`; русский экран состояния |
+| Reliability | IP change; Wi-Fi loss; reconnect; controller restart; stale session; loss/duplicate packets; повторяемые telemetry/network bursts отдельными bounded cases `<=60 s`; bounded queues; CPU/network budget |
+| UI/telemetry | connection/session state, battery, controller state/fault, command age, `build_id`/config hashes/`incident_id`; Diagnostic — raw counters where available |
+| Диагностика | structured connection/session events; базовый bounded `FlightRecorder`; доказуемая видимость loss/duplicate/restart/config mismatch без блокировки motor loop |
 
-Моторный output от пользовательских команд на этом этапе остаётся запрещённым. Любой сетевой дефект должен быть наблюдаем до перехода к калибровочным движениям.
+Motor output от сети на этом этапе невозможен из-за empty actuator scope.
 
-**Критерий завершения этапа:** Quest автоматически обнаруживает EV3, создаёт аутентифицированную сессию и непрерывно получает актуальную телеметрию; сетевые ошибки безопасно обрабатываются и журналируются; телеметрия не нарушает временные и ресурсные бюджеты.
+**Этап считается выполненным, если:**
+
+1. EV3 после обычного включения стабильно поднимает Wi-Fi через WNA1100;
+2. Quest находит нужный `robot_id` без сохранённого IP;
+3. CONTROL session с отдельно provisioned control PSK аутентифицируется, `PING/PONG` работают, secret/key material не попадает в telemetry/logs;
+4. Quest непрерывно получает актуальную `TELEMETRY`;
+5. reboot/restart/IP change/краткая потеря Wi-Fi корректно обнаруживаются и восстанавливаются новой session;
+6. stale/replayed packets не меняют состояние;
+7. network/telemetry load не нарушает EV3 timing budget;
+8. `build_id`/config hashes/`incident_id` и structured network events позволяют связать Quest↔EV3 evidence; применимый `FlightRecorder` работает без unbounded logging;
+9. Wi-Fi credential отсутствует в Git/build manifest/CommissioningBundle/обычных логах, а после первоначального provisioning EV3 повторно подключается без PC;
+10. за весь gate зарегистрировано ноль motor writes с nonzero duty.
 
 <a id="sec-10-6"></a>
-## 10.6. Этап 4 — инженерная калибровка робота
+## 10.6. Этап 4 — физический Gripper: калибровка и локальная защита
 
-Цель этапа — независимо от пользовательского управления решить задачи физической геометрии робота, соответствия энкодеров реальным углам и стартовой абсолютной привязки.
+Цель — получить полностью квалифицированный Motor D + Gripper **без Base/Shoulder/Elbow**. Profile: `Diagnostic`, `qualification_only=true`, `actuator_scope_mask=0x08`.
 
 | Направление | Работы |
 |---|---|
-| Quest | `ShoulderCenter`, `ElbowCenter`, `GripperCenter` из QR-пар; `RobotBaseFrame`; векторы звеньев; `q_qr`; рабочие поверхности губок; мастер инженерной калибровки |
-| EV3 | ограниченные `CALIBRATION_JOG`; encoder snapshots; `SET_DRIVE_CALIBRATION`; `SET_JOINT_REFERENCE`; rollback/hash; люфт A/B/C; нелинейные curves Gripper |
-| Механика | точная геометрия QR-креплений; жёсткость; hard stops; свободные калибровочные объёмы; проверка порядка D → C → B → A |
-| Проверка | сначала симуляция алгоритма; затем автоматизированная низкоскоростная HIL-калибровка с полной остановкой перед каждым QR-измерением; контроль повторяемости, точности, времени и безопасного прерывания |
+| Механика | законченный Gripper; жёсткое безопасное крепление стенда; `GRIPPER_HOME`; JAW_LEFT/RIGHT; pinch zone; `POWER_CUT` |
+| EV3 | D encoder; bounded `CALIBRATION_JOG`; home; `E_closed`; open search; timeout/stall/contact; scoped hard-inhibit A/B/C |
+| Security | provision отдельный commissioning PSK/key_id по §8.11 в Diagnostic build/Quest secure storage; control PSK не должен авторизовать `COMMISSIONING` |
+| Quest/QR | JAW poses → contact points → actual gap; build opening/closing curves; validation points |
+| Persistence | сохранить partial qualification `DriveCalibration[D]`; изменение D mechanics/QR/contact transforms инвалидирует его |
 
-На этом этапе пользовательская рука не является источником движения. Это **не отдельный альтернативный режим управления**, а специальная инженерная процедура, необходимая для получения `RobotGeometry`, `DriveCalibration` и `JointReference`.
+Полная curve calibration выполняется после сборки/изменения Gripper, **не при каждом запуске**.
 
-**Критерий завершения этапа:** калибровка повторяема, даёт допустимые ошибки главы 9, не накапливает drift, безопасно прерывается при ошибках и оставляет достаточный журнал; обычная стартовая QR-привязка проходит без движения робота.
+**Этап считается выполненным, если:**
+
+1. D и `GRIPPER_HOME` однозначно обнаруживаются, A/B/C могут отсутствовать;
+2. отдельный commissioning PSK provisioned/валиден; control key не авторизует commissioning; local commissioning arm создаётся только физическим ENTER+UP в `DISCOVERY`, а commissioning `HELLO` может consume его только в bounded window; сеть сама по себе не может создать authority;
+3. процедура §5.16.8 полностью проходит на реальном Gripper;
+4. определены `E_closed`, `E_open_max`, opening/closing curves и measured hysteresis;
+5. контрольные раскрытия удовлетворяют §9.14;
+6. stall до home, opening jam и timeout дают fault, а не ложный endpoint;
+7. закрытие на объекте переходит в contact policy и не продолжает длительно наращивать усилие;
+8. `LOCAL_STOP`, safety heartbeat loss и `POWER_CUT` корректно прекращают движение;
+9. A/B/C имеют zero motor writes независимо от входных данных;
+10. calibration D сохраняется атомарно и после reload проходит hash/schema validation;
+11. успешное сохранение создаёт новую qualification `CommissioningBundle` revision, старая session становится config-stale, а новый `HELLO` подтверждает новый bundle hash до перехода к этапу 5.
 
 <a id="sec-10-7"></a>
-## 10.7. Этап 5 — пользовательская цель и виртуальная проверка
+## 10.7. Этап 5 — Quest управляет реальным Gripper
 
-Цель этапа — завершить вычисление команды пользователя на Quest и проверить её без физического движения PHANTOM.
-
-| Направление | Работы |
-|---|---|
-| Quest | `human_arm_reach`; стандартный OpenXR grasp + optional `GripRemapProfile`; временное согласование Shoulder/Wrist; pure `P_requested` + filtered `P_control`; рабочая область; IK/FK; `grip_intent`; виртуальная модель; READY/HOLD-предикаты без motor enable |
-| EV3/симулятор | штатный сетевой путь принимает рассчитанные команды с физическим output=0 или через симулятор и возвращает телеметрию в том же формате, что реальный EV3 |
-| Проверка | property tests IK/FK; tracking replay; одинаковая поза руки → одинаковая абсолютная цель; tracking drop; Left Grip; workspace clipping; frame budget; русский мастер пользовательской калибровки |
-
-Заранее заданные `q_target` могут использоваться тестами, но не образуют отдельный продуктовый режим или этап. Основным источником штатной цели уже является Quest tracking.
-
-**Критерий завершения этапа:** пользователь двигает рукой и видит правильное движение виртуального PHANTOM; тот же поток команд проходит через штатные сетевые контракты; целевые значения детерминированы, ограничены рабочей областью, достаточно быстры и диагностируемы.
-
-<a id="sec-10-8"></a>
-## 10.8. Этап 6 — сквозное физическое управление
-
-Цель этапа — соединить уже проверенные tracking/IK, сеть, калибровку и реальный моторный контур без введения отдельного способа управления приводами.
-
-| Направление | Работы |
-|---|---|
-| Quest | текущие `q_target/grip_intent` от Hand/Body Tracking; `Left Grip`; READY/TRACKING/HOLD/SAFE_HOLD; target/actual overlay; пользовательские ошибки и восстановление |
-| EV3 | `q_ref`; ограничения скорости/ускорения; PD/feed-forward; controlled reversal; safe bounds; защита от препятствия/заклинивания; `MotorStressScore`; HOLD; contact FSM Gripper |
-| Механика | финальная настройка противовеса, трения и кабелей; квалификация допустимых скоростей и нагрузок |
-| Проверка | сначала очень низкие limits; реальные движения пользователя; HOLD; смена поз; Gripper; replay/HIL через тот же `COMMAND` path; постепенное увеличение limits только после прохождения соответствующих тестов |
-
-Тестовый исполнитель может подавать воспроизводимые `COMMAND` через тот же сетевой интерфейс для регрессий и HIL. Он не меняет архитектуру управления и не создаёт отдельную функцию «управление без пользователя».
-
-**Критерий завершения этапа:** PHANTOM сквозно повторяет текущую позу руки с требуемой точностью и задержкой, не выходит за калиброванные границы, безопасно реагирует на применимые отказы, не работает на износ, не нарушает 50-Hz/XR бюджеты и оставляет достаточный диагностический след.
-
-<a id="sec-10-9"></a>
-## 10.9. Этап 7 — стабилизация и финальная приёмка
-
-Этот этап **не является моментом, когда добавляются безопасность, точность, производительность, журналирование или UX**. Они уже являются обязательными свойствами всех предыдущих этапов. Здесь выполняется финальная квалификация всей системы и исправление остаточных проблем.
-
-Все найденные дефекты проходят цикл:
+Это первый пользовательски наблюдаемый end-to-end milestone:
 
 ```text
-воспроизводимый дефект
-→ определить слой возникновения
-→ добавить автоматический/HIL regression test, если возможно
-→ исправить Quest / EV3 / механику
-→ повторить затронутый stage gate
-→ полный regression
+запустить то же Quest-приложение
+→ найти EV3 по Wi-Fi
+→ проверить сохранённую DriveCalibration[D]/bundle revision
+→ LOCAL_COMMISSION_ARM на EV3 (ENTER+UP)
+→ новая commissioning session
+→ быстро получить текущую GripperReference по JAW_LEFT/RIGHT + encoder D
+→ local ENTER confirmation → COMMISSIONING/ACTUATOR_QUALIFICATION
+→ отпустить Left Grip → armed
+→ новый Left Grip rising edge
+→ правая кисть / OpenXR grasp
+→ grip_intent
+→ штатный COMMAND
+→ EV3 Gripper FSM
+→ Motor D
+→ предмет схвачен / отпущен
+→ TELEMETRY обратно в Quest
 ```
 
-Финально выполняются:
+Отдельного gripper-приложения и отдельного wire protocol нет. `q_base/q_shoulder/q_elbow=0` и игнорируются; A/B/C hard-inhibited.
 
-- полный `PRE-INSTALL AUTO` одного Release candidate;
-- установка именно этих проверенных артефактов;
-- полный применимый `DEVICE AUTO`;
-- HIL-калибровка, safety, сеть, точность, временные и ресурсные тесты;
-- серия bounded прогонов по `<=60 s` и повторные старты;
-- проверки `Release`/`Diagnostic`, rollback и config hashes;
-- ручная функциональная и UI/UX-приёмка готового приложения;
-- итоговый checklist §9.26.
+Минимальный HUD показывает: connection/session, engineering gripper-ready state, `grip_intent`, `grip_actual`, `grip_state` (`FREE/CONTACT/...`), battery, command freshness/RTT и fault. RTT вычисляется по `PING/PONG`.
 
-**Критерий завершения этапа:** один зафиксированный Release candidate проходит весь обязательный конвейер главы 9; незакрытых блокирующих дефектов нет; конкретная сборка PHANTOM имеет зафиксированные `RobotGeometry`, `DriveCalibration`, конфигурации и версии программных артефактов.
+**Этап считается выполненным, если:**
 
+1. пользователь запускает приложение и без PC/USB вручную подключается Quest↔EV3 через Wi-Fi;
+2. startup не повторяет полную curve calibration, если сохранённый D calibration совместим;
+3. QR+encoder startup создаёт только `GripperReference`, при этом `JointReference A/B/C` остаётся invalid;
+4. commissioning session создаётся только после локального `ENTER+UP` arm window; отдельное локальное `ENTER` подтверждение qualification обязательно и не может быть подделано сетью; отсутствие подтверждения означает, что EV3 не исполняет qualification `COMMAND`, даже если Quest продолжил UI flow;
+5. при отпущенном `Left Grip` D не выполняет новое движение;
+6. после deliberate rising edge сжатие правой кисти пропорционально закрывает реальный Gripper, раскрытие — открывает;
+7. реальный предмет можно взять, удержать без постоянного продавливания и отпустить;
+8. потеря `graspReady`, focus, Wi-Fi/session, watchdog или `LOCAL_STOP` прекращает дальнейшее движение безопасным образом;
+9. после восстановления движение само не возобновляется — нужен release→новый rising edge;
+10. telemetry на Quest отражает реальное `grip_actual/grip_state`, battery, session/fault и command freshness;
+11. серия повторных grab/release bounded runs не даёт накопленного encoder drift/зависания FSM;
+12. A/B/C отсутствуют либо неподвижны; число nonzero motor writes на них равно 0.
+
+После выполнения этого этапа существует законченный стенд **Quest 3 + EV3 + Gripper**, способный калиброваться/привязываться при запуске, хватать и отпускать предметы рукой пользователя и показывать телеметрию.
+
+<a id="sec-10-8"></a>
+## 10.8. Этап 6 — завершение механики и поосевой bring-up Base/Shoulder/Elbow
+
+Цель — достроить физическую роборуку и доказать исправность A/B/C без user tracking control.
+
+| Направление | Работы |
+|---|---|
+| Механика | Base, Shoulder, Elbow, links, Forearm, установленный Gripper; gears/turntables; alignment; counterweight; cables; hard stops; все QR mounts |
+| EV3 | provision/version engineering `qualification_only=true` calibration bundle/profile для фактически собранного набора осей (после сборки обычно scope `0x0F`), без user `COMMAND` authority; A/B/C discovery; encoder direction; bounded low-duty `CALIBRATION_JOG`; stop/reversal; provisional limits; bring-up выполняется только в `COMMISSIONING/CALIBRATION`; scope может содержать все фактически подключённые оси стенда, но каждый JOG двигает ровно одну, а `ACTUATOR_QUALIFICATION` пользовательскими командами A/B/C ещё запрещён |
+| Safety | only one commissioning axis moving; local stop/watchdog/process crash; mechanical clearance |
+
+**Этап считается выполненным, если:**
+
+1. полная механика собрана по зафиксированной mechanical revision;
+2. установлен versioned Diagnostic calibration profile/bundle с осознанным scope собранных осей; его hash совпадает на используемых engineering tools/EV3; A, B и C однозначно обнаружены и типы/encoder resolution верны;
+3. каждая ось отдельно выполняет малые jog в обе стороны и корректно останавливается;
+4. sign encoder↔physical direction установлен без попытки считать номинальные 5:1 точной калибровкой;
+5. hard-stop/cable margin и basic jam protection проверены;
+6. `LOCAL_STOP`, controller crash и safety takeover прекращают движение;
+7. пользовательская рука не может управлять A/B/C на этом этапе.
+
+<a id="sec-10-9"></a>
+## 10.9. Этап 7 — инженерная калибровка всей роборуки
+
+Цель — получить complete production-compatible `CommissioningBundle`.
+
+Порядок движущейся калибровки сохраняется `D → C → B → A`. D не разрабатывается заново: его этап-4 calibration переносится только если mechanical/QR/contact revision совместима, затем обязательно повторно валидируется после установки на Forearm.
+
+**Этап считается выполненным, если:**
+
+1. `RobotGeometry` полной сборки измерена и имеет hash;
+2. `DriveCalibration A/B/C/D` прошла fit + holdout validation;
+3. Gripper calibration после окончательной установки подтверждена либо корректно пересоздана;
+4. mechanical/cable bounds зафиксированы;
+5. `RobotCollisionModel` и PayloadProfile-specific `JointSafeSet` сгенерированы/проверены;
+6. обычная неподвижная startup QR-привязка создаёт `JointReference A/B/C` + `GripperReference` без автоматического движения;
+7. повторное QR measurement согласуется с `q_actual/grip_actual` в допусках главы 9;
+8. bundle имеет `qualification_only=false`, scope=`0x0F` и может пройти prerequisites `READY`.
+
+<a id="sec-10-10"></a>
+## 10.10. Этап 8 — полная пользовательская цель и виртуальная проверка
+
+Цель — завершить весь Quest-side full-arm path без user-driven physical A/B/C motion.
+
+```text
+Body_RightShoulder + Wrist
+→ time alignment/filter
+→ P_requested / P_control
+→ workspace
+→ fixed-branch IK
+→ JointSafeSet/collision preview
+→ q_target
+```
+
+Gripper channel продолжает использовать проверенный `grip_intent` и остаётся regression path.
+
+**Этап считается выполненным, если:**
+
+1. `human_arm_reach` calibration проходит требуемые тесты;
+2. Shoulder/Wrist temporal alignment и tracking qualification §9.6 пройдены;
+3. IK/FK/property/replay tests проходят;
+4. одинаковый текущий Shoulder→Wrist vector даёт одинаковую абсолютную цель независимо от истории;
+5. virtual PHANTOM корректно следует руке и показывает clipping/invalid target;
+6. tracking drop/reference-space change/Left Grip semantics дают ожидаемые HOLD/SAFE_HOLD predicates;
+7. calculated `q_target` проходит по тому же network codec/path в simulator/zero-output real EV3;
+8. физические A/B/C всё ещё не получают user-driven motor output.
+
+<a id="sec-10-11"></a>
+## 10.11. Этап 9 — сквозное физическое управление всей роборукой
+
+Цель — расширить уже работающий D vertical slice на A/B/C после complete commissioning.
+
+В HIL привод authority наращивается постепенно. Рекомендуемый default order — **C → B+C → A+B+C**, Base последней; конкретный порядок может быть изменён только documented safety result. В этой фазе scope, включающий A/B/C, разрешается потому что уже существуют полные `RobotGeometry`, `JointReference` и `JointSafeSet`. После qualification gates финальный Release работает scope=`0x0F` и обычными `READY/TRACKING/HOLD/SAFE_HOLD`.
+
+**Этап считается выполненным, если:**
+
+1. каждый incremental scope проходит low-limit HIL без collision/safety violation;
+2. затем полный A+B+C+D path работает через штатный `COMMAND` от реального Quest tracking;
+3. TCP повторяет Shoulder→Wrist с требуемой точностью/latency, Gripper — кисть;
+4. скорость/ускорение/duty/reversal/PD/feed-forward/`MotorStressScore` проходят HIL;
+5. HOLD/SAFE_HOLD, tracking loss, network loss, stale command, `LOCAL_STOP`, stall/contact и process failure работают безопасно;
+6. робот не выходит из `JointSafeSet` и independent bounds;
+7. 50-Hz EV3/XR budgets выполняются;
+8. target/actual/incident telemetry достаточна для разбора отказа;
+9. после успешной qualification engineering scope отключён, production run использует complete Release profile `0x0F`.
+
+<a id="sec-10-12"></a>
+## 10.12. Этап 10 — стабилизация и финальная приёмка
+
+На этом этапе не «добавляются потом» safety/accuracy/logging/UX; выполняется финальная квалификация уже законченной системы.
+
+**Этап считается выполненным, если:**
+
+1. один зафиксированный Release candidate проходит полный `PRE-INSTALL AUTO`;
+2. именно эти артефакты установлены на Quest/EV3;
+3. полный production `DEVICE AUTO` проходит с A/B/C/D и обязательными sensors;
+4. все применимые HIL/safety/network/calibration/accuracy/resource tests главы 9 PASS;
+5. серия независимых bounded runs `<=60 s` и повторных starts/restarts не выявляет blocking regressions;
+6. Release/Diagnostic, rollback, config/bundle/schema hashes согласованы;
+7. manual functional/UI/UX acceptance выполнена на том же Release candidate;
+8. checklist §9.26 полностью закрыт;
+9. конкретная физическая сборка имеет зафиксированные mechanical revision, `RobotGeometry`, `DriveCalibration`, payload/safe-set configs и software versions;
+10. blocking defects отсутствуют.
 
 <a id="sec-11"></a>
 # 11. Приложения
@@ -6768,44 +7141,75 @@ S28 Actuator input разрешён только при совпадении run
 S29 HMAC не считается механизмом confidentiality; v1 требует доверенную/изолированную LAN.
 S30 Неизвестный safety-critical `MEASURED` запрещает READY.
 S31 Превышение квалифицированного payload/swept-volume envelope запрещено.
-S32 Каждый `q_target` и каждый промежуточный `q_ref` принадлежит локальному EV3 `JointSafeSet`.
+S32 Каждый исполняемый A/B/C `q_target` и каждый промежуточный `q_ref` принадлежит локальному EV3 `JointSafeSet`; D-only scope не использует joint-space `q_ref`.
 S33 `GRIPPER_HOME`, а не stall, является closed reference Gripper; stall до home = fault.
 S34 Session id генерируется только EV3 после authenticated HELLO; client nonce retry идемпотентен лишь в bounded retry-window, а новая session никогда не наследует старые sequence/targets/armed state.
-S35 Войти в `COMMISSIONING` одной UDP-командой невозможно: требуется локальный arm + commissioning role/key.
-S36 Любой reference-space change/resume требует `HOLD` и нового re-arm; старая `RobotLocalization` не используется.
+S35 Войти в `COMMISSIONING` одной UDP-командой невозможно: `LOCAL_COMMISSION_ARM` создаётся только локально в `DISCOVERY`, а `HELLO role=COMMISSIONING` обязан consume это bounded arm-window; перейти в `ACTUATOR_QUALIFICATION` также нельзя без отдельного локального ENTER confirmation.
+S36 Любой reference-space change/resume снимает motion permission и требует deliberate re-arm; в полном A/B/C path старая `RobotLocalization` инвалидируется и используется `SAFE_HOLD/HOLD`, а D-only qualification не требует `RobotLocalization`, но остаётся dearmed до повторной проверки применимых inputs.
 S37 Room mesh/Scene floor anchor не является обязательным условием core actuator path.
 S38 `P_requested_B` является pure function aligned Shoulder/Wrist + static mapping config; tracking filter state не меняет эту математическую цель.
-S39 During shoulder dropout grace stale Shoulder никогда не комбинируется со fresh Wrist; замораживается последняя aligned actuator target.
+S39 В full-arm path during Shoulder/Wrist dropout grace stale joint никогда не комбинируется со fresh second joint; замораживается последняя aligned actuator target. Это не применяется к D-only scope, где actuator input — grasp.
 S40 PayloadProfile/PayloadState меняются только в `READY/HOLD` при stationary motors; atomically переключается совместимый profile-specific JointSafeSet и всегда снимается armed-latch.
 S41 State-changing transactions строго one-in-flight и возрастают без дырок; EV3 хранит только last completed id/hash/ACK, поэтому retry не повторяет side effect и cache exhaustion отсутствует.
 S42 `JointSafeSet` runtime format v1 — GRID3D_V1 для активного PayloadProfile; q_ref path не перескакивает unsafe cells.
 S43 Reboot не обнуляет накопленную motor-stress protection: warning/critical checkpoint восстанавливается fail-closed по restart floor/cooldown policy.
+S44 Ось вне actuator_scope_mask никогда не получает nonzero motor write; scope задаётся только versioned bundle/config и не расширяется сетью.
+S45 D-only qualification может двигать Gripper при JointReference A/B/C invalid, но только при валидных DriveCalibration[D]+GripperReference и commissioning qualification gates; READY при этом запрещён.
 ```
 
 <a id="sec-11-4"></a>
 ## 11.4. Быстрая проверка перед движением
 
+Проверка зависит от режима; нельзя применять production checklist к раннему стенду и затем обходить пункты вручную.
+
+### 11.4.1. Полный `READY/TRACKING`
+
 ```text
 [ ] Quest spatial permission granted
-[ ] `LOCAL_FLOOR` valid; Spatial Data + Scene/Anchor/QR capabilities valid
-[ ] PHANTOM найден по ожидаемому robot_id через discovery
-[ ] authenticated session valid
-[ ] обязательный QR marker set распознан
+[ ] LOCAL_FLOOR + required QR capabilities valid
+[ ] expected robot_id discovered; authenticated CONTROL session valid
+[ ] qualification_only=false; actuator_scope_mask=0x0F
+[ ] complete CommissioningBundle/RobotGeometry/DriveCalibration hashes compatible
 [ ] RobotLocalization valid
-[ ] RobotGeometry/DriveCalibration hashes compatible
 [ ] JointReference A/B/C valid
 [ ] GripperReference valid
-[ ] Body_RightShoulder tracking current/valid
-[ ] Wrist tracking current/valid и temporal alignment проходит threshold
-[ ] human_arm_reach calibration valid
-[ ] `IGripSignalProvider` ready; опциональный `GripRemapProfile` валиден/совместим либо отключён
-[ ] MotorStressScore каждой оси ниже запрета движения
-[ ] Base cable service loop свободен
-[ ] CommissioningBundle hash совпадает; active PayloadProfile-specific `JointSafeSet`/hash и collision margins загружены
-[ ] LOCAL_STOP released; GRIPPER_HOME healthy; POWER_CUT установлен/проверен
-[ ] нет latched fault
-[ ] выбран допустимый PayloadProfile и корректный PayloadState; рабочий объём свободен от людей/посторонних препятствий; оператор вне swept/pinch zones
+[ ] Body_RightShoulder + Wrist current/valid; temporal alignment valid
+[ ] human_arm_reach valid
+[ ] IGripSignalProvider ready; optional GripRemapProfile valid/compatible or disabled
+[ ] active PayloadProfile/JointSafeSet/CollisionModel valid; PayloadState is valid for selected profile
+[ ] MotorStressScore of every axis/battery/loop health permit motion
+[ ] Base cable service loop free
+[ ] workspace free of people/unexpected obstacles; operator outside swept/pinch zones
+[ ] LOCAL_STOP released; GRIPPER_HOME healthy; POWER_CUT checked
+[ ] no latched fault
+[ ] Left Grip observed released since last arm-invalidating event
 ```
+
+### 11.4.2. Gripper-only `COMMISSIONING/ACTUATOR_QUALIFICATION`
+
+```text
+[ ] build_profile=Diagnostic
+[ ] qualification_only=true; actuator_scope_mask=0x08
+[ ] OpenXR session/focus valid; Hand/grasp + left Touch Plus + Multimodal scope prerequisites valid
+[ ] QR Trackable capability valid until current-run GripperReference is accepted
+[ ] expected robot_id discovered; authenticated COMMISSIONING session valid
+[ ] current bundle hash matches on Quest/EV3
+[ ] Motor D present/type/count_per_rot valid
+[ ] DriveCalibration[D] compatible and validated
+[ ] GripperReference current-run valid
+[ ] GRIPPER_HOME healthy
+[ ] grasp provider ready; GRASP_VALID current
+[ ] left Touch Plus present
+[ ] commissioning session создана из локального ENTER+UP arm-window; session-local authority current
+[ ] пользователь выполнил local ENTER qualification confirmation; EV3 вошёл во внутреннюю phase с qualification_armed=false
+[ ] после local ENTER EV3 получил OFF/HOLD COMMAND при фактически отпущенном Left Grip; только следующий rising edge может разрешить motion
+[ ] LOCAL_STOP released; POWER_CUT checked; pinch zone clear
+[ ] safety supervisor/watchdog/battery/loop health permit motion
+[ ] no latched fault
+[ ] A/B/C are out of scope and hard-inhibited; nonzero writes = 0
+```
+
+Для этого checklist **не требуются** `RobotLocalization`, `JointReference A/B/C`, Body Shoulder/Wrist, `human_arm_reach`, PayloadProfile или `JointSafeSet`, потому что ни один из них не участвует в D-only actuator path.
 
 <a id="sec-11-5"></a>
 ## 11.5. Технические источники
@@ -6941,6 +7345,7 @@ S43 Reboot не обнуляет накопленную motor-stress protection:
 ## 11.7. Итоговый поток данных
 
 ```text
+Полный PHANTOM / A+B+C:
 Правая рука пользователя
 → OpenXR Wrist
 → live Body_RightShoulder + live Wrist (time-aligned)
@@ -6954,19 +7359,31 @@ S43 Reboot не обнуляет накопленную motor-stress protection:
 → Base / Shoulder / Elbow
 → физическое повторение текущей позы руки
 
+Gripper / D (одинаковый functional path в полном режиме и D-only qualification):
 Правая кисть
-→ `IGripSignalProvider` / optional remapped `humanGrip`
+→ IGripSignalProvider / optional remapped humanGrip
 → grip_intent
-→ EV3: ограниченный по скорости автомат захвата
+→ authenticated COMMAND
+→ EV3 Gripper FSM + local rate/duty/contact protection
+→ Motor D
 → фактическое раскрытие губок
+→ TELEMETRY.grip_actual/grip_state → Quest
 
-QR PHANTOM
+QR full PHANTOM:
 → RobotLocalization + проверка RobotGeometry
-→ q_qr / раскрытие губок только при инженерной калибровке и привязке при запуске
-→ QR↔энкодерная привязка/калибровка
-→ после READY только обратная связь по энкодерам
-```
+→ q_qr A/B/C + jaw opening при engineering calibration/startup reference
+→ JointReference A/B/C + GripperReference
 
+QR D-only qualification:
+→ JAW_LEFT/RIGHT + gripper geometry
+→ jaw opening + encoder D
+→ только GripperReference; JointReference A/B/C остаётся invalid
+
+После успешной **применимой** startup reference QR tracking выключается на время encoder-based движения:
+- full Release: после полного reference и перехода к READY/TRACKING;
+- D-only: после GripperReference и допуска ACTUATOR_QUALIFICATION.
+QR снова включается только для новой reference, engineering calibration или явной диагностической проверки.
+```
 
 <a id="sec-11-8"></a>
 ## 11.8. Нормативный wire contract протокола v1
@@ -7059,7 +7476,7 @@ TELEMETRY.loop_health_flags:
   bits5..31 = 0
 
 CALIBRATION_SAMPLE.stationary_flags:
-  bits0..3 = axis A..D stationary
+  bits0..3 = axis A..D stationary для scoped/present осей; out-of-scope bits = 0
   bits4..15 = 0
 
 HELLO_ACK.gripper_capabilities:
@@ -7289,6 +7706,8 @@ COMMISSIONING_SAMPLE.quality_flags:
 ```
 
 Для всех `f32` приёмник обязан проверить `isfinite`; диапазоны определяются schema и active `CommissioningBundle`. `DIAGNOSTIC_TELEMETRY` не расширяет actuator authority. `payload_length` обязан **точно** совпадать с указанной длиной; variable-length payload v1 отсутствуют. Для gripper curves длина остаётся fixed 16+16 узлов, а реальные counts задают число используемых элементов — это исключает allocator/parser ambiguity.
+
+`actuator_scope_mask` намеренно **не добавляется в v1 datagram layouts**: он является частью versioned `CommissioningBundle`, а обе стороны уже обязаны сверять `commissioning_bundle_hash`. Поэтому текущие payload lengths и golden vectors не меняются. В qualification-only scope все fixed-array поля out-of-scope осей обязаны передаваться каноническими нулями и игнорироваться actuator logic; попытка использовать out-of-scope axis остаётся state/config error, а не способом расширить authority.
 
 ### Schema/code-generation gate
 

@@ -19,6 +19,7 @@ Run-Check "protocol-schema-generated" 1 {python tools/protocolgen.py --check}
 Run-Check "config-json-schema-generated" 1 {python tools/configgen.py --check}
 Run-Check "protocol-exact-hmac-fuzz" 1 {python tools/test_protocol.py}
 Run-Check "simulator-regressions" 1 {python sim/ev3-simulator/test_simulator.py}
+Run-Check "ev3-stage3-network-security" 3 {python ev3/network/test_phantom_network.py}
 Run-Check "tracking-replay-regressions" 1 {python sim/tracking-replay/test_tracking_replay.py}
 Run-Check "artifact-gate-regressions" 1 {python tools/test_artifact_check.py}
 Run-Check "secret-scan" 1 {python tools/security_scan.py}

@@ -48,7 +48,12 @@ def main():
         if package.startswith("com.unity.modules."):continue
         require(package in package_lock["dependencies"],"package missing from lock: "+package)
         require(package_lock["dependencies"][package]["version"]==version,"package lock mismatch: "+package)
-    expected_config={"quest":sha(ROOT/"config/generated/quest.generated.json"),"ev3":sha(ROOT/"config/generated/ev3.generated.json")}
+    expected_config={"quest":sha(ROOT/"config/generated/quest.generated.json"),
+                     "ev3":{"release":sha(ROOT/"config/generated/ev3.generated.json"),
+                            "diagnostic":sha(ROOT/"config/generated/ev3-network-only.generated.json")}}
+    config_manifest=load(ROOT/"config/generated/config-manifest.json")
+    expected_bundle={"release":config_manifest["artifact_hashes"]["commissioning_bundle"],
+                     "diagnostic":config_manifest["artifact_hashes"]["commissioning_bundle-network-only"]}
     expected_source={"quest":source_hash("PhantomQuest/Assets/Phantom","PhantomQuest/Assets/Plugins","PhantomQuest/Packages","PhantomQuest/ProjectSettings"),"ev3":source_hash("ev3","protocol/generated")}
     for profile in ("release","diagnostic"):
         apk=ROOT/f"build/quest/PhantomQuest-{profile}.apk";manifest_path=pathlib.Path(str(apk)+".build-manifest.json")
@@ -85,7 +90,8 @@ def main():
             require(manifest["build_profile"].lower()==profile,f"{family} profile mismatch")
             require(manifest["git_commit"]==commit and manifest.get("worktree_dirty") is False,f"{family} artifact is not from the clean current commit")
             require(manifest["protocol_schema_hash"]==protocol and manifest["specification_sha256"]==specification,f"{family} source hash mismatch")
-            require(manifest["config_hash"]==expected_config["ev3"],f"{family} config hash mismatch")
+            require(manifest["config_hash"]==expected_config["ev3"][profile],f"{family} config hash mismatch")
+            require(manifest.get("commissioning_bundle_hash")==expected_bundle[profile],f"{family} bundle hash mismatch")
             require(manifest["source_tree_hash"]==expected_source["ev3"],f"{family} artifact was not built from current sources")
             verify_checksum_manifest(directory)
             if family=="ev3-armel":

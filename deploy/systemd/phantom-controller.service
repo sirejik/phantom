@@ -1,7 +1,8 @@
 [Unit]
 Description=PHANTOM EV3 controller (fail-closed until commissioned)
 Requires=phantom-safety.service
-After=phantom-safety.service network-online.target
+After=phantom-safety.service phantom-wifi-autoconnect.service
+Before=phantom-network.service
 PartOf=phantom.target
 
 [Service]

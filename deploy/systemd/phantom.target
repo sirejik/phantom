@@ -1,6 +1,7 @@
 [Unit]
 Description=PHANTOM EV3 runtime
-Requires=phantom-safety.service phantom-controller.service
-After=network-online.target
+Requires=phantom-safety.service
+Wants=phantom-wifi-autoconnect.service phantom-controller.service phantom-network.service phantom-mdns.service
+After=phantom-wifi-autoconnect.service
 [Install]
 WantedBy=multi-user.target

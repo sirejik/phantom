@@ -19,14 +19,16 @@ for field in ("controller_sha256","safety_sha256"):
     if manifest.get(field) not in reported:raise SystemExit(field+" is absent from PRE-INSTALL artifact evidence")
 PY
 "$dest/bin/phantom-controller" --self-test;"$dest/bin/phantom-safety" --self-test
+python3 -m compileall -q "$dest/bin"
 getent group phantom >/dev/null 2>&1||addgroup --system phantom
 getent passwd phantom >/dev/null 2>&1||adduser --system --ingroup phantom --home /var/lib/phantom --no-create-home --disabled-password --shell /usr/sbin/nologin phantom
+getent group ev3dev >/dev/null 2>&1&&adduser phantom ev3dev >/dev/null 2>&1||true
 install -m 0644 "$dest/tmpfiles/phantom.conf" /etc/tmpfiles.d/phantom.conf
 systemd-tmpfiles --create /etc/tmpfiles.d/phantom.conf
 previous=$(readlink -f "$root/current" 2>/dev/null||true)
-rollback(){ systemctl stop phantom-controller.service phantom-safety.service phantom.target||true;if test -n "$previous";then ln -sfn "$previous" "$root/current";systemctl start phantom.target||true;else rm -f "$root/current";fi;rm -rf -- "$dest"; }
-systemctl stop phantom-controller.service phantom-safety.service phantom.target||true;if test -n "$previous";then ln -sfn "$previous" "$root/previous";fi;ln -sfn "$dest" "$root/current"
-install -m 0644 "$dest/systemd/phantom-controller.service" "$dest/systemd/phantom-safety.service" "$dest/systemd/phantom.target" /etc/systemd/system/
+rollback(){ systemctl stop phantom-mdns.service phantom-network.service phantom-controller.service phantom-wifi-autoconnect.service phantom-safety.service phantom.target||true;if test -n "$previous";then ln -sfn "$previous" "$root/current";systemctl start phantom.target||true;else rm -f "$root/current";fi;rm -rf -- "$dest"; }
+systemctl stop phantom-mdns.service phantom-network.service phantom-controller.service phantom-wifi-autoconnect.service phantom-safety.service phantom.target||true;if test -n "$previous";then ln -sfn "$previous" "$root/previous";fi;ln -sfn "$dest" "$root/current"
+install -m 0644 "$dest/systemd/phantom-controller.service" "$dest/systemd/phantom-safety.service" "$dest/systemd/phantom-network.service" "$dest/systemd/phantom-mdns.service" "$dest/systemd/phantom-wifi-autoconnect.service" "$dest/systemd/phantom.target" /etc/systemd/system/
 systemctl daemon-reload;systemctl start phantom.target
-systemctl is-active --quiet phantom-safety.service phantom-controller.service || { rollback;exit 1; }
+systemctl is-active --quiet phantom-safety.service phantom-wifi-autoconnect.service phantom-controller.service phantom-network.service phantom-mdns.service || { rollback;exit 1; }
 "$dest/bin/phantom-device-auto" || { rollback;exit 1; }

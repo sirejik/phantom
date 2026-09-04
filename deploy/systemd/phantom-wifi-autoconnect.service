@@ -1,0 +1,19 @@
+[Unit]
+Description=PHANTOM reconnect provisioned Wi-Fi profile
+Requires=connman.service
+After=connman.service
+Before=phantom-controller.service phantom-network.service phantom-mdns.service
+PartOf=phantom.target
+
+[Service]
+Type=oneshot
+ExecStart=/opt/phantom/current/bin/phantom-wifi-autoconnect
+RemainAfterExit=yes
+TimeoutStartSec=120
+NoNewPrivileges=true
+ProtectSystem=strict
+ProtectHome=true
+PrivateTmp=true
+
+[Install]
+WantedBy=phantom.target

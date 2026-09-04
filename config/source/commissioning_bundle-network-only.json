@@ -1,0 +1,9 @@
+{
+  "schema_version":1,"revision":1,"bundle_id":"phantom-stage3-network-only","mechanical_revision":"NOT_APPLICABLE_NETWORK_ONLY","qualification_status":"UNQUALIFIED","qualification_only":true,"actuator_scope_mask":0,
+  "robot_geometry":{"branch_sign":1,"l1_m":null,"l2_m":null,"shoulder_height_m":null,"marker_mounts":"OUT_OF_SCOPE"},
+  "drive_calibration":{"revision":1,"status":"OUT_OF_SCOPE","axes":{"A":null,"B":null,"C":null,"D":null}},
+  "collision_model":{"revision":1,"status":"OUT_OF_SCOPE","primitives":[]},
+  "joint_safe_sets":{"format":"GRID3D_V1","status":"OUT_OF_SCOPE","profiles":{}},
+  "payload_profiles":{"status":"OUT_OF_SCOPE","profiles":{}},
+  "safety_envelope":{"external_power_cut_present":null,"external_power_cut_tested":null,"payload_mass_max_kg":null,"payload_cog_offset_max_m":null,"tcp_static_moment_max_Nm":null,"swept_volume_margin_m":null,"pinch_exclusion_margin_m":null}
+}
