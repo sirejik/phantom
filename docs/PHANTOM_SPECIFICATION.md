@@ -1076,7 +1076,10 @@ TXT:
   robot_id=phantom01
   protocol_major=1
   controller_boot_id=<32 hex chars>
+  build_id=<installed build id>
 ```
+
+На EV3 publication выполняется через системный Avahi по D-Bus; собственная реализация mDNS-пакетов не используется. TXT содержит только публичную identity/compatibility metadata. Wi-Fi credential, control/commissioning PSK, HMAC material, session id и локальные пути к secret files в TXT запрещены.
 
 Scope v1 допускает обнаружение нескольких DNS-SD instances, но активна только одна выбранная/ожидаемая пара Quest↔`robot_id`; одновременное управление несколькими роботами не реализуется.
 
@@ -3401,21 +3404,35 @@ Hardware-specific sysfs код изолируется за интерфейсо�
 
 Все устанавливаемые unit-файлы обязаны проходить `systemd-analyze verify` на реальном baseline systemd 232. Директивы, появившиеся позже systemd 232 (например, `StateDirectory=`, `LogsDirectory=` или `RuntimeDirectoryPreserve=`), запрещены без совместимого fallback. Вспомогательные скрипты, выполняемые на Brick, не используют синтаксис/API Python новее 3.5 до смены pinned ev3dev image.
 
+Python-компоненты EV3 предварительно компилируются через совместимый `compileall` при установке. Сетевые long-lived services используют `Type=notify` и объявляют READY только после фактического открытия UDP listener либо успешной DNS-SD publication. Для проверенного legacy Brick startup timeout этих services равен `90 s`: медленный cold import на ARMv5TEJ не должен создавать ложный restart loop, но отсутствие READY по истечении timeout остаётся ошибкой запуска.
+
 Проверенный 03.09.2026 development fingerprint текущего Brick: `ev3dev-stretch`, Debian `9.12`, kernel `4.14.117-ev3dev-2.3.5-ev3`, machine `armv5tejl`, systemd `232`, Python `3.5.3`. Этот fingerprint задаёт фактически проверенный compatibility floor, но не заменяет обязательный SHA-256 полного ev3dev image и device SBOM из §3.2.7/§8.5.
 
 <a id="sec-7-2"></a>
 ## 7.2. Процессы
 
-EV3 содержит минимум два процесса:
+EV3 runtime содержит четыре long-lived PHANTOM service и один bounded boot helper:
 
-1. `phantom-controller` — штатное сетевое и моторное управление;
-2. `phantom-safety` — отдельный software supervisor основного процесса и `LOCAL_STOP` на том же EV3; он не является независимым аппаратным safety channel.
+1. `phantom-controller` — моторный/state-machine процесс, владелец controller boot identity и heartbeat;
+2. `phantom-safety` — отдельный software supervisor основного процесса и `LOCAL_STOP` на том же EV3; он не является независимым аппаратным safety channel;
+3. `phantom-network` — изолированный UDP/HMAC/session/telemetry worker;
+4. `phantom-mdns` — publisher DNS-SD identity через системный Avahi;
+5. `phantom-wifi-autoconnect` — `oneshot` helper для уже provisioned ConnMan profile; после успешного подключения он не остаётся сетевым менеджером.
+
+В network-only profile worker/publisher могут быть совместимыми с Python 3.5 отдельными процессами. Они не выполняются внутри 50-Hz motor loop. Переход к иному языку реализации не должен объединять socket receive, HMAC, DNS/mDNS, packet parsing, filesystem I/O, string formatting или blocking logging с критическим motor-loop path.
+
+`phantom.target` требует `phantom-safety` и только wants остальные PHANTOM units: отказ controller/network/mDNS не должен останавливать supervisor. Wi-Fi helper запускается после `connman` и до controller/network/mDNS; network требует готовый controller boot identity; mDNS требует network и `avahi-daemon`. Restart controller обязан быть обнаружен network/mDNS plane: старая session инвалидируется, TXT перепубликуется с новым boot id; workers могут остаться запущенными либо безопасно перезапуститься. Safety при этом не останавливается.
 
 ```mermaid
 flowchart LR
-  Disc[mDNS/DNS-SD] --> RX[UDP RX / HMAC]
-  RX --> R[Calibration Manager<br/>QR↔encoder]
-  RX --> T[Latest Target]
+  Conn[ConnMan] --> WiFi[bounded autoconnect helper]
+  WiFi --> RX[phantom-network<br/>UDP / HMAC / session]
+  Avahi[Avahi D-Bus] --> Disc[phantom-mdns<br/>DNS-SD identity]
+  Boot[controller_boot_id] --> RX
+  Boot --> Disc
+  RX --> Q[bounded validated input]
+  Q --> R[Calibration Manager<br/>QR↔encoder]
+  Q --> T[Latest Target]
   R --> C[Joint Controllers]
   T --> S[q_ref Shaper] --> C --> P[Motor Protection] --> M[Motor I/O]
   T --> G[Gripper FSM] --> P
@@ -3436,9 +3453,7 @@ flowchart LR
 
 Процесс выполняет:
 
-- публикацию DNS-SD/mDNS service;
-- установление аутентифицированной UDP-сессии;
-- проверку session binding (включая ожидаемый `robot_id`), `controller_boot_id` и per-direction `sequence`;
+- создание нового CSPRNG `controller_boot_id` при каждом запуске и атомарную публикацию его локальным network/mDNS workers;
 - QR↔энкодер инженерная калибровка/reference protocol;
 - хранение последней валидной цели;
 - цикл управления моторами `50 Hz`;
@@ -3451,12 +3466,18 @@ flowchart LR
 - heartbeat к `phantom-safety` и контроль обратного heartbeat;
 - неблокирующее логирование.
 
+`phantom-network` проверяет exact packet bounds, protocol/header/reserved fields, HMAC, `robot_id`, role/key slot, current `controller_boot_id`, endpoint/session и монотонный `sequence`; создаёт CONTROL session id; отвечает на `PING`; формирует bounded `TELEMETRY`; инвалидирует session при timeout или смене boot id. В scope `0x00` authenticated `COMMAND` учитывается только как protocol evidence и никогда не передаётся в motor command path.
+
+`phantom-mdns` читает только validated public identity и текущий boot id, публикует §4.6 через Avahi и перепубликует service при смене boot id. Падение либо задержка mDNS не даёт actuator authority и не блокирует `phantom-safety`.
+
 <a id="sec-7-2-2"></a>
 ### 7.2.2. `phantom-safety`
 
 `phantom-safety` не выполняет штатное регулирование. Он является программным fallback на том же EV3 и не защищает от common-mode отказа kernel/CPU/power/motor driver. Независимое снятие энергии обеспечивает `POWER_CUT`.
 
 Локальный liveness channel между процессами — pre-created nonblocking `AF_UNIX/SOCK_DGRAM` с fixed-size binary heartbeat. Оба процесса отправляют heartbeat не реже `20 Hz`; freshness измеряется только `CLOCK_MONOTONIC` получателя. Socket receive/parse никогда не блокирует `LOCAL_STOP`/takeover path.
+
+Оба socket endpoint после `bind` обязаны иметь mode `0660` и группу `phantom`; umask процесса не должен случайно запретить обмен между root supervisor и непривилегированным controller.
 
 Он:
 
@@ -3474,11 +3495,12 @@ flowchart LR
 
 В штатном режиме только `phantom-controller` может записывать команды движения в sysfs-интерфейс моторов.
 
-`phantom-controller` обязан удерживать exclusive OS lease `/run/phantom/motor-control.lock` всё время, когда имеет право писать motor sysfs. `phantom-safety` получает право записи только после проверяемой takeover-процедуры:
+`phantom-controller` обязан удерживать exclusive OS lease `/run/phantom/motor-control.lock` всё время, когда имеет право писать motor sysfs. Lock file заранее создаётся как `root:phantom 0660`; runtime directory — `phantom:phantom 0770`. Открывающий код также выполняет `fchmod(0660)`, а service account `phantom` имеет только необходимую supplementary группу доступа к EV3 motor sysfs. Ошибка открытия или получения lease является fail-closed startup error.
+
+`phantom-safety` получает право записи только после проверяемой takeover-процедуры:
 
 ```text
 heartbeat controller просрочен
-→ запретить restart/повторное получение lease через safety inhibit latch
 → SIGKILL phantom-controller (SIGSTOP недостаточен: stopped process сохраняет lock/FD)
 → подтвердить исчезновение PID / освобождение file lock в bounded timeout
 → если lease не освобождён к timeout: зафиксировать split-brain и выполнить break-glass best-effort `brake/stop` writes; оператор обязан использовать POWER_CUT
@@ -3486,10 +3508,11 @@ heartbeat controller просрочен
 → duty = 0
 → stop_action = brake
 → stop всех физически обнаруженных моторов
+→ освободить takeover lease только после завершения zero/brake writes
 → latch FAULT_CONTROLLER_PROCESS
 ```
 
-Новый `phantom-controller`, запущенный systemd, не может получить motor lease, пока safety inhibit не снят явным reset. Boot/HIL test измеряет worst-case takeover latency. `POWER_CUT` остаётся единственным независимым средством при common-mode отказе EV3/Linux.
+Для motion-capable profile latched fault по-прежнему запрещает actuator authority до явного safety reset, даже если systemd уже перезапустил процесс и тот технически получил lease. Для network-only `actuator_scope_mask=0x00` автоматический restart controller разрешён после подтверждённого `BRAKE`: новый процесс получает новый boot id, а все старые sessions/targets остаются невалидными; получить motor authority при этом невозможно. Boot/HIL test измеряет worst-case takeover latency. `POWER_CUT` остаётся единственным независимым средством при common-mode отказе EV3/Linux.
 
 Одновременная штатная запись двух процессов в один sysfs-интерфейс моторов запрещена.
 
@@ -3510,7 +3533,7 @@ heartbeat controller просрочен
 6. установить все обнаруженные моторы в безопасное состояние;
 7. установить `JointReference=invalid` для A/B/C и `GripperReference=invalid` для D;
 8. начать heartbeat с `phantom-safety`;
-9. запустить DNS-SD/mDNS publication и UDP listener;
+9. атомарно записать новый boot id в `/run/phantom/controller-boot-id`; только после этого отдельные `phantom-network` и `phantom-mdns` открывают UDP listener и публикуют DNS-SD;
 10. разрешить чтение raw энкодеров scoped осей для QR-привязки;
 11. запрещать любое автоматическое движение до валидной reference именно для active scope и выполнения остальных применимых safety predicates.
 
@@ -4369,6 +4392,9 @@ human_readable_context_id
 - превышение периода цикла/временной предел anomaly;
 - calibration/reference success/rejection с quality metrics;
 - config/hash incompatibility;
+- `WIFI_AVAILABLE`, `WIFI_LOST`, `WIFI_RECOVERED`, `WIFI_RECOVERY_FAILED` без SSID credential;
+- `NETWORK_READY`, `UDP_LISTENER_STARTED`, `DNS_SD_PUBLISHED`/publication failure;
+- `HELLO_ACCEPTED`/`HELLO_REJECTED`, `SESSION_CREATED`/`SESSION_ENDED`, `STALE_REPLAY_REJECTED`, категоризированный `AUTH_FAILURE`, `CONTROLLER_RESTART`;
 - maintenance lock / encoder discontinuity / подтверждённое механическое вмешательство;
 - parser/HMAC anomaly aggregates;
 - log subsystem failure.
@@ -4481,6 +4507,8 @@ Diagnostic может дополнительно постоянно/сеансо
 - цикл управления моторами не блокируется.
 
 Production state и журналы располагаются соответственно в `/var/lib/phantom` и `/var/log/phantom`; runtime sockets/lease — в `/run/phantom`. Каталог `/home/robot/phantom-bench/results/ev3/raw` принадлежит только инженерному bench harness и не является production log storage. Bench logs имеют отдельную bounded rotation/cleanup policy; перед ручной очисткой нужные evidence-файлы копируются на host, точный canonical target path проверяется, а удаление никогда не затрагивает release/config/state каталоги.
+
+Stage-3 network worker раз в секунду atomically заменяет bounded snapshot `/run/phantom/network-status.json`. Он содержит только public profile/identity, текущий boot id, session-active flag и счётчики `rx`, `rx_drop`, `hmac_fail`, `parser_reject`, `hello_accept`, `hello_reject`, `replay_reject`, `pong`, `telemetry`, `command_scope_zero`, `nonzero_motor_writes`; PSK, HMAC tags, nonce, session id и payload в файл не попадают.
 
 <a id="sec-7-21"></a>
 ## 7.21. Конфигурация EV3
@@ -4602,9 +4630,10 @@ network:
   command_timeout_ms: 120
   max_packet_bytes: 1024
   max_payload_bytes: 928
-  rx_rate_limit_pps: MEASURED
-  rx_burst_packets: MEASURED
-  hello_retry_window_ms: MEASURED
+  rx_rate_limit_pps: 100
+  rx_burst_packets: 20
+  hello_retry_window_ms: 2000
+  session_stale_ms: 5000
   max_concurrent_control_sessions: 1
   state_transaction_policy: ONE_IN_FLIGHT_LAST_ACK
   transaction_gap_policy: REJECT
@@ -4655,6 +4684,8 @@ logging:
   release_retention_days: 7
   release_max_mb: 250
 ```
+
+Для Stage-3 network-only worker дополнительно фиксированы bounded implementation limits: не более `32` datagrams за один drain, UDP receive buffer request `16384 bytes`, неблокирующий poll не дольше `10 ms`, telemetry `20 Hz`, atomic status snapshot `1 Hz`. Rate limit является общим token bucket процесса, а не отдельным неограниченным bucket для каждого source endpoint. Эти значения входят в regression/DEVICE AUTO baseline; их изменение требует повторных flood и timing tests, но не изменения wire v1.
 
 Параметры `MEASURED` не получают произвольное значение по умолчанию во время работы в actuator path: до qualification соответствующая функция остаётся в engineering/disabled состоянии. Safety-critical `MEASURED` (границы, payload envelope, `POWER_CUT` status, rate/loop limits, mapping sanity bounds) дополнительно блокируют переход в `READY` до заполнения и прохождения соответствующих acceptance tests.
 
@@ -5177,6 +5208,8 @@ commissioning PSK  -> HELLO role=COMMISSIONING / CALIBRATION_JOG / calibration w
 7. ротация каждого ключа выполняется независимо только при запрещённом actuator motion; после ротации соответствующие sessions инвалидируются и обе стороны должны получить согласованный новый credential;
 8. секреты не входят в Git, build manifest, `CommissioningBundle`, обычные логи или telemetry; там допускаются только `key_id`/slot metadata.
 
+Проверенный EV3 layout для control credential: `/var/lib/phantom/secrets/control.psk`, каталог `root:phantom 0750`, файл `root:phantom 0640`, `key_slot=0`. Loader принимает минимум 32 raw random bytes; совместимый provisioning также может хранить ровно 64 ASCII hex symbols, декодируемых в 32 bytes. Содержимое не выводится даже при startup/config error. Commissioning PSK хранится отдельным файлом/slot и не требуется для network-only gate.
+
 Такое разделение является обязательным для этапов 4–5: раннее управление Gripper остаётся engineering qualification и не получает commissioning authority из обычного control credential.
 
 <a id="sec-8-12"></a>
@@ -5185,6 +5218,8 @@ commissioning PSK  -> HELLO role=COMMISSIONING / CALIBRATION_JOG / calibration w
 EV3 должен принимать исполнительный UDP-трафик только из настроенной локальной сети.
 
 Первичная настройка SSID/пароля для WNA1100 является инженерным provisioning шагом (локальная консоль/USB/SSH из доверенной сети или эквивалентный администрируемый path) и выполняется до обычного запуска этапа 3. Credential хранится только в локальной сетевой конфигурации EV3 с ограниченными правами, не экспортируется в PHANTOM logs/bundle и не передаётся через UDP protocol. После provisioning EV3 обязан автоматически поднимать эту сеть при boot/reconnect без PC; смена сети является отдельной инженерной операцией.
+
+На проверенном ev3dev Stretch сетью управляет существующий `ConnMan 1.36`; второй network manager запрещён. ConnMan profile обязан быть явно provisioned с `Favorite=true` и `AutoConnect=true`, а его settings доступны только root. Так как USB probe `ath9k_htc` может завершиться позже запуска `connmand`, `phantom-wifi-autoconnect` выполняет bounded boot recovery: динамически обнаруживает wireless interface через `/sys/class/net/*/wireless`, выбирает только уже сохранённые Favorite+AutoConnect profiles и просит ConnMan подключить их. Helper никогда не читает, не копирует и не печатает `Passphrase`, не содержит SSID/credential в репозитории и завершается с ошибкой после bounded timeout. Обычный link down/up после boot восстанавливается самим ConnMan; helper не становится конкурирующим daemon.
 
 SSH используется только для инженерного обслуживания. Для него должны применяться ключи, а не пароль как основной способ автоматического развёртывания.
 
@@ -5385,7 +5420,20 @@ Quest `DEVICE AUTO PASS` доказывает запуск конкретног�
 
 EV3 stage-2 DEVICE AUTO выполняется установленным `/opt/phantom/current/bin/phantom-device-auto` с root privilege и атомарно сохраняет `/var/lib/phantom/device-auto.json`. Отчёт содержит `git_commit`, один установленный `build_id`, hashes controller/safety/config, platform fingerprint, monotonic timestamp и отдельные строки минимум для artifact integrity, config, motor/sensor/battery discovery, обоих on-device self-tests, systemd startup, zero-output startup, supervisor takeover и safe restart. Stage-3 network строки присутствуют как `N_A` с `introduced_at_stage=3`.
 
-On-device timing self-test выполняет не менее 250 итераций по абсолютной 20-ms сетке с безопасным backend, требует `p99 <= 25 ms`, `max < 50 ms`, нулевое число nonzero motor writes и проверяет latched `LOCAL_STOP` logic. Supervisor test при уже нулевом output посылает `SIGKILL` controller, подтверждает новый emergency event и сохранение `duty=0`, `speed=0`, `stop_action=brake`, после чего полностью перезапускает target для снятия takeover lease/inhibit. Ни один DEVICE AUTO step не выставляет ненулевой duty.
+Начиная с EV3-side этапа 3 тот же installed runner формирует report `schema_version=2`, `gate="DEVICE AUTO"`, `stage=3` и проверяет дополнительно:
+
+- согласованный network-only profile одновременно в runtime config и authoritative bundle, а также их manifest hashes;
+- WNA1100 по sysfs USB VID/PID `0846:9030`, загруженный `ath9k_htc` и динамически обнаруженное имя wireless interface; автоматический gate не зависит от `lsusb`, который на legacy Brick может блокироваться;
+- carrier и наличие DHCP IPv4 без записи конкретного DHCP-адреса как identity;
+- active state `phantom-safety`, `phantom-wifi-autoconnect`, `phantom-controller`, `phantom-network`, `phantom-mdns`;
+- живой multicast DNS-SD response с правильными service type, port, `robot_id`, boot id и build id;
+- локальный authenticated `HELLO/HELLO_ACK`, server-generated nonzero session id, `PING/PONG`, `TELEMETRY`, rejection invalid HMAC/replay и authenticated `COMMAND` при scope `0x00`;
+- смену boot id после controller kill/restart и сохранение zero/brake для всех физически присутствующих моторов;
+- `nonzero_motor_writes=0` в `/run/phantom/network-status.json` и фактическое финальное состояние sysfs motors.
+
+Отсутствующие motor и motor-safety inputs при scope `0x00` получают `N_A` с `reason=OUT_OF_SCOPE`; battery telemetry остаётся обязательной и должна иметь `PASS`. Итоговый report записывается atomically в `/var/lib/phantom/device-auto.json`; пропуск любой применимой Stage-3 строки не считается PASS.
+
+On-device timing self-test выполняет не менее 250 итераций по абсолютной 20-ms сетке с безопасным backend, требует `p99 <= 25 ms`, `max < 50 ms`, нулевое число nonzero motor writes и проверяет latched `LOCAL_STOP` logic там, где этот вход входит в active profile. Supervisor test при уже нулевом output посылает `SIGKILL` controller, подтверждает новый emergency event и сохранение `duty=0`, `speed=0`, `stop_action=brake`, после чего полностью перезапускает target. В network-only profile это также доказывает безопасное повторное получение освобождённого lease и смену controller boot identity, но не снимает fault/не выдаёт authority motion-capable profile. Ни один DEVICE AUTO step не выставляет ненулевой duty.
 
 DEVICE AUTO оценивает комплект относительно versioned profile, а не относительно будущей финальной механики. Scope-aware classification является изменением этой ревизии и получает `introduced_at_stage=3` (network-only) / `introduced_at_stage=4` (gripper-only): она не переписывает исторический Stage-2 report, но перед соответствующим новым gate обязательно выполняется regression текущего autonomous-startup behavior. При таком regression gripper-bench report может быть `PASS` при scope `0x08`, если D/`GRIPPER_HOME`/`LOCAL_STOP` присутствуют и A/B/C явно помечены `N_A` с `reason=OUT_OF_SCOPE`; это **не** является evidence production hardware completeness. Финальный Release DEVICE AUTO всё равно требует A/B/C/D, `LOCAL_STOP` и `GRIPPER_HOME`; отсутствие любого обязательного элемента даёт `FAIL`/`NOT_RUN` без попытки движения.
 
@@ -5752,6 +5800,9 @@ Optional `GripRemapProfile` тестируется отдельно:
 6. старый IP занят другим host;
 7. сервис исчезает и появляется снова.
 8. `HELLO` retransmit с тем же nonce в retry-window возвращает тот же session id; competing CONTROL HELLO при свежей активной session получает `ERR_CONTROL_SESSION_BUSY`; после stale/HOLD новый nonce получает новую EV3-generated session id, а старые COMMAND остаются невалидны.
+9. на реальном EV3 publisher использует Avahi D-Bus, а DEVICE AUTO посылает raw multicast DNS query и валидирует service type, SRV port и TXT identity независимо от локального publisher process;
+10. restart controller меняет `controller_boot_id` и приводит к перепубликации TXT; restart `phantom-mdns` временно удаляет и затем восстанавливает service;
+11. TXT не содержит credential, PSK, HMAC material или session id.
 
 Критерии приёмки:
 
@@ -5771,9 +5822,12 @@ Security tests:
 
 | Тест | Результат |
 |---|---|
+| bad magic / wrong version / unknown type / reserved bits != 0 | cheap reject до HMAC/type-specific parsing |
+| truncated datagram / bad exact length | cheap reject |
 | bit flip полезная часть | HMAC fail |
-| wrong PSK | drop |
+| wrong PSK / unknown key slot | drop без создания session |
 | old/replayed sequence | drop |
+| duplicate/reordered packet | drop без repeated side effect |
 | wrong session | drop |
 | old boot id | drop |
 | repeated transaction | тот же ACK, no repeated side effect |
@@ -5781,6 +5835,8 @@ Security tests:
 | payload_length >928 или total datagram >1024 или exact-length mismatch | reject |
 | 1 000 000 malformed host fuzz packets | no crash/UB |
 | unauthenticated traffic flood within test limits | no actuator state change |
+
+EV3 receive path использует общий token bucket `100 packets/s`, burst `20`, ограниченный socket receive buffer и не обрабатывает более `32` datagrams за один drain. Oversize/header/length/type/reserved проверки выполняются до HMAC. Ни malformed packet, ни flood не создаёт per-source unbounded state, очередь или thread и не изменяет session/actuator state. Для network-only profile дополнительно проверяется `nonzero_motor_writes=0` после authenticated `COMMAND`, replay и flood.
 
 На реальном EV3:
 
@@ -6307,7 +6363,7 @@ safety detects heartbeat timeout
 → BRAKE <=120 ms p99 from watchdog expiry
 ```
 
-Отдельно проверяется, что restarted controller не может получить motor lease до explicit safety reset.
+Для motion-capable profile отдельно проверяется, что restarted controller не получает actuator authority до explicit safety reset, даже если процесс снова запущен и lease технически доступен. Для network-only scope `0x00` проверяется обратная эксплуатационная гарантия: после takeover safety завершает zero/brake writes и освобождает lease, target перезапускается без ручного вмешательства, boot id меняется, старые sessions уничтожены, а authority и nonzero writes всё равно невозможны.
 
 Safety supervisor loss:
 
@@ -6627,7 +6683,7 @@ broken_internal_links = 0
 <a id="sec-10"></a>
 # 10. Порядок реализации
 
-Разработка PHANTOM организуется как последовательность проверяемых состояний готовности. Этап закрывается не по факту «код написан», а только когда получен наблюдаемый результат и выполнен его критерий завершения. Этапы 1 и 2 на момент этой ревизии считаются завершёнными; изменение требований этой главы не требует повторять их целиком, но изменённые protocol/config regressions должны оставаться зелёными.
+Разработка PHANTOM организуется как последовательность проверяемых состояний готовности. Этап закрывается не по факту «код написан», а только когда получен наблюдаемый результат и выполнен его критерий завершения. Этапы 1 и 2 на момент этой ревизии считаются завершёнными; EV3-side часть этапа 3 прошла отдельный hardware/network gate 05.09.2026, но весь этап 3 остаётся открытым до Quest-side реализации и сквозной проверки. Изменение требований этой главы не требует повторять закрытые этапы целиком, однако изменённые protocol/config regressions должны оставаться зелёными.
 
 Главный принцип последующих этапов — **наращивать один и тот же конечный путь вертикальными срезами**. Сначала реальная сеть, затем один физический исполнитель D, затем вся механика A/B/C, затем полный mapping/IK и общий actuator path. Отдельный gripper-протокол или отдельное приложение не создаются.
 
@@ -6733,6 +6789,22 @@ flowchart TD
 ## 10.5. Этап 3 — Wi-Fi EV3, Quest↔EV3 и телеметрия
 
 Цель — реальная сеть без actuator motion. Используется `qualification_only=true`, `actuator_scope_mask=0x00` либо эквивалентный network diagnostic profile.
+
+**Статус:** EV3-side завершён и проверен на реальном Brick 05.09.2026; Quest-side и общий Quest↔EV3 acceptance gate ещё не выполнены, поэтому этап 3 целиком не закрыт.
+
+Проверенный EV3-side development baseline:
+
+| Область | Полученное evidence |
+|---|---|
+| Adapter | Netgear WNA1100, USB `0846:9030`; driver `ath9k_htc`; firmware `htc_9271` версии `1.4`; имя interface определяется динамически |
+| Network stack | ev3dev Stretch, ConnMan `1.36`, DHCP, Avahi; после cold boot late USB probe компенсируется bounded helper, повторный ввод Wi-Fi password/PC не требуется |
+| Runtime | `phantom-safety`, `phantom-controller`, отдельные `phantom-network` и `phantom-mdns`, `phantom-wifi-autoconnect`; config/bundle mismatch приводит к fail-closed startup |
+| Protocol | wire v1 и существующие goldens/schema hash не изменены; проверены HELLO retry/busy/stale, PING/PONG, TELEMETRY, invalid HMAC, wrong identity/session/boot id, replay/reorder и malformed traffic; development flood `20000` datagrams за `141 ms` не остановил services и не создал motor output |
+| Recovery | cold reboot, controller/network/mDNS restart и Wi-Fi interface down/up восстанавливаются; в одном development run ConnMan восстановил interface за `15 s`, при этом нормативный bounded-case timeout остаётся `<=60 s`; controller restart создаёт новый boot id и инвалидирует старую session |
+| Safety | scope `0x00` не требует motor I/O и не допускает `READY`/`TRACKING`; присутствующие outB/outC/outD остались `duty_cycle_sp=0`, `duty_cycle=0`, `speed=0`, `stop_action=brake`; `nonzero_motor_writes=0` |
+| Gates | clean `PRE-INSTALL AUTO`: `16/16 PASS`; EV3 DEVICE AUTO schema v2: `20 PASS`, две normative `N_A` (`OUT_OF_SCOPE`) |
+
+Это development evidence фиксирует реализованный baseline, но не заменяет повторный DEVICE AUTO для каждого нового installed build, Quest-side tests и сквозное HIL evidence. Конкретный DHCP-адрес и значения секретов намеренно не являются частью спецификации.
 
 | Направление | Работы |
 |---|---|
