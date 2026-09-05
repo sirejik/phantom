@@ -30,8 +30,10 @@ namespace Phantom.Editor
             var specificationHash=RequiredEnvironmentVariable("PHANTOM_SPECIFICATION_SHA256");
             var protocolHash=RequiredEnvironmentVariable("PHANTOM_PROTOCOL_SCHEMA_HASH");
             var configHash=RequiredEnvironmentVariable("PHANTOM_CONFIG_HASH");
+            var bundleHash=RequiredEnvironmentVariable("PHANTOM_BUNDLE_HASH");
             var sourceTreeHash=RequiredEnvironmentVariable("PHANTOM_SOURCE_TREE_HASH");
             var packageLockHash=RequiredEnvironmentVariable("PHANTOM_PACKAGE_LOCK_SHA256");
+            var buildId=RequiredEnvironmentVariable("PHANTOM_BUILD_ID");
             var worktreeDirty=RequiredEnvironmentVariable("PHANTOM_WORKTREE_DIRTY");
             if(worktreeDirty!="true"&&worktreeDirty!="false")throw new Exception("Invalid PHANTOM_WORKTREE_DIRTY value");
             if(profile!="Release"&&profile!="Diagnostic")throw new Exception("Invalid build profile: "+profile);
@@ -65,7 +67,7 @@ namespace Phantom.Editor
                 PlayerSettings.Android.keystorePass=password;
                 PlayerSettings.Android.keyaliasName=alias;
                 PlayerSettings.Android.keyaliasPass=password;
-                WriteEmbeddedInputs(profile,gitCommit,sourceTreeHash,worktreeDirty,specificationHash,protocolHash,configHash,packageLockHash);
+                WriteEmbeddedInputs(profile,buildId,gitCommit,sourceTreeHash,worktreeDirty,specificationHash,protocolHash,configHash,bundleHash,packageLockHash);
                 report=BuildPipeline.BuildPlayer(paths,output,BuildTarget.Android,BuildOptions.None);
             }
             finally
@@ -81,14 +83,16 @@ namespace Phantom.Editor
             }
             if(report.summary.result!=BuildResult.Succeeded)throw new Exception($"Android build failed: {report.summary.result}, errors={report.summary.totalErrors}");
             var apkHash=Sha256(File.ReadAllBytes(output));
-            var manifest=BuildManifestJson(profile,gitCommit,sourceTreeHash,worktreeDirty,specificationHash,protocolHash,configHash,packageLockHash,apkHash,DateTime.UtcNow.ToString("o"));
+            var identity=BuildIdentityJson(profile,buildId,gitCommit,sourceTreeHash,worktreeDirty,specificationHash,protocolHash,configHash,bundleHash,packageLockHash);
+            var embeddedBytes=new UTF8Encoding(false).GetBytes(identity+Environment.NewLine);
+            var manifest=ExternalManifestJson(identity,apkHash,Sha256(embeddedBytes),DateTime.UtcNow.ToString("o"));
             File.WriteAllText(output+".build-manifest.json",manifest+Environment.NewLine);
         }
 
-        static void WriteEmbeddedInputs(string profile,string gitCommit,string sourceTreeHash,string worktreeDirty,string specificationHash,string protocolHash,string configHash,string packageLockHash)
+        static void WriteEmbeddedInputs(string profile,string buildId,string gitCommit,string sourceTreeHash,string worktreeDirty,string specificationHash,string protocolHash,string configHash,string bundleHash,string packageLockHash)
         {
             Directory.CreateDirectory(Path.GetDirectoryName(EmbeddedBuildPath));
-            var manifest=BuildManifestJson(profile,gitCommit,sourceTreeHash,worktreeDirty,specificationHash,protocolHash,configHash,packageLockHash,"","embedded-before-apk-hash");
+            var manifest=BuildIdentityJson(profile,buildId,gitCommit,sourceTreeHash,worktreeDirty,specificationHash,protocolHash,configHash,bundleHash,packageLockHash);
             File.WriteAllText(EmbeddedBuildPath,manifest+Environment.NewLine,new UTF8Encoding(false));
             var configPath=RequiredEnvironmentVariable("PHANTOM_QUEST_CONFIG_PATH");
             File.Copy(configPath,EmbeddedConfigPath,true);
@@ -102,7 +106,7 @@ namespace Phantom.Editor
             AssetDatabase.DeleteAsset(EmbeddedConfigPath);
         }
 
-        static string BuildManifestJson(string profile,string gitCommit,string sourceTreeHash,string worktreeDirty,string specificationHash,string protocolHash,string configHash,string packageLockHash,string apkHash,string buildTime)
+        static string BuildIdentityJson(string profile,string buildId,string gitCommit,string sourceTreeHash,string worktreeDirty,string specificationHash,string protocolHash,string configHash,string bundleHash,string packageLockHash)
         {
             var core=PackageVersion("com.meta.xr.sdk.core");
             var mruk=PackageVersion("com.meta.xr.mrutilitykit");
@@ -110,7 +114,15 @@ namespace Phantom.Editor
             var metaOpenxr=PackageVersion("com.unity.xr.meta-openxr");
             var hands=PackageVersion("com.unity.xr.hands");
             var bodyCompatibility=BodyMultimodalCompatibility();
-            return $"{{\"schema_version\":3,\"build_id\":\"{gitCommit}-{profile.ToLowerInvariant()}-quest\",\"git_commit\":\"{gitCommit}\",\"source_tree_hash\":\"{sourceTreeHash}\",\"worktree_dirty\":{worktreeDirty},\"build_profile\":\"{profile}\",\"protocol_version\":1,\"specification_sha256\":\"{specificationHash}\",\"protocol_schema_hash\":\"{protocolHash}\",\"config_hash\":\"{configHash}\",\"unity_version\":\"{UnityEngine.Application.unityVersion}\",\"app_version\":\"{PlayerSettings.bundleVersion}\",\"package_lock_sha256\":\"{packageLockHash}\",\"meta_xr_core_version\":\"{core}\",\"movement_sdk_version\":\"{core}\",\"body_tracking_provider\":\"OVRBody/com.meta.xr.sdk.core\",\"multimodal_required\":true,\"body_provider_joint_set\":\"UpperBody\",\"body_right_shoulder_api\":\"OVRPlugin.BoneId.Body_RightShoulder\",\"body_multimodal_compatibility\":\"{bodyCompatibility}\",\"mruk_version\":\"{mruk}\",\"openxr_plugin_version\":\"{openxr}\",\"meta_openxr_version\":\"{metaOpenxr}\",\"xr_hands_version\":\"{hands}\",\"apk_sha256\":\"{apkHash}\",\"build_time\":\"{buildTime}\"}}";
+            var multimodal=profile=="Release"?"true":"false";
+            return $"{{\"schema_version\":5,\"component\":\"QUEST\",\"build_id\":\"{buildId}\",\"git_commit\":\"{gitCommit}\",\"source_tree_hash\":\"{sourceTreeHash}\",\"worktree_dirty\":{worktreeDirty},\"build_profile\":\"{profile}\",\"protocol_version\":1,\"specification_sha256\":\"{specificationHash}\",\"protocol_schema_hash\":\"{protocolHash}\",\"config_hash\":\"{configHash}\",\"commissioning_bundle_hash\":\"{bundleHash}\",\"unity_version\":\"{UnityEngine.Application.unityVersion}\",\"app_version\":\"{PlayerSettings.bundleVersion}\",\"package_lock_sha256\":\"{packageLockHash}\",\"toolchain_or_package_lock_hash\":\"{packageLockHash}\",\"meta_xr_core_version\":\"{core}\",\"movement_sdk_version\":\"{core}\",\"body_tracking_provider\":\"OVRBody/com.meta.xr.sdk.core\",\"multimodal_required\":{multimodal},\"body_provider_joint_set\":\"UpperBody\",\"body_right_shoulder_api\":\"OVRPlugin.BoneId.Body_RightShoulder\",\"body_multimodal_compatibility\":\"{bodyCompatibility}\",\"mruk_version\":\"{mruk}\",\"openxr_plugin_version\":\"{openxr}\",\"meta_openxr_version\":\"{metaOpenxr}\",\"xr_hands_version\":\"{hands}\"}}";
+        }
+
+        static string ExternalManifestJson(string identity,string apkHash,string embeddedIdentityHash,string createdAt)
+        {
+            var closing=identity.LastIndexOf('}');
+            if(closing<0)throw new Exception("Invalid embedded identity JSON");
+            return identity.Substring(0,closing)+$",\"apk_sha256\":\"{apkHash}\",\"embedded_identity_sha256\":\"{embeddedIdentityHash}\",\"signing_key_id\":\"phantom-quest-release\",\"created_at\":\"{createdAt}\"}}";
         }
 
         static string BodyMultimodalCompatibility()

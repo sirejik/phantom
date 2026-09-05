@@ -32,3 +32,8 @@ Invoke-UdpScenario "normal" 31339
 Invoke-UdpScenario "hello_ack_lost" 31340
 Invoke-UdpScenario "bad_hmac" 31341
 Invoke-UdpScenario "telemetry_stop_resume" 31342
+Invoke-UdpScenario "busy" 31343
+Invoke-UdpScenario "wrong_robot" 31344
+Invoke-UdpScenario "wrong_protocol" 31345
+Invoke-UdpScenario "wrong_schema_hash" 31346
+Invoke-UdpScenario "wrong_bundle_hash" 31347

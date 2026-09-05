@@ -11,7 +11,8 @@ $commit=(git rev-parse HEAD).Trim()
 $specHash=(Get-FileHash docs/PHANTOM_SPECIFICATION.md -Algorithm SHA256).Hash.ToLower()
 $protocolHash=(Get-Content protocol/generated/schema.sha256).Split()[0]
 $configHash=(Get-FileHash config/generated/ev3.generated.json -Algorithm SHA256).Hash.ToLower()
-$sourceHash=(python tools/source_hash.py ev3 protocol/generated).Trim()
+$sourceHash=(python tools/source_hash.py ev3 protocol deploy).Trim()
+$toolchainLockHash=(Get-FileHash toolchains/ev3dev-stretch.lock.json -Algorithm SHA256).Hash.ToLower()
 $dirty=((git status --porcelain).Count -gt 0)
 foreach($profile in @("Release","Diagnostic")){
   $profileOut=[System.IO.Path]::GetFullPath((Join-Path $out $profile.ToLower()))
@@ -33,13 +34,15 @@ foreach($profile in @("Release","Diagnostic")){
   Copy-Item deploy/scripts/wifi-autoconnect "$binOut/phantom-wifi-autoconnect" -Force
   Copy-Item deploy/systemd "$profileOut/systemd" -Recurse -Force
   Copy-Item deploy/tmpfiles "$profileOut/tmpfiles" -Recurse -Force
+  $profileConfigHash=(Get-FileHash $configSource -Algorithm SHA256).Hash.ToLower()
+  $buildId=(python tools/build_identity.py --component EV3 --profile $profile --git-commit $commit --source-tree-hash $sourceHash --specification-sha256 $specHash --protocol-schema-hash $protocolHash --component-config-hash $profileConfigHash --toolchain-or-package-lock-hash $toolchainLockHash).Trim()
   $manifest=[ordered]@{
-    schema_version=1;build_id="$($commit.Substring(0,12))-$($profile.ToLower())-armel";git_commit=$commit;source_tree_hash=$sourceHash;worktree_dirty=$dirty;target="ARMv5TEJ-armel-gnueabi";build_profile=$profile
-    protocol_version=1;specification_sha256=$specHash;protocol_schema_hash=$protocolHash;config_hash=(Get-FileHash $configSource -Algorithm SHA256).Hash.ToLower();commissioning_bundle_hash=if($profile -eq "Diagnostic"){(Get-Content config/generated/config-manifest.json -Raw|ConvertFrom-Json).artifact_hashes.'commissioning_bundle-network-only'}else{(Get-Content config/generated/config-manifest.json -Raw|ConvertFrom-Json).artifact_hashes.commissioning_bundle}
+    schema_version=2;component="EV3";build_id=$buildId;git_commit=$commit;source_tree_hash=$sourceHash;worktree_dirty=$dirty;target="ARMv5TEJ-armel-gnueabi";build_profile=$profile
+    protocol_version=1;specification_sha256=$specHash;protocol_schema_hash=$protocolHash;config_hash=$profileConfigHash;commissioning_bundle_hash=if($profile -eq "Diagnostic"){(Get-Content config/generated/config-manifest.json -Raw|ConvertFrom-Json).artifact_hashes.'commissioning_bundle-network-only'}else{(Get-Content config/generated/config-manifest.json -Raw|ConvertFrom-Json).artifact_hashes.commissioning_bundle}
     cross_image=$image;toolchain_facts=($facts -join " | ")
+    toolchain_or_package_lock_hash=$toolchainLockHash;source_date_epoch_or_reproducible_epoch=0
     controller_sha256=(Get-FileHash "$binOut/phantom-controller" -Algorithm SHA256).Hash.ToLower()
     safety_sha256=(Get-FileHash "$binOut/phantom-safety" -Algorithm SHA256).Hash.ToLower()
-    built_at=(Get-Date).ToUniversalTime().ToString('o')
   }
   $manifest|ConvertTo-Json -Depth 4|Set-Content "$profileOut/build-manifest.json" -Encoding UTF8
   $checksumLines=Get-ChildItem $profileOut -Recurse -File|Where-Object Name -ne SHA256SUMS|ForEach-Object{"$((Get-FileHash $_.FullName -Algorithm SHA256).Hash.ToLower())  $($_.FullName.Substring($profileOut.Length+1).Replace('\','/'))"}

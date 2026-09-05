@@ -53,21 +53,26 @@ def validate_schema(value,schema,path="$",
 def validate(name,obj):
     require(obj,["schema_version"],name)
     if obj["schema_version"]!=1: raise ValueError(name+" schema_version")
-    if name.startswith("commissioning_bundle"): require(obj,["revision","bundle_id","qualification_status","qualification_only","actuator_scope_mask","robot_geometry","drive_calibration","collision_model","joint_safe_sets","payload_profiles","safety_envelope"],name)
+    if name.startswith("commissioning_bundle"): require(obj,["revision","bundle_id","qualification_status","qualification_only","qualification_evidence_manifest_hash","actuator_scope_mask","safety_observation_mask","robot_geometry","drive_calibration","collision_model","joint_safe_sets","payload_profiles","safety_envelope"],name)
     else: require(obj,["robot_id","build_profile"],name)
+    if "actuator_scope_mask" in obj and obj["actuator_scope_mask"] & ~obj["safety_observation_mask"]: raise ValueError(name+" actuator scope is not safety-observed")
     if name.startswith("ev3"):
         if obj["network"]["max_packet_bytes"]!=1024 or obj["network"]["max_payload_bytes"]!=928: raise ValueError("wire bounds")
+        if (obj["network"].get("discovery_service_type"),obj["network"].get("discovery_domain"),obj["network"].get("ip_family"))!=("_phantom-ev3._udp","local.","IPV4"): raise ValueError("DNS-SD contract")
         ports=[obj["axes"][x]["motor_port"] for x in ("base","shoulder","elbow","gripper")]
         if ports!=["outA","outB","outC","outD"] or obj["local_stop"]["sensor_port"]!="in4" or obj["gripper_home"]["sensor_port"]!="in3": raise ValueError("EV3 port contract")
-        if obj.get("build_profile")=="Release" and (obj.get("qualification_only",False) or obj.get("actuator_scope_mask",15)!=15): raise ValueError("Release scope contract")
-        if obj.get("build_profile")=="Diagnostic" and obj.get("qualification_only") is not True: raise ValueError("Diagnostic qualification contract")
+        if obj.get("build_profile")=="Release" and (obj.get("qualification_only",False) or obj.get("actuator_scope_mask")!=15 or obj.get("safety_observation_mask")!=15): raise ValueError("Release scope contract")
+        if obj.get("build_profile")=="Diagnostic" and (obj.get("qualification_only") is not True or obj.get("actuator_scope_mask")!=0 or obj.get("safety_observation_mask")!=0): raise ValueError("Diagnostic network-only qualification contract")
     if name.startswith("quest"):
         if obj["space"].get("require_current_room"): raise ValueError("room mesh cannot gate core path")
         qualification=obj["qualification"]
-        if obj["build_profile"]=="Release" and (qualification["qualification_only"] or qualification["actuator_scope_mask"]!=15 or qualification["required_user_inputs"]!="FULL_ARM"):raise ValueError("Quest Release qualification contract")
-        if name.endswith("network-only") and (obj["build_profile"]!="Diagnostic" or qualification!={"qualification_only":True,"actuator_scope_mask":0,"required_user_inputs":"NONE"}):raise ValueError("Quest network-only qualification contract")
+        if qualification["actuator_scope_mask"] & ~qualification["safety_observation_mask"]: raise ValueError("Quest actuator scope is not safety-observed")
+        if (obj["network"].get("discovery_service_type"),obj["network"].get("discovery_domain"),obj["network"].get("ip_family"))!=("_phantom-ev3._udp","local.","IPV4"): raise ValueError("Quest DNS-SD contract")
+        if obj["build_profile"]=="Release" and (qualification["qualification_only"] or qualification["actuator_scope_mask"]!=15 or qualification["safety_observation_mask"]!=15 or qualification["required_user_inputs"]!="FULL_ARM"):raise ValueError("Quest Release qualification contract")
+        if name.endswith("network-only") and (obj["build_profile"]!="Diagnostic" or not qualification["qualification_only"] or qualification["actuator_scope_mask"]!=0 or qualification["safety_observation_mask"]!=0 or qualification["required_user_inputs"]!="NONE"):raise ValueError("Quest network-only qualification contract")
 def measured_paths(name,value,path=""):
     found=[]
+    if value is None and path in ("/network/commissioning_key_id",):return found
     if value is None or isinstance(value,str) and "MEASURED_REQUIRED" in value:found.append(name+".json#"+path)
     elif isinstance(value,dict):
         for key,child in value.items():found.extend(measured_paths(name,child,path+"/"+key))
@@ -89,6 +94,13 @@ def main():
         else: path.write_bytes(artifact+b"\n")
     if source_objects["quest"]["commissioning_bundle"]["expected_hash"]!=results["commissioning_bundle"]:raise ValueError("Quest Release expected bundle hash mismatch")
     if source_objects["quest-network-only"]["commissioning_bundle"]["expected_hash"]!=results["commissioning_bundle-network-only"]:raise ValueError("Quest network-only expected bundle hash mismatch")
+    for suffix in ("","-network-only"):
+        bundle=source_objects["commissioning_bundle"+suffix]
+        ev3=source_objects["ev3"+suffix]
+        quest=source_objects["quest"+suffix]["qualification"]
+        expected=(bundle["qualification_only"],bundle["qualification_evidence_manifest_hash"],bundle["actuator_scope_mask"],bundle["safety_observation_mask"])
+        if (ev3["qualification_only"],ev3["qualification_evidence_manifest_hash"],ev3["actuator_scope_mask"],ev3["safety_observation_mask"])!=expected:raise ValueError("EV3/bundle qualification mismatch"+suffix)
+        if (quest["qualification_only"],quest["qualification_evidence_manifest_hash"],quest["actuator_scope_mask"],quest["safety_observation_mask"])!=expected:raise ValueError("Quest/bundle qualification mismatch"+suffix)
     measured=load(ROOT/"config"/"source"/"measured_parameters.json");validate_schema(measured,load(ROOT/"config"/"schema"/"measured_parameters.schema.json"))
     placeholders=set()
     for name,obj in source_objects.items():

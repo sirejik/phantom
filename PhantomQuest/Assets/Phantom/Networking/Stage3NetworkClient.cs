@@ -26,14 +26,14 @@ namespace Phantom.Networking
 
     public sealed class NetworkClientOptions
     {
-        public string RobotId="phantom01",ServiceType="_phantom-ev3._udp.local",ControlKeyId="phantom01-control";
+        public string RobotId="phantom01",ServiceType="_phantom-ev3._udp",ControlKeyId="phantom01-control";
         public int ProtocolMajor=1,ProtocolMinor=0,ControlKeySlot=0,TelemetryMaxAgeMs=100,HelloRetryMs=250,HelloMaxAttempts=5,PingIntervalMs=500,PingTimeoutMs=750,MaxMissedPongs=3,ReconnectDelayMs=250;
         public byte ExpectedBuildProfile=1;
         public byte[] ExpectedBundleHash,ExpectedSpecificationHash;
         public void Validate()
         {
-            if(string.IsNullOrWhiteSpace(RobotId)||RobotId.Length>32||string.IsNullOrWhiteSpace(ServiceType)||string.IsNullOrWhiteSpace(ControlKeyId))throw new ArgumentException("network identity");
-            if(ProtocolMajor!=1||ProtocolMinor!=0||ControlKeySlot<0||ControlKeySlot>255||TelemetryMaxAgeMs<1||HelloRetryMs<10||HelloMaxAttempts<1||HelloMaxAttempts>20||PingIntervalMs<10||PingTimeoutMs<10||MaxMissedPongs<1||ReconnectDelayMs<10)throw new ArgumentException("network bounds");
+            if(string.IsNullOrWhiteSpace(RobotId)||RobotId.Length>32||!string.Equals(ServiceType,"_phantom-ev3._udp",StringComparison.Ordinal)||string.IsNullOrWhiteSpace(ControlKeyId))throw new ArgumentException("network identity");
+            if(ProtocolMajor!=1||ProtocolMinor!=0||ControlKeySlot!=(int)WireV1.KeySlot.Control||TelemetryMaxAgeMs<1||HelloRetryMs<10||HelloMaxAttempts<1||HelloMaxAttempts>20||PingIntervalMs<10||PingTimeoutMs<10||MaxMissedPongs<1||ReconnectDelayMs<10)throw new ArgumentException("network bounds");
             if(ExpectedBundleHash==null||ExpectedBundleHash.Length!=32)throw new ArgumentException("expected bundle hash");
             if(ExpectedSpecificationHash!=null&&ExpectedSpecificationHash.Length!=32)throw new ArgumentException("expected specification hash");
             if(ExpectedBuildProfile>1)throw new ArgumentException("build profile");
@@ -135,7 +135,7 @@ namespace Phantom.Networking
             }
             if(service==null||string.IsNullOrEmpty(service.ServiceKey))return;
             _visible[service.ServiceKey]=service.Clone();Emit("service_found",service.RobotId??"");
-            if(!string.Equals(service.ServiceType,_options.ServiceType,StringComparison.Ordinal)||!string.Equals(service.RobotId,_options.RobotId,StringComparison.Ordinal)){Emit("service_ignored","identity");return;}
+            if(!string.Equals(service.ServiceType,_options.ServiceType,StringComparison.Ordinal)||!string.Equals(service.RobotId,_options.RobotId,StringComparison.Ordinal)||service.Endpoint==null||service.Endpoint.AddressFamily!=System.Net.Sockets.AddressFamily.InterNetwork){Emit("service_ignored","identity_or_ip_family");return;}
             if(service.ProtocolMajor!=_options.ProtocolMajor){InvalidateSession("protocol_mismatch");_active=service.Clone();Snapshot.ServiceFound=true;SetState(NetworkState.ProtocolMismatch);Emit("protocol_mismatch","discovery_protocol_major");return;}
             if(!service.HasValidBootId){Emit("service_ignored","invalid_boot_id");return;}
             if(_active!=null&&string.Equals(_active.ServiceKey,service.ServiceKey,StringComparison.Ordinal))
@@ -152,7 +152,7 @@ namespace Phantom.Networking
         {
             if(_key==null){SetState(NetworkState.AuthenticationFailure);return;}
             SetState(NetworkState.Resolving);DiscoveredRobot resolved;
-            if(!_discovery.TryResolve(serviceKey,out resolved)||resolved==null||resolved.Endpoint==null||!resolved.HasValidBootId){SetState(NetworkState.Discovering);return;}
+            if(!_discovery.TryResolve(serviceKey,out resolved)||resolved==null||resolved.Endpoint==null||resolved.Endpoint.AddressFamily!=System.Net.Sockets.AddressFamily.InterNetwork||!resolved.HasValidBootId){SetState(NetworkState.Discovering);return;}
             if(!string.Equals(resolved.RobotId,_options.RobotId,StringComparison.Ordinal)||resolved.ProtocolMajor!=_options.ProtocolMajor){SetState(NetworkState.ProtocolMismatch);Emit("protocol_mismatch","resolved_identity");return;}
             _active=resolved.Clone();Snapshot.ServiceFound=true;Snapshot.Endpoint=EndpointText(resolved.Endpoint);Snapshot.ControllerBootId=ShortHex(resolved.ControllerBootId);Emit("service_resolved",Snapshot.Endpoint);
             _transport.Start(resolved.Endpoint);_nonce=new byte[16];using(var rng=RandomNumberGenerator.Create())rng.GetBytes(_nonce);_session=null;_txSequence=_rxSequence=0;_helloAttempts=0;_lastTelemetry=-1;Snapshot.Freshness=TelemetryFreshness.NoTelemetry;Snapshot.TelemetryAgeMilliseconds=-1;Snapshot.SessionActive=false;SetState(NetworkState.Handshaking);Emit("handshake_started","");SendHello(false);
@@ -188,10 +188,11 @@ namespace Phantom.Networking
         {
             HelloAckPacket ack;
             if(!ServerProtocol.TryDecodeHelloAck(decoded,out ack)){RejectHandshake(NetworkState.ProtocolMismatch,"malformed_ack");return;}
-            if(!Equal(ack.ClientNonce,_nonce)||!string.Equals(ack.RobotId,_options.RobotId,StringComparison.Ordinal)||IsZero(decoded.Header.SessionId)){RejectHandshake(NetworkState.ProtocolMismatch,"ack_identity");return;}
+            if(!Equal(ack.ClientNonce,_nonce)||!string.Equals(ack.RobotId,_options.RobotId,StringComparison.Ordinal)){RejectHandshake(NetworkState.ProtocolMismatch,"ack_identity");return;}
             if(ack.ProtocolMinor!=_options.ProtocolMinor||ack.KeySlot!=_options.ControlKeySlot||ack.Role!=0||!Equal(ack.ProtocolHash,ProtocolHash())||_options.ExpectedSpecificationHash!=null&&!Equal(ack.SpecificationHash,_options.ExpectedSpecificationHash)||!string.IsNullOrEmpty(_active.BuildId)&&!string.Equals(ack.BuildId,_active.BuildId,StringComparison.Ordinal)){RejectHandshake(NetworkState.ProtocolMismatch,"ack_protocol_or_build_identity");return;}
             if(!Equal(ack.BundleHash,_options.ExpectedBundleHash)||ack.BuildProfile!=_options.ExpectedBuildProfile){RejectHandshake(NetworkState.ConfigurationMismatch,"ack_configuration");return;}
             if(ack.State!=RobotRuntimeState.ConnectedUnreferenced||ack.ReferenceFlags!=0||ack.GripperCapabilities!=0||!Zero(ack.Capabilities.Limits.Min)||!Zero(ack.Capabilities.Limits.Max)||!Zero(ack.Capabilities.MaxVelocity)||!Zero(ack.Capabilities.MaxAcceleration)){RejectHandshake(NetworkState.ConfigurationMismatch,"ack_not_network_only");return;}
+            if(ack.ResultCode!=0||IsZero(decoded.Header.SessionId)){var detail="hello_rejected_"+ack.ResultCode;Emit("handshake_rejected",detail);InvalidateSession(detail);SetState(ack.ResultCode==12?NetworkState.Reconnecting:ack.ResultCode==2?NetworkState.AuthenticationFailure:NetworkState.ProtocolMismatch);if(Snapshot.State==NetworkState.Reconnecting)_nextReconnect=_clock.NowMilliseconds+_options.ReconnectDelayMs;return;}
             _session=(byte[])decoded.Header.SessionId.Clone();_safeSetHash=(byte[])ack.ActiveJointSafeSetHash.Clone();_txSequence=_rxSequence=0;Snapshot.SessionActive=true;Snapshot.SessionId=ShortHex(_session);Snapshot.BuildId=ack.BuildId;Snapshot.SpecificationHash=ShortHex(ack.SpecificationHash);Snapshot.ProtocolHash=ShortHex(ack.ProtocolHash);Snapshot.BundleHash=ShortHex(ack.BundleHash);Snapshot.RobotGeometryHash=ShortHex(ack.RobotGeometryHash);Snapshot.DriveCalibrationHash=ShortHex(ack.DriveCalibrationHash);Snapshot.ActiveJointSafeSetHash=ShortHex(ack.ActiveJointSafeSetHash);Snapshot.PayloadProfilesHash=ShortHex(ack.PayloadProfilesHash);Snapshot.RemoteState=ack.State;Snapshot.Freshness=TelemetryFreshness.NoTelemetry;_nextPing=_clock.NowMilliseconds;_missedPongs=0;_pingOutstanding=false;SetState(NetworkState.Connected);Emit("handshake_accepted","");Emit("session_created","");
         }
 
@@ -200,7 +201,7 @@ namespace Phantom.Networking
         bool HandleTelemetry(DecodedDatagram decoded)
         {
             TelemetryPacket telemetry;
-            if(!ServerProtocol.TryDecodeTelemetry(decoded,out telemetry)||!string.Equals(telemetry.RobotId,_options.RobotId,StringComparison.Ordinal)||!Equal(telemetry.BundleHash,_options.ExpectedBundleHash)||!Equal(telemetry.ActiveJointSafeSetHash,_safeSetHash)||telemetry.BuildProfile!=_options.ExpectedBuildProfile||(!string.IsNullOrEmpty(Snapshot.BuildId)&&!string.Equals(telemetry.BuildId,Snapshot.BuildId,StringComparison.Ordinal))||telemetry.State==RobotRuntimeState.Ready||telemetry.State==RobotRuntimeState.Hold||telemetry.State==RobotRuntimeState.Tracking||telemetry.State==RobotRuntimeState.RobotCalibration||telemetry.State==RobotRuntimeState.Commissioning||(telemetry.StatusFlags&0x183u)!=0||!Zero(telemetry.Actual)||!Zero(telemetry.Speed)||telemetry.GripActual!=0)
+            if(!ServerProtocol.TryDecodeTelemetry(decoded,out telemetry)||!string.Equals(telemetry.RobotId,_options.RobotId,StringComparison.Ordinal)||!Equal(telemetry.BundleHash,_options.ExpectedBundleHash)||!Equal(telemetry.ActiveJointSafeSetHash,_safeSetHash)||telemetry.BuildProfile!=_options.ExpectedBuildProfile||(!string.IsNullOrEmpty(Snapshot.BuildId)&&!string.Equals(telemetry.BuildId,Snapshot.BuildId,StringComparison.Ordinal))||telemetry.State==RobotRuntimeState.Ready||telemetry.State==RobotRuntimeState.Hold||telemetry.State==RobotRuntimeState.Tracking||telemetry.State==RobotRuntimeState.RobotCalibration||telemetry.State==RobotRuntimeState.Commissioning||(telemetry.StatusFlags&0x383u)!=0||telemetry.ActivePayloadProfileId!="UNSELECTED"||telemetry.PayloadState!=2||!Zero(telemetry.Actual)||!Zero(telemetry.Speed)||telemetry.GripActual!=0)
             {Snapshot.RejectedPackets++;Snapshot.Freshness=TelemetryFreshness.Invalid;return false;}
             var recovered=Snapshot.Freshness==TelemetryFreshness.Stale||Snapshot.Freshness==TelemetryFreshness.Invalid;
             _lastTelemetry=_clock.NowMilliseconds;Snapshot.Freshness=TelemetryFreshness.Fresh;Snapshot.TelemetryAgeMilliseconds=0;Snapshot.RemoteState=telemetry.State;Snapshot.Fault=telemetry.Fault;Snapshot.BatteryMv=telemetry.BatteryMv;Snapshot.CommandAgeMs=telemetry.CommandAgeMs;Snapshot.StatusFlags=telemetry.StatusFlags;Snapshot.LoopHealthFlags=telemetry.LoopHealthFlags;Snapshot.BuildId=telemetry.BuildId;Snapshot.BundleHash=ShortHex(telemetry.BundleHash);Snapshot.ActiveJointSafeSetHash=ShortHex(telemetry.ActiveJointSafeSetHash);Snapshot.IncidentId=ShortHex(telemetry.IncidentId);SetState(NetworkState.TelemetryFresh);if(recovered)Emit("telemetry_recovered","");return true;

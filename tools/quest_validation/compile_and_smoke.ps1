@@ -23,3 +23,7 @@ if($LASTEXITCODE -ne 0){exit $LASTEXITCODE}
 if($LASTEXITCODE -ne 0){exit $LASTEXITCODE}
 & "$outDir/Stage3CoreTests.exe"
 if($LASTEXITCODE -ne 0){exit $LASTEXITCODE}
+& $dotnet $csc -nologo -langversion:9 -noconfig -nostdlib -target:exe -out:"$outDir/GoldenVectorInterop.exe" -r:"$api/mscorlib.dll" -r:"$api/System.dll" -r:"$api/System.Core.dll" -r:"$outDir/Phantom.Core.dll" "tools/quest_validation/GoldenVectorInterop.cs"
+if($LASTEXITCODE -ne 0){exit $LASTEXITCODE}
+& "$outDir/GoldenVectorInterop.exe" ([System.IO.Path]::GetFullPath("protocol/golden_vectors/v1.json"))
+if($LASTEXITCODE -ne 0){exit $LASTEXITCODE}

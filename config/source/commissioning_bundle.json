@@ -1,5 +1,5 @@
 {
-  "schema_version":1,"revision":1,"bundle_id":"phantom-v1-unqualified","mechanical_revision":"MEASURED_REQUIRED","qualification_status":"UNQUALIFIED","qualification_only":false,"actuator_scope_mask":15,
+  "schema_version":1,"revision":1,"bundle_id":"phantom-v1-unqualified","mechanical_revision":"MEASURED_REQUIRED","qualification_status":"UNQUALIFIED","qualification_only":false,"qualification_evidence_manifest_hash":"0000000000000000000000000000000000000000000000000000000000000000","actuator_scope_mask":15,"safety_observation_mask":15,
   "robot_geometry":{"branch_sign":1,"l1_m":null,"l2_m":null,"shoulder_height_m":null,"marker_mounts":"MEASURED_REQUIRED"},
   "drive_calibration":{"revision":1,"status":"MEASURED_REQUIRED","axes":{"A":null,"B":null,"C":null,"D":null}},
   "collision_model":{"revision":1,"status":"MEASURED_REQUIRED","primitives":[]},

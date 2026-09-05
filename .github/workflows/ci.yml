@@ -5,8 +5,8 @@ jobs:
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v4
-      - run: python3 tools/protocolgen.py --check && python3 tools/configgen.py --check
-      - run: python3 tools/test_protocol.py && python3 sim/ev3-simulator/test_simulator.py && python3 sim/tracking-replay/test_tracking_replay.py
+      - run: python3 tools/protocolgen.py --check && python3 tools/spec_contract_check.py && python3 tools/configgen.py --check
+      - run: python3 tools/test_protocol.py && python3 tools/test_build_identity.py && python3 sim/ev3-simulator/test_simulator.py && python3 sim/tracking-replay/test_tracking_replay.py
       - run: python3 tools/security_scan.py
       - run: python3 tools/quest_android_nsd_check.py
       - run: cmake -S ev3 -B build/ev3-host -G Ninja -DCMAKE_BUILD_TYPE=Debug && cmake --build build/ev3-host && ctest --test-dir build/ev3-host --output-on-failure

@@ -3,7 +3,7 @@ namespace Phantom.Networking.Generated
 {
     public static class WireV1
     {
-        public const string ProtocolSchemaSha256 = "af1c0d4ff510e72906b631205f5ac87a9e7661e9d068c68a07d36be470b5ac22";
+        public const string ProtocolSchemaSha256 = "48d85291e972cb6a954c7a8549349ba28c39f8f5b411d8e2a056f64bfb3317e3";
         public const int HeaderBytes=64, HmacBytes=32, MaxDatagramBytes=1024;
         public enum MessageType : ushort
         {
@@ -29,6 +29,133 @@ namespace Phantom.Networking.Generated
             Ping = 0x0300,
             Pong = 0x0301,
         }
+        public enum SessionRole : ushort
+        {
+            Control = 0,
+            Commissioning = 1,
+        }
+        public enum Axis : ushort
+        {
+            A = 0,
+            B = 1,
+            C = 2,
+            D = 3,
+        }
+        public enum PayloadState : ushort
+        {
+            Empty = 0,
+            Loaded = 1,
+            Unknown = 2,
+        }
+        public enum KeySlot : ushort
+        {
+            Control = 0,
+            Commissioning = 1,
+        }
+        public enum BuildProfile : ushort
+        {
+            Release = 0,
+            Diagnostic = 1,
+        }
+        public enum ResultCode : ushort
+        {
+            Ok = 0,
+            ErrFormat = 1,
+            ErrAuth = 2,
+            ErrSession = 3,
+            ErrSequence = 4,
+            ErrState = 5,
+            ErrRange = 6,
+            ErrReference = 7,
+            ErrFault = 8,
+            ErrTransactionStale = 9,
+            ErrTransactionConflict = 10,
+            ErrTransactionGap = 11,
+            ErrControlSessionBusy = 12,
+            ErrCommissioningNotArmed = 13,
+            ErrHashMismatch = 14,
+            ErrUnsupported = 15,
+        }
+        public enum MeasurementKind : ushort
+        {
+            JointAngleRad = 0,
+            JawOpeningMm = 1,
+        }
+        public enum JogStopReason : ushort
+        {
+            EncoderLimit = 0,
+            DurationLimit = 1,
+            Stall = 2,
+            LocalStop = 3,
+            SafetyHeartbeat = 4,
+            Fault = 5,
+            Cancelled = 6,
+        }
+        public enum GripState : ushort
+        {
+            Unreferenced = 0,
+            Free = 1,
+            ContactCandidate = 2,
+            ContactHold = 3,
+            Release = 4,
+            Fault = 5,
+        }
+        public enum State : ushort
+        {
+            Boot = 0,
+            UserCalibration = 1,
+            Discovery = 2,
+            ConnectedUnreferenced = 3,
+            RobotCalibration = 4,
+            Ready = 5,
+            Hold = 6,
+            Tracking = 7,
+            SafeHold = 8,
+            Stopped = 9,
+            Commissioning = 10,
+        }
+        public enum Fault : ushort
+        {
+            None = 0,
+            FaultTimeout = 100,
+            FaultConfig = 101,
+            FaultLimit = 102,
+            FaultJointStall = 103,
+            FaultGripper = 104,
+            FaultReference = 105,
+            FaultLocalization = 106,
+            FaultControllerProcess = 107,
+            FaultLoopOverrun = 108,
+            FaultSecurity = 109,
+            FaultMotorOverload = 110,
+            FaultSpace = 111,
+            FaultGripperHome = 112,
+            FaultCollisionSet = 113,
+            FaultPayloadProfile = 114,
+            FaultHoldOverload = 115,
+            FaultBatteryLow = 116,
+        }
+        public const uint CommandMotionFlagsMotionEnable = 1u << 0;
+        public const uint CommandMotionFlagsHoldRequest = 1u << 1;
+        public const uint CommandMotionFlagsTrackingValid = 1u << 2;
+        public const uint CommandMotionFlagsGraspValid = 1u << 3;
+        public const uint ReferenceFlagsJointReferenceValid = 1u << 0;
+        public const uint ReferenceFlagsGripperReferenceValid = 1u << 1;
+        public const uint TelemetryStatusFlagsJointReferenceValid = 1u << 0;
+        public const uint TelemetryStatusFlagsGripperReferenceValid = 1u << 1;
+        public const uint TelemetryStatusFlagsCommissioningBundleValid = 1u << 2;
+        public const uint TelemetryStatusFlagsLocalStopActive = 1u << 3;
+        public const uint TelemetryStatusFlagsSafetySupervisorAlive = 1u << 4;
+        public const uint TelemetryStatusFlagsGraspContact = 1u << 5;
+        public const uint TelemetryStatusFlagsBatteryDerated = 1u << 6;
+        public const uint TelemetryStatusFlagsPayloadProfileValid = 1u << 7;
+        public const uint TelemetryStatusFlagsActiveJointSafeSetValid = 1u << 8;
+        public const uint TelemetryStatusFlagsCommissioningActuatorQualificationActive = 1u << 9;
+        public const uint LoopHealthFlagsJitterOver25Ms = 1u << 0;
+        public const uint LoopHealthFlagsSeriousOverrunOver40Ms = 1u << 1;
+        public const uint LoopHealthFlagsSafeHoldOverrunSeen = 1u << 2;
+        public const uint LoopHealthFlagsLoggerBackpressureSeen = 1u << 3;
+        public const uint LoopHealthFlagsNetworkBackpressureSeen = 1u << 4;
         public const int HelloPayloadBytes = 56;
         public const int HelloAckPayloadBytes = 364;
         public const int CalibrationQueryPayloadBytes = 8;

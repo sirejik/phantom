@@ -1,11 +1,11 @@
 {
   "schema_version":1,"robot_id":"phantom01","build_profile":"Release",
-  "qualification":{"qualification_only":false,"actuator_scope_mask":15,"required_user_inputs":"FULL_ARM"},
+  "qualification":{"qualification_only":false,"qualification_evidence_manifest_hash":"0000000000000000000000000000000000000000000000000000000000000000","actuator_scope_mask":15,"safety_observation_mask":15,"required_user_inputs":"FULL_ARM"},
   "space":{"require_local_floor":true,"require_spatial_data_permission":true,"require_scene_support_for_qr":true,"require_anchor_support_for_qr":true,"require_current_room":false,"require_scene_floor_anchor":false,"scene_aware_ux_enabled":false},
   "hand_tracking":{"required":true,"wrist_joint":"Wrist","wrist_max_pose_age_ms":50,"wrist_dropout_grace_ms":null},
   "body_tracking":{"required":true,"joint_set":"UPPER_BODY","shoulder_joint":"Body_RightShoulder","require_iobt":false,"max_pose_age_ms":50,"qualification_profile_id":"UNQUALIFIED","require_runtime_profile_match":true},
   "qr":{"required_markers":["SHOULDER_LEFT","SHOULDER_RIGHT","TURRET_LEFT","TURRET_RIGHT","ELBOW_LEFT","ELBOW_RIGHT","GRIPPER_LEFT","GRIPPER_RIGHT","JAW_LEFT","JAW_RIGHT"],"required_only_before_ready":true,"runtime_tracking_required":false},
   "grasp":{"provider":"OPENXR_HAND_INTERACTION","require_grasp_ready":true,"default_mapping":"IDENTITY","fallback_provider":"DISABLED"},
-  "commissioning_bundle":{"expected_hash":"f890399629537a52d613de0b3acf3be35307a43951a6aca35638ec47420c0090"},
-  "network":{"discovery_service":"_phantom-ev3._udp.local","default_port":30470,"protocol_version":1,"control_key_id":"phantom01-control","telemetry_max_age_ms":100}
+  "commissioning_bundle":{"expected_hash":"89b9b0c66d68fd4b6dac267b8abe2e67a3ef30b573d65ad268be54a0cb850f55"},
+  "network":{"discovery_service_type":"_phantom-ev3._udp","discovery_domain":"local.","ip_family":"IPV4","default_port":30470,"protocol_version":1,"control_key_id":"phantom01-control","commissioning_key_id":null,"telemetry_max_age_ms":100}
 }

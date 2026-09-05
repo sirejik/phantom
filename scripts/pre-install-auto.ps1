@@ -16,12 +16,14 @@ function Run-Check([string]$Name,[int]$IntroducedAtStage,[scriptblock]$Body){
     }
 }
 Run-Check "protocol-schema-generated" 1 {python tools/protocolgen.py --check}
+Run-Check "spec-wire-contract" 1 {python tools/spec_contract_check.py}
 Run-Check "config-json-schema-generated" 1 {python tools/configgen.py --check}
 Run-Check "protocol-exact-hmac-fuzz" 1 {python tools/test_protocol.py}
 Run-Check "simulator-regressions" 1 {python sim/ev3-simulator/test_simulator.py}
 Run-Check "ev3-stage3-network-security" 3 {python ev3/network/test_phantom_network.py}
 Run-Check "tracking-replay-regressions" 1 {python sim/tracking-replay/test_tracking_replay.py}
 Run-Check "artifact-gate-regressions" 1 {python tools/test_artifact_check.py}
+Run-Check "build-identity-golden" 1 {python tools/test_build_identity.py}
 Run-Check "secret-scan" 1 {python tools/security_scan.py}
 Run-Check "quest-pure-core" 1 {powershell -NoProfile -ExecutionPolicy Bypass -File tools/quest_validation/compile_and_smoke.ps1}
 Run-Check "quest-simulator-integration" 1 {powershell -NoProfile -ExecutionPolicy Bypass -File tools/quest_validation/run_udp_integration.ps1}
@@ -31,6 +33,7 @@ Run-Check "ev3-host-diagnostic" 1 {powershell -NoProfile -ExecutionPolicy Bypass
 Run-Check "ev3-host-asan-ubsan" 1 {wsl.exe -d Ubuntu -- bash -lc "rm -rf /tmp/phantom-ev3-sanitize && cmake -S '$wslEv3Source' -B /tmp/phantom-ev3-sanitize -G Ninja -DCMAKE_BUILD_TYPE=Debug -DCMAKE_CXX_FLAGS='-fsanitize=address,undefined -fno-omit-frame-pointer' && cmake --build /tmp/phantom-ev3-sanitize && ASAN_OPTIONS=detect_leaks=1 ctest --test-dir /tmp/phantom-ev3-sanitize --output-on-failure"}
 if($SkipUnity){$checks+=@{test_id="unity-editmode";introduced_at_stage=2;applicable_to_stage=$Stage;status="NOT_RUN";runner="scripts/quest-test.ps1";detail="explicit -SkipUnity"}}else{Run-Check "unity-editmode" 2 {powershell -NoProfile -ExecutionPolicy Bypass -File scripts/quest-test.ps1}}
 if($SkipArmel){$checks+=@{test_id="ev3-armel-release-diagnostic";introduced_at_stage=1;applicable_to_stage=$Stage;status="NOT_RUN";runner="scripts/ev3-armel-docker.ps1";detail="explicit -SkipArmel"}}else{Run-Check "ev3-armel-release-diagnostic" 1 {powershell -NoProfile -ExecutionPolicy Bypass -File scripts/ev3-armel-docker.ps1}}
+if(!$SkipArmel -and $Stage -ge 3){Run-Check "ev3-stage3-diagnostic-package" 3 {powershell -NoProfile -ExecutionPolicy Bypass -File scripts/ev3-package.ps1 -Profile Diagnostic}}
 Run-Check "post-build-artifacts" 2 {python tools/artifact_check.py}
 $mandatoryIncomplete=$checks|Where-Object status -ne "PASS"
 $status=if($mandatoryIncomplete){"INCOMPLETE"}else{"PASS"}
@@ -41,10 +44,12 @@ $specificationHash=(Get-FileHash docs/PHANTOM_SPECIFICATION.md -Algorithm SHA256
 $protocolHash=(Get-Content protocol/generated/schema.sha256).Split()[0]
 if($dirty){$status="INCOMPLETE";$checks+=@{test_id="clean-worktree";introduced_at_stage=1;applicable_to_stage=$Stage;status="FAIL";runner="git status --porcelain";detail="PRE-INSTALL PASS requires a clean committed source tree"}}
 $artifacts=@()
+$currentEv3BuildIds=@(Get-ChildItem build\ev3-armel\*\build-manifest.json -File -ErrorAction SilentlyContinue|ForEach-Object{(Get-Content $_.FullName -Raw|ConvertFrom-Json).build_id})
 $artifactFiles=@(
   Get-Item build\quest\PhantomQuest-release.apk,build\quest\PhantomQuest-release.apk.build-manifest.json,build\quest\PhantomQuest-diagnostic.apk,build\quest\PhantomQuest-diagnostic.apk.build-manifest.json -ErrorAction SilentlyContinue
   Get-ChildItem build\ev3-host-*\build-manifest.json,build\ev3-host-*\SHA256SUMS -File -ErrorAction SilentlyContinue
   Get-ChildItem build\ev3-armel\*\bin\phantom-controller,build\ev3-armel\*\bin\phantom-safety,build\ev3-armel\*\build-manifest.json,build\ev3-armel\*\SHA256SUMS -File -ErrorAction SilentlyContinue
+  Get-ChildItem build\ev3-packages\phantom-*.tar.gz,build\ev3-packages\phantom-*.tar.gz.build-manifest.json -File -ErrorAction SilentlyContinue|Where-Object{$path=$_.Name;$currentEv3BuildIds|Where-Object{$path.Contains($_)}}
 )
 $artifactFiles|Sort-Object FullName -Unique|ForEach-Object{$artifacts+=@{path=$_.FullName.Substring((Resolve-Path .).Path.Length+1);sha256=(Get-FileHash $_.FullName -Algorithm SHA256).Hash.ToLower()}}
 $buildIds=@();$artifactFiles|Where-Object Name -eq "build-manifest.json"|ForEach-Object{$buildIds+=(Get-Content $_.FullName -Raw|ConvertFrom-Json).build_id};$artifactFiles|Where-Object Name -like "*.build-manifest.json"|ForEach-Object{$buildIds+=(Get-Content $_.FullName -Raw|ConvertFrom-Json).build_id};$buildIds=@($buildIds|Sort-Object -Unique)

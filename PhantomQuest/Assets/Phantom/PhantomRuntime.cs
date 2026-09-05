@@ -45,9 +45,9 @@ namespace Phantom
             return new Stage3RuntimeConfig
             {
                 schema_version=1,robot_id="phantom01",build_profile="Diagnostic",
-                qualification=new QuestQualificationConfig{qualification_only=true,actuator_scope_mask=0,required_user_inputs="NONE"},
-                commissioning_bundle=new QuestBundleConfig{expected_hash="0f629d9260309e592798fa202dcab14f1f414bd43a54cbe55442af4af9231cfb"},
-                network=new QuestNetworkConfig{discovery_service="_phantom-ev3._udp.local",default_port=30470,protocol_version=1,control_key_id="phantom01-control",telemetry_max_age_ms=100,hello_retry_ms=250,hello_max_attempts=5,ping_interval_ms=500,ping_timeout_ms=750,max_missed_pongs=3,reconnect_delay_ms=250}
+                qualification=new QuestQualificationConfig{qualification_only=true,qualification_evidence_manifest_hash=new string('0',64),actuator_scope_mask=0,safety_observation_mask=0,required_user_inputs="NONE"},
+                commissioning_bundle=new QuestBundleConfig{expected_hash="17e18488df22ff736b3ede887b82397b9e06f9ac052beed011dc6c2a7eeaaeb9"},
+                network=new QuestNetworkConfig{discovery_service_type="_phantom-ev3._udp",discovery_domain="local.",ip_family="IPV4",default_port=30470,protocol_version=1,control_key_id="phantom01-control",commissioning_key_id=null,telemetry_max_age_ms=100,hello_retry_ms=250,hello_max_attempts=5,ping_interval_ms=500,ping_timeout_ms=750,max_missed_pongs=3,reconnect_delay_ms=250}
             };
         }
     }

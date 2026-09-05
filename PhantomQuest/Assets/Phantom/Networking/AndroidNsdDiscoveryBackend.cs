@@ -73,7 +73,7 @@ namespace Phantom.Networking
         {
             if(!IsRunning)return;
             IPAddress address;int major;byte[] boot;
-            if(!IPAddress.TryParse(host,out address)||port<1||port>65535||!int.TryParse(protocolMajor,out major)||!TryHex16(bootHex,out boot))
+            if(!IPAddress.TryParse(host,out address)||address.AddressFamily!=System.Net.Sockets.AddressFamily.InterNetwork||port<1||port>65535||!int.TryParse(protocolMajor,out major)||!TryHex16(bootHex,out boot))
             {PublishError("android_nsd_malformed_metadata");return;}
             var canonical=_requestedServiceType??serviceType;var key=Key(instance,canonical);var service=new DiscoveredRobot{ServiceKey=key,InstanceName=instance,ServiceType=canonical,RobotId=robotId,ProtocolMajor=major,ControllerBootId=boot,BuildId=buildId,Endpoint=new IPEndPoint(address,port)};
             Enqueue(new DiscoveryChange{Kind=DiscoveryChangeKind.Updated,Service=service,ServiceKey=key});
@@ -83,7 +83,11 @@ namespace Phantom.Networking
         void PublishError(string category)=>Enqueue(new DiscoveryChange{Kind=DiscoveryChangeKind.Error,ErrorCategory=category});
         void Enqueue(DiscoveryChange change){lock(_callbackGate){if(!IsRunning)return;if(Interlocked.Increment(ref _callbackDepth)>128){Interlocked.Decrement(ref _callbackDepth);return;}_callbacks.Enqueue(change);}}
         static string Key(string instance,string serviceType)=>(serviceType??"")+"|"+(instance??"");
-        static string AndroidServiceType(string canonical)=>canonical.EndsWith(".local",StringComparison.Ordinal)?canonical.Substring(0,canonical.Length-6):canonical;
+        static string AndroidServiceType(string canonical)
+        {
+            if(canonical!="_phantom-ev3._udp")throw new ArgumentException("DNS-SD service type");
+            return canonical;
+        }
         static bool TryHex16(string value,out byte[] bytes)
         {
             bytes=null;if(value==null||value.Length!=32)return false;var result=new byte[16];

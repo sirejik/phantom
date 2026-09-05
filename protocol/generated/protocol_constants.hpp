@@ -3,7 +3,7 @@
 #include <cstddef>
 #include <cstdint>
 namespace phantom { namespace wire {
-constexpr const char* kProtocolSchemaSha256 = "af1c0d4ff510e72906b631205f5ac87a9e7661e9d068c68a07d36be470b5ac22";
+constexpr const char* kProtocolSchemaSha256 = "48d85291e972cb6a954c7a8549349ba28c39f8f5b411d8e2a056f64bfb3317e3";
 constexpr std::size_t kHeaderBytes=64, kHmacBytes=32, kMaxDatagramBytes=1024;
 enum class MessageType : std::uint16_t {
   HELLO = 0x0001,
@@ -28,6 +28,122 @@ enum class MessageType : std::uint16_t {
   PING = 0x0300,
   PONG = 0x0301,
 };
+enum class SessionRole : std::uint16_t {
+  CONTROL = 0,
+  COMMISSIONING = 1,
+};
+enum class Axis : std::uint16_t {
+  A = 0,
+  B = 1,
+  C = 2,
+  D = 3,
+};
+enum class PayloadState : std::uint16_t {
+  EMPTY = 0,
+  LOADED = 1,
+  UNKNOWN = 2,
+};
+enum class KeySlot : std::uint16_t {
+  CONTROL = 0,
+  COMMISSIONING = 1,
+};
+enum class BuildProfile : std::uint16_t {
+  RELEASE = 0,
+  DIAGNOSTIC = 1,
+};
+enum class ResultCode : std::uint16_t {
+  OK = 0,
+  ERR_FORMAT = 1,
+  ERR_AUTH = 2,
+  ERR_SESSION = 3,
+  ERR_SEQUENCE = 4,
+  ERR_STATE = 5,
+  ERR_RANGE = 6,
+  ERR_REFERENCE = 7,
+  ERR_FAULT = 8,
+  ERR_TRANSACTION_STALE = 9,
+  ERR_TRANSACTION_CONFLICT = 10,
+  ERR_TRANSACTION_GAP = 11,
+  ERR_CONTROL_SESSION_BUSY = 12,
+  ERR_COMMISSIONING_NOT_ARMED = 13,
+  ERR_HASH_MISMATCH = 14,
+  ERR_UNSUPPORTED = 15,
+};
+enum class MeasurementKind : std::uint16_t {
+  JOINT_ANGLE_RAD = 0,
+  JAW_OPENING_MM = 1,
+};
+enum class JogStopReason : std::uint16_t {
+  ENCODER_LIMIT = 0,
+  DURATION_LIMIT = 1,
+  STALL = 2,
+  LOCAL_STOP = 3,
+  SAFETY_HEARTBEAT = 4,
+  FAULT = 5,
+  CANCELLED = 6,
+};
+enum class GripState : std::uint16_t {
+  UNREFERENCED = 0,
+  FREE = 1,
+  CONTACT_CANDIDATE = 2,
+  CONTACT_HOLD = 3,
+  RELEASE = 4,
+  FAULT = 5,
+};
+enum class State : std::uint16_t {
+  BOOT = 0,
+  USER_CALIBRATION = 1,
+  DISCOVERY = 2,
+  CONNECTED_UNREFERENCED = 3,
+  ROBOT_CALIBRATION = 4,
+  READY = 5,
+  HOLD = 6,
+  TRACKING = 7,
+  SAFE_HOLD = 8,
+  STOPPED = 9,
+  COMMISSIONING = 10,
+};
+enum class Fault : std::uint16_t {
+  NONE = 0,
+  FAULT_TIMEOUT = 100,
+  FAULT_CONFIG = 101,
+  FAULT_LIMIT = 102,
+  FAULT_JOINT_STALL = 103,
+  FAULT_GRIPPER = 104,
+  FAULT_REFERENCE = 105,
+  FAULT_LOCALIZATION = 106,
+  FAULT_CONTROLLER_PROCESS = 107,
+  FAULT_LOOP_OVERRUN = 108,
+  FAULT_SECURITY = 109,
+  FAULT_MOTOR_OVERLOAD = 110,
+  FAULT_SPACE = 111,
+  FAULT_GRIPPER_HOME = 112,
+  FAULT_COLLISION_SET = 113,
+  FAULT_PAYLOAD_PROFILE = 114,
+  FAULT_HOLD_OVERLOAD = 115,
+  FAULT_BATTERY_LOW = 116,
+};
+constexpr std::uint32_t kCommandMotionFlagsMotionEnable = (std::uint32_t(1) << 0);
+constexpr std::uint32_t kCommandMotionFlagsHoldRequest = (std::uint32_t(1) << 1);
+constexpr std::uint32_t kCommandMotionFlagsTrackingValid = (std::uint32_t(1) << 2);
+constexpr std::uint32_t kCommandMotionFlagsGraspValid = (std::uint32_t(1) << 3);
+constexpr std::uint32_t kReferenceFlagsJointReferenceValid = (std::uint32_t(1) << 0);
+constexpr std::uint32_t kReferenceFlagsGripperReferenceValid = (std::uint32_t(1) << 1);
+constexpr std::uint32_t kTelemetryStatusFlagsJointReferenceValid = (std::uint32_t(1) << 0);
+constexpr std::uint32_t kTelemetryStatusFlagsGripperReferenceValid = (std::uint32_t(1) << 1);
+constexpr std::uint32_t kTelemetryStatusFlagsCommissioningBundleValid = (std::uint32_t(1) << 2);
+constexpr std::uint32_t kTelemetryStatusFlagsLocalStopActive = (std::uint32_t(1) << 3);
+constexpr std::uint32_t kTelemetryStatusFlagsSafetySupervisorAlive = (std::uint32_t(1) << 4);
+constexpr std::uint32_t kTelemetryStatusFlagsGraspContact = (std::uint32_t(1) << 5);
+constexpr std::uint32_t kTelemetryStatusFlagsBatteryDerated = (std::uint32_t(1) << 6);
+constexpr std::uint32_t kTelemetryStatusFlagsPayloadProfileValid = (std::uint32_t(1) << 7);
+constexpr std::uint32_t kTelemetryStatusFlagsActiveJointSafeSetValid = (std::uint32_t(1) << 8);
+constexpr std::uint32_t kTelemetryStatusFlagsCommissioningActuatorQualificationActive = (std::uint32_t(1) << 9);
+constexpr std::uint32_t kLoopHealthFlagsJitterOver25Ms = (std::uint32_t(1) << 0);
+constexpr std::uint32_t kLoopHealthFlagsSeriousOverrunOver40Ms = (std::uint32_t(1) << 1);
+constexpr std::uint32_t kLoopHealthFlagsSafeHoldOverrunSeen = (std::uint32_t(1) << 2);
+constexpr std::uint32_t kLoopHealthFlagsLoggerBackpressureSeen = (std::uint32_t(1) << 3);
+constexpr std::uint32_t kLoopHealthFlagsNetworkBackpressureSeen = (std::uint32_t(1) << 4);
 constexpr std::size_t kHelloPayloadBytes = 56;
 constexpr std::size_t kHelloAckPayloadBytes = 364;
 constexpr std::size_t kCalibrationQueryPayloadBytes = 8;

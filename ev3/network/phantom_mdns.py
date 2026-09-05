@@ -25,12 +25,12 @@ def txt(records):
     return dbus.Array([dbus.ByteArray(item.encode("utf-8")) for item in records], signature="ay")
 
 
-def publish(bus, name, port, records):
+def publish(bus, name, service_type, domain, port, records):
     server = dbus.Interface(bus.get_object(AVAHI, "/"), SERVER)
     path = server.EntryGroupNew()
     group = dbus.Interface(bus.get_object(AVAHI, path), ENTRY_GROUP)
-    group.AddService(dbus.Int32(-1), dbus.Int32(-1), dbus.UInt32(0), name,
-                     "_phantom-ev3._udp", "", "", dbus.UInt16(port), txt(records))
+    group.AddService(dbus.Int32(-1), dbus.Int32(0), dbus.UInt32(0), name,
+                     service_type, domain, "", dbus.UInt16(port), txt(records))
     group.Commit()
     return group
 
@@ -54,12 +54,15 @@ def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("--config", default="/opt/phantom/current/config.generated.json")
     parser.add_argument("--manifest", default="/opt/phantom/current/build-manifest.json")
-    parser.add_argument("--boot-id", default="/run/phantom/controller-boot-id")
+    parser.add_argument("--boot-id", default="/run/phantom/controller/boot-id")
     args = parser.parse_args()
     config = read_json(args.config)
     manifest = read_json(args.manifest)
-    if config.get("build_profile") != "Diagnostic" or config.get("actuator_scope_mask") != 0:
+    network = config.get("network", {})
+    if config.get("build_profile") != "Diagnostic" or config.get("actuator_scope_mask") != 0 or config.get("safety_observation_mask") != 0:
         raise SystemExit("mDNS Stage-3 publisher requires network-only Diagnostic profile")
+    if (network.get("discovery_service_type"), network.get("discovery_domain"), network.get("ip_family")) != ("_phantom-ev3._udp", "local.", "IPV4"):
+        raise SystemExit("mDNS service type/domain/IP family mismatch")
     bus = dbus.SystemBus()
     current = None
     group = None
@@ -76,10 +79,10 @@ def main():
                     group.Reset()
                 records = ["robot_id=" + config["robot_id"], "protocol_major=1",
                            "controller_boot_id=" + boot, "build_id=" + manifest["build_id"]]
-                group = publish(bus, "PHANTOM-" + config["robot_id"], int(config["network"]["listen_port_udp"]), records)
+                group = publish(bus, "PHANTOM-" + config["robot_id"], network["discovery_service_type"], network["discovery_domain"], int(network["listen_port_udp"]), records)
                 current = boot
                 print(json.dumps({"event": "DNS_SD_PUBLISHED", "robot_id": config["robot_id"],
-                                  "port": int(config["network"]["listen_port_udp"])}), flush=True)
+                                  "port": int(network["listen_port_udp"]), "service_type": network["discovery_service_type"], "domain": network["discovery_domain"], "ip_family": network["ip_family"]}), flush=True)
                 systemd_ready("DNS-SD service published")
         except (OSError, ValueError, dbus.DBusException) as error:
             print(json.dumps({"event": "DNS_SD_PUBLICATION_FAILED", "category": type(error).__name__}), flush=True)

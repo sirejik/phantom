@@ -6,8 +6,8 @@ release_id=$(basename "$archive" .tar.gz);case "$release_id" in ''|.|..|*[!A-Za-
 dest="$root/releases/$release_id";test ! -e "$dest" || { echo "release exists" >&2;exit 1; }
 tar -tzf "$archive" | while IFS= read -r member;do case "$member" in /*|../*|*/../*|*/..) echo "unsafe archive member: $member" >&2;exit 1;;esac;done
 mkdir -p "$dest";tar -xzf "$archive" -C "$dest";(cd "$dest"&&sha256sum -c SHA256SUMS)
-python3 - "$gate" "$dest/build-manifest.json" <<'PY'
-import json,sys
+python3 - "$gate" "$dest/build-manifest.json" "$archive" <<'PY'
+import hashlib,json,sys
 with open(sys.argv[1],encoding="utf-8-sig") as stream: report=json.load(stream)
 with open(sys.argv[2],encoding="utf-8-sig") as stream: manifest=json.load(stream)
 if report.get("gate")!="PRE-INSTALL AUTO" or report.get("status")!="PASS" or report.get("worktree_dirty") is not False:raise SystemExit("PRE-INSTALL gate is not a clean PASS")
@@ -15,14 +15,24 @@ if report.get("git_commit")!=manifest.get("git_commit") or manifest.get("worktre
 if manifest.get("build_id") not in report.get("build_ids",[]):raise SystemExit("installed build_id is absent from PRE-INSTALL report")
 if report.get("specification_sha256")!=manifest.get("specification_sha256") or report.get("protocol_schema_hash")!=manifest.get("protocol_schema_hash"):raise SystemExit("PRE-INSTALL/build contract hash mismatch")
 reported={item.get("sha256") for item in report.get("artifacts",[]) if isinstance(item,dict)}
+with open(sys.argv[3],"rb") as stream: archive_hash=hashlib.sha256(stream.read()).hexdigest()
+if archive_hash not in reported:raise SystemExit("EV3 package SHA-256 is absent from PRE-INSTALL artifact evidence")
 for field in ("controller_sha256","safety_sha256"):
     if manifest.get(field) not in reported:raise SystemExit(field+" is absent from PRE-INSTALL artifact evidence")
 PY
 "$dest/bin/phantom-controller" --self-test;"$dest/bin/phantom-safety" --self-test
 python3 -m compileall -q "$dest/bin"
-getent group phantom >/dev/null 2>&1||addgroup --system phantom
-getent passwd phantom >/dev/null 2>&1||adduser --system --ingroup phantom --home /var/lib/phantom --no-create-home --disabled-password --shell /usr/sbin/nologin phantom
-getent group ev3dev >/dev/null 2>&1&&adduser phantom ev3dev >/dev/null 2>&1||true
+for group in phantom-ipc phantom-safety-ipc phantom-motor;do getent group "$group" >/dev/null 2>&1||addgroup --system "$group";done
+for user in phantom-ctrl phantom-net phantom-mdns;do
+  getent group "$user" >/dev/null 2>&1||addgroup --system "$user"
+  getent passwd "$user" >/dev/null 2>&1||adduser --system --ingroup "$user" --home /var/lib/phantom --no-create-home --disabled-password --shell /usr/sbin/nologin "$user"
+done
+adduser phantom-ctrl phantom-motor >/dev/null 2>&1||true
+adduser phantom-ctrl phantom-ipc >/dev/null 2>&1||true
+adduser phantom-ctrl phantom-safety-ipc >/dev/null 2>&1||true
+adduser phantom-net phantom-ipc >/dev/null 2>&1||true
+getent group ev3dev >/dev/null 2>&1&&adduser phantom-ctrl ev3dev >/dev/null 2>&1||true
+if test -d /var/lib/phantom/secrets;then chown root:phantom-net /var/lib/phantom/secrets;chmod 0750 /var/lib/phantom/secrets;find /var/lib/phantom/secrets -type f -exec chown root:phantom-net {} + -exec chmod 0640 {} +;fi
 install -m 0644 "$dest/tmpfiles/phantom.conf" /etc/tmpfiles.d/phantom.conf
 systemd-tmpfiles --create /etc/tmpfiles.d/phantom.conf
 previous=$(readlink -f "$root/current" 2>/dev/null||true)

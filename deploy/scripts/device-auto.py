@@ -6,6 +6,7 @@ import json
 import os
 import pathlib
 import platform
+import grp
 import socket
 import struct
 import subprocess
@@ -260,10 +261,26 @@ def main():
     units = ("phantom-safety.service", "phantom-wifi-autoconnect.service", "phantom-controller.service", "phantom-network.service", "phantom-mdns.service")
     services_ok = all(active(unit) for unit in units)
     add("ev3-systemd-startup", "PASS" if services_ok else "FAIL", "all Stage-3 services active", {unit: active(unit) for unit in units})
+    identities={unit:run(["systemctl","show","-p","User","-p","Group",unit],5).stdout.strip() for unit in ("phantom-controller.service","phantom-network.service","phantom-mdns.service")}
+    identity_ok="User=phantom-ctrl" in identities["phantom-controller.service"] and "User=phantom-net" in identities["phantom-network.service"] and "User=phantom-mdns" in identities["phantom-mdns.service"]
+    add("ev3-runtime-identities", "PASS" if identity_ok else "FAIL", "controller/network/mDNS use distinct service identities", identities, 3)
+    controller_ipc=pathlib.Path("/run/phantom/controller/network.sock");network_ipc=pathlib.Path("/run/phantom/network/controller.sock")
+    ipc_evidence={}
+    for path in (controller_ipc,network_ipc):
+        if path.exists():
+            info=path.stat();ipc_evidence[str(path)]={"mode":oct(info.st_mode&0o777),"group":grp.getgrgid(info.st_gid).gr_name}
+    ipc_ok=len(ipc_evidence)==2 and all(item["mode"]=="0o660" and item["group"]=="phantom-ipc" for item in ipc_evidence.values())
+    add("ev3-controller-network-ipc-permissions", "PASS" if ipc_ok else "FAIL", "fixed datagram endpoints mode 0660 group phantom-ipc", ipc_evidence, 3)
+    access_checks={
+        "phantom-net-motor-write-denied":run(["runuser","-u","phantom-net","--","test","!","-w","/run/phantom/motor-control.lock"],5).returncode==0,
+        "phantom-ctrl-psk-read-denied":run(["runuser","-u","phantom-ctrl","--","test","!","-r","/var/lib/phantom/secrets/control.psk"],5).returncode==0,
+        "phantom-mdns-psk-read-denied":run(["runuser","-u","phantom-mdns","--","test","!","-r","/var/lib/phantom/secrets/control.psk"],5).returncode==0,
+    }
+    add("ev3-privilege-separation", "PASS" if all(access_checks.values()) else "FAIL", "motor and PSK DAC domains are disjoint", access_checks, 3)
     safe, safe_evidence = zero_state(motors)
     add("ev3-zero-output-startup", "PASS" if safe else "FAIL", "all physically present motors stationary/BRAKE", safe_evidence)
 
-    boot_before_path = pathlib.Path("/run/phantom/controller-boot-id")
+    boot_before_path = pathlib.Path("/run/phantom/controller/boot-id")
     boot_before = text(boot_before_path) if boot_before_path.is_file() else ""
     if services_ok and profile_ok and safe:
         log_path = pathlib.Path("/var/log/phantom/safety-emergency.log")

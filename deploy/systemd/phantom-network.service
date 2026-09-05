@@ -8,15 +8,16 @@ PartOf=phantom.target
 Type=notify
 NotifyAccess=main
 TimeoutStartSec=90
-User=phantom
-Group=phantom
+User=phantom-net
+Group=phantom-net
+SupplementaryGroups=phantom-ipc
 ExecStart=/opt/phantom/current/bin/phantom-network
 Restart=on-failure
 RestartSec=2
 NoNewPrivileges=true
 ProtectSystem=strict
 PrivateTmp=true
-ReadWritePaths=/run/phantom
+ReadWritePaths=/run/phantom/network /run/phantom/network-status.json
 
 [Install]
 WantedBy=phantom.target

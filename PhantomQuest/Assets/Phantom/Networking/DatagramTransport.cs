@@ -49,9 +49,7 @@ namespace Phantom.Networking
                     ?(EndPoint)new IPEndPoint(IPAddress.IPv6Any,0):new IPEndPoint(IPAddress.Any,0));
                 _socket.ReceiveBufferSize=16*1024;_socket.SendBufferSize=16*1024;
                 _cancel=new CancellationTokenSource();IsRunning=true;
-                var socket=_socket;var endpoint=Remote;var token=_cancel.Token;var generation=Volatile.Read(ref _generation);
-                Interlocked.Increment(ref _activeWorkers);_worker=Task.Run(()=>Worker(socket,endpoint,token,generation),token);
-                _worker.ContinueWith(_=>Interlocked.Decrement(ref _activeWorkers),CancellationToken.None,TaskContinuationOptions.ExecuteSynchronously,TaskScheduler.Default);
+                if(_worker==null||_worker.IsCompleted)StartWorkerLocked();
             }
         }
 
@@ -78,7 +76,28 @@ namespace Phantom.Networking
             Interlocked.Increment(ref _generation);
             try{_cancel?.Cancel();}catch(ObjectDisposedException){}
             try{_socket?.Close();}catch(ObjectDisposedException){}
-            _cancel?.Dispose();_cancel=null;_socket=null;_worker=null;Remote=null;
+            _cancel?.Dispose();_cancel=null;_socket=null;Remote=null;
+        }
+
+        void StartWorkerLocked()
+        {
+            if(!IsRunning||_socket==null||_cancel==null)return;
+            var socket=_socket;var endpoint=Remote;var token=_cancel.Token;var generation=Volatile.Read(ref _generation);Task task=null;
+            Interlocked.Increment(ref _activeWorkers);task=Task.Run(()=>RunWorker(socket,endpoint,token,generation));_worker=task;
+            task.ContinueWith(_=>
+            {
+                lock(_gate)
+                {
+                    if(ReferenceEquals(_worker,task))_worker=null;
+                    if(IsRunning&&_worker==null)StartWorkerLocked();
+                }
+            },CancellationToken.None,TaskContinuationOptions.ExecuteSynchronously,TaskScheduler.Default);
+        }
+
+        void RunWorker(Socket socket,IPEndPoint expected,CancellationToken token,int generation)
+        {
+            try{Worker(socket,expected,token,generation);}
+            finally{Interlocked.Decrement(ref _activeWorkers);}
         }
 
         void Worker(Socket socket,IPEndPoint expected,CancellationToken token,int generation)

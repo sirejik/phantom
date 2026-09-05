@@ -21,6 +21,7 @@ Run-Check "config-json-schema-generated" 1 {python tools/configgen.py --check}
 Run-Check "protocol-exact-hmac-fuzz" 1 {python tools/test_protocol.py}
 Run-Check "tracking-replay-regressions" 1 {python sim/tracking-replay/test_tracking_replay.py}
 Run-Check "artifact-gate-regressions" 1 {python tools/test_artifact_check.py}
+Run-Check "build-identity-golden" 1 {python tools/test_build_identity.py}
 Run-Check "secret-scan" 1 {python tools/security_scan.py}
 Run-Check "quest-provider-source-audit" 2 {python tools/quest_provider_compatibility_check.py --report}
 Run-Check "spec-test-duration-audit" 1 {python tools/spec_test_duration_check.py --report}

@@ -30,6 +30,10 @@ class WireTests(unittest.TestCase):
         self.assertEqual(struct.unpack_from("<H",ack["payload"],308)[0],simulator.CONNECTED_UNREFERENCED);self.assertEqual(ack["payload"][312],1);self.assertEqual(ack["payload"][148:180],sim.bundle_hash)
         old_boot=sim.boot_id;sim.restart_controller();self.assertNotEqual(old_boot,sim.boot_id);self.assertIsNone(sim.session)
     def test_stage3_fault_scenarios_are_declared(self):
-        required={"hello_ack_lost","telemetry_stop_resume","bad_hmac","wrong_robot","wrong_protocol","wrong_schema_hash","wrong_bundle_hash","duplicate_packet","stale_packet","controller_boot_change"}
+        required={"hello_ack_lost","busy","telemetry_stop_resume","bad_hmac","wrong_robot","wrong_protocol","wrong_schema_hash","wrong_bundle_hash","duplicate_packet","stale_packet","reorder","controller_boot_change","endpoint_update","service_remove_readd"}
         self.assertTrue(required.issubset(simulator.SCENARIOS))
+    def test_competing_control_is_busy_and_stale_session_can_be_replaced(self):
+        self.hello();first_session=self.sim.session;other=("127.0.0.1",23456);nonce=b"Z"*16;hello=wire.encode(1,wire.hello_payload("phantom01",0,0,nonce),simulator.TEST_KEY,b"\0"*16,self.sim.boot_id,0,1)
+        rejected=wire.decode(self.sim.process(hello,other,self.sim.started+.1)[0][0],simulator.TEST_KEY);self.assertEqual(rejected["session_id"],b"\0"*16);self.assertEqual(struct.unpack_from("<H",rejected["payload"],314)[0],simulator.ERR_CONTROL_SESSION_BUSY);self.assertEqual(self.sim.session,first_session)
+        accepted=wire.decode(self.sim.process(hello,other,self.sim.started+self.sim.session_stale+.2)[0][0],simulator.TEST_KEY);self.assertNotEqual(accepted["session_id"],b"\0"*16);self.assertNotEqual(self.sim.session,first_session)
 if __name__=="__main__":unittest.main()

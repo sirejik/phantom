@@ -2,6 +2,7 @@ using System;
 using System.Linq;
 using System.Net;
 using System.Security.Cryptography;
+using System.Threading;
 using Phantom.Networking;
 using Phantom.Networking.Generated;
 
@@ -9,6 +10,7 @@ internal static class Stage3CoreTests
 {
     static readonly byte[] Key=Enumerable.Range(0,32).Select(x=>(byte)x).ToArray();
     static readonly byte[] Bundle=Enumerable.Repeat((byte)0x42,32).ToArray();
+    const string BuildId="257fb3d9c32bbdac0b267b4b1ed15952f134cbd3f56a6cb68f7708ef8757c590";
     static int _checks;
 
     sealed class Rig:IDisposable
@@ -22,7 +24,7 @@ internal static class Stage3CoreTests
         public byte[] Session;
         public Rig()
         {
-            Client=new Stage3NetworkClient(Discovery,Transport,new EphemeralControlCredentialStore("control",Key),new NetworkClientOptions{RobotId="phantom01",ServiceType="_phantom-ev3._udp.local",ControlKeyId="control",ExpectedBundleHash=Bundle,ExpectedBuildProfile=1,HelloRetryMs=50,HelloMaxAttempts=3,PingIntervalMs=100,PingTimeoutMs=50,MaxMissedPongs=2,ReconnectDelayMs=25,TelemetryMaxAgeMs=100},Clock,Recorder);
+            Client=new Stage3NetworkClient(Discovery,Transport,new EphemeralControlCredentialStore("control",Key),new NetworkClientOptions{RobotId="phantom01",ServiceType="_phantom-ev3._udp",ControlKeyId="control",ExpectedBundleHash=Bundle,ExpectedBuildProfile=1,HelloRetryMs=50,HelloMaxAttempts=3,PingIntervalMs=100,PingTimeoutMs=50,MaxMissedPongs=2,ReconnectDelayMs=25,TelemetryMaxAgeMs=100},Clock,Recorder);
             Service=Robot("svc","127.0.0.1",31339,Id(0x20));
         }
         public byte[] Begin()
@@ -37,7 +39,7 @@ internal static class Stage3CoreTests
 
     public static int Main()
     {
-        DiscoveryHandshakeRetryAndIdentity();PingTelemetryAndFreshness();PingTimeoutIsBounded();EndpointBootAndServiceRecovery();ParserAndBindingRejections();LifecycleAndBounds();
+        DiscoveryHandshakeRetryAndIdentity();RejectedHelloAckSemantics();PingTelemetryAndFreshness();PingTimeoutIsBounded();EndpointBootAndServiceRecovery();ParserAndBindingRejections();LifecycleAndBounds();TransportRestartConcurrencyIsBounded();
         Console.WriteLine("PASS: Quest Stage-3 core "+_checks+" checks (discovery, HELLO retry, HMAC, session, PING/PONG, telemetry, recovery, lifecycle)");return 0;
     }
 
@@ -71,6 +73,21 @@ internal static class Stage3CoreTests
             rig.Transport.Inject(Telemetry(rig.Session,rig.Service.ControllerBootId,3));rig.Client.Tick();Check(rig.Client.Snapshot.Freshness==TelemetryFreshness.Fresh,"telemetry recovery");
             Check(rig.Recorder.Snapshot().Any(x=>x.Name=="telemetry_stale")&&rig.Recorder.Snapshot().Any(x=>x.Name=="telemetry_recovered"),"freshness events");
         }
+    }
+
+    static void RejectedHelloAckSemantics()
+    {
+        using(var rig=new Rig())
+        {
+            var hello=rig.Begin();rig.Transport.Inject(Ack(hello,new byte[16],rig.Service.ControllerBootId,null,"phantom01",12));rig.Client.Tick();
+            Check(!rig.Client.Snapshot.SessionActive&&rig.Client.Snapshot.State==NetworkState.Reconnecting,"busy rejected ACK created authority");
+        }
+        using(var rig=new Rig())
+        {
+            var hello=rig.Begin();rig.Transport.Inject(Ack(hello,new byte[16],rig.Service.ControllerBootId,null,"phantom01",2));rig.Client.Tick();
+            Check(!rig.Client.Snapshot.SessionActive&&rig.Client.Snapshot.State==NetworkState.AuthenticationFailure,"auth rejected ACK classification");
+        }
+        var payload=new byte[364];PutU16(payload,314,12);var threw=false;try{ProtocolCodec.Encode(WireV1.MessageType.HelloAck,payload,Key,Id(1),Id(2),0,0);}catch(ArgumentException){threw=true;}Check(threw,"rejected ACK accepted nonzero session");
     }
 
     static void EndpointBootAndServiceRecovery()
@@ -110,16 +127,31 @@ internal static class Stage3CoreTests
         }
         var recorder=new BoundedNetworkFlightRecorder(3);for(var i=0;i<10;i++)recorder.Record(new NetworkEvent{Name=i.ToString()});Check(recorder.Count==3&&recorder.Snapshot()[0].Name=="7","flight recorder not bounded");
         var sequence=new SessionState(Id(1),Id(2),new IPEndPoint(IPAddress.Loopback,1));Check(sequence.AllocateSequence()==1&&sequence.AllocateSequence()==2,"session send sequence");Check(sequence.TryAccept(1)&&!sequence.TryAccept(1)&&!sequence.TryAccept(0)&&sequence.TryAccept(3),"session receive sequence");
+        var outOfRange=false;try{ProtocolCodec.EncodeCommand(new CommandPayload{Flags=MotionFlags.HoldRequest,Target=new Phantom.Kinematics.JointAngles(6.5,0,0),GripIntent=.5f});}catch(ArgumentOutOfRangeException){outOfRange=true;}Check(outOfRange,"Quest COMMAND absolute parser range differs from EV3");
+        var invalidType=false;try{new NetworkClientOptions{ServiceType="_phantom-ev3._udp.local.",ControlKeyId="control",ExpectedBundleHash=Bundle}.Validate();}catch(ArgumentException){invalidType=true;}Check(invalidType,"non-canonical DNS-SD type accepted");
+        var invalidSlot=false;try{new NetworkClientOptions{ServiceType="_phantom-ev3._udp",ControlKeyId="control",ControlKeySlot=1,ExpectedBundleHash=Bundle}.Validate();}catch(ArgumentException){invalidSlot=true;}Check(invalidSlot,"commissioning slot accepted by Stage-3 client");
     }
 
-    static DiscoveredRobot Robot(string key,string host,int port,byte[] boot,string robot="phantom01")=>new DiscoveredRobot{ServiceKey=key,InstanceName="PHANTOM-"+robot,ServiceType="_phantom-ev3._udp.local",RobotId=robot,ProtocolMajor=1,ControllerBootId=boot,BuildId="sim-stage3",Endpoint=new IPEndPoint(IPAddress.Parse(host),port)};
-    static byte[] Ack(byte[] hello,byte[] session,byte[] boot,byte[] bundle=null,string robot="phantom01")
+    static void TransportRestartConcurrencyIsBounded()
     {
-        DecodedDatagram request;Check(ProtocolCodec.TryDecode(hello,Key,out request),"HELLO parse for ACK");var p=new byte[364];Buffer.BlockCopy(request.Payload,36,p,0,16);PutId(p,16,robot);PutId(p,48,"sim-stage3");PutU16(p,80,0);p[82]=0;p[83]=0;Buffer.BlockCopy(Hex(WireV1.ProtocolSchemaSha256),0,p,116,32);Buffer.BlockCopy(bundle??Bundle,0,p,148,32);PutU16(p,308,3);p[312]=1;return ProtocolCodec.Encode(WireV1.MessageType.HelloAck,p,Key,session,boot,0,0);
+        var transport=new UdpRobotTransport();var maximum=0;
+        try
+        {
+            for(var i=0;i<100;i++){transport.Start(new IPEndPoint(IPAddress.Loopback,30000+i));maximum=Math.Max(maximum,UdpRobotTransport.ActiveWorkerCount);}
+        }
+        finally{transport.Dispose();}
+        var deadline=DateTime.UtcNow.AddSeconds(1);while(DateTime.UtcNow<deadline&&UdpRobotTransport.ActiveWorkerCount!=0)Thread.Sleep(2);
+        Check(maximum<=1,"UDP restart created concurrent workers");Check(UdpRobotTransport.ActiveWorkerCount==0,"UDP worker leaked after restart storm");
+    }
+
+    static DiscoveredRobot Robot(string key,string host,int port,byte[] boot,string robot="phantom01")=>new DiscoveredRobot{ServiceKey=key,InstanceName="PHANTOM-"+robot,ServiceType="_phantom-ev3._udp",RobotId=robot,ProtocolMajor=1,ControllerBootId=boot,BuildId=BuildId,Endpoint=new IPEndPoint(IPAddress.Parse(host),port)};
+    static byte[] Ack(byte[] hello,byte[] session,byte[] boot,byte[] bundle=null,string robot="phantom01",ushort result=0)
+    {
+        DecodedDatagram request;Check(ProtocolCodec.TryDecode(hello,Key,out request),"HELLO parse for ACK");var p=new byte[364];Buffer.BlockCopy(request.Payload,36,p,0,16);PutId(p,16,robot);Buffer.BlockCopy(Hex(BuildId),0,p,48,32);PutU16(p,80,0);p[82]=0;p[83]=0;Buffer.BlockCopy(Hex(WireV1.ProtocolSchemaSha256),0,p,116,32);Buffer.BlockCopy(bundle??Bundle,0,p,148,32);PutU16(p,308,3);p[312]=1;PutU16(p,314,result);return ProtocolCodec.Encode(WireV1.MessageType.HelloAck,p,Key,session,boot,0,0);
     }
     static byte[] Telemetry(byte[] session,byte[] boot,ulong sequence)
     {
-        var p=new byte[236];PutId(p,0,"phantom01");PutId(p,32,"sim-stage3");Buffer.BlockCopy(Bundle,0,p,64,32);PutU16(p,128,3);PutU16(p,130,0);PutU32(p,132,4);PutU64(p,152,0);PutU32(p,160,0xffffffff);PutU16(p,192,0);PutU16(p,194,7600);PutU32(p,196,0);PutId(p,200,"N_A");p[232]=0;p[233]=1;return ProtocolCodec.Encode(WireV1.MessageType.Telemetry,p,Key,session,boot,sequence,0);
+        var p=new byte[236];PutId(p,0,"phantom01");Buffer.BlockCopy(Hex(BuildId),0,p,32,32);Buffer.BlockCopy(Bundle,0,p,64,32);PutU16(p,128,3);PutU16(p,130,0);PutU32(p,132,4);PutU64(p,152,0);PutU32(p,160,0xffffffff);PutU16(p,192,0);PutU16(p,194,7600);PutU32(p,196,0);PutId(p,200,"UNSELECTED");p[232]=2;p[233]=1;return ProtocolCodec.Encode(WireV1.MessageType.Telemetry,p,Key,session,boot,sequence,0);
     }
     static void Retag(byte[] packet){using(var mac=new HMACSHA256(Key)){var tag=mac.ComputeHash(packet,0,packet.Length-32);Buffer.BlockCopy(tag,0,packet,packet.Length-32,32);}}
     static byte[] Id(byte start){var result=new byte[16];for(var i=0;i<16;i++)result[i]=(byte)(start+i);return result;}

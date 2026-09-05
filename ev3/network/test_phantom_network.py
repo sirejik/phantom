@@ -23,12 +23,16 @@ class NetworkTests(unittest.TestCase):
         self.boot_path.write_text(self.boot.hex() + "\n", encoding="ascii")
         self.key = bytes(range(32))
         self.config = {"schema_version": 1, "robot_id": "phantom01", "build_profile": "Diagnostic",
-                       "qualification_only": True, "actuator_scope_mask": 0,
+                       "qualification_only": True, "qualification_evidence_manifest_hash": "0" * 64,
+                       "actuator_scope_mask": 0, "safety_observation_mask": 0,
                        "network": {"listen_port_udp": 30470, "rx_rate_limit_pps": 100,
                                    "rx_burst_packets": 20, "hello_retry_window_ms": 2000,
-                                   "session_stale_ms": 5000}}
-        self.bundle = {"schema_version": 1, "qualification_only": True, "actuator_scope_mask": 0}
-        self.manifest = {"build_id": "stage3-test", "specification_sha256": "11" * 32,
+                                   "session_stale_ms": 5000, "discovery_service_type": "_phantom-ev3._udp",
+                                   "discovery_domain": "local.", "ip_family": "IPV4"}}
+        self.bundle = {"schema_version": 1, "qualification_only": True,
+                       "qualification_evidence_manifest_hash": "0" * 64,
+                       "actuator_scope_mask": 0, "safety_observation_mask": 0}
+        self.manifest = {"build_id": hashlib.sha256(b"stage3-test").hexdigest(), "specification_sha256": "11" * 32,
                          "protocol_schema_hash": wire.schema_hash().hex(),
                          "commissioning_bundle_hash": hashlib.sha256(network.canonical(self.bundle)).hexdigest()}
         self.server = network.Stage3Server(self.config, self.bundle, self.manifest, self.key,
@@ -56,10 +60,48 @@ class NetworkTests(unittest.TestCase):
         decoded = wire.decode(ack, self.key)
         self.assertEqual(decoded["message"], "HELLO_ACK")
         self.assertNotEqual(decoded["session_id"], wire.ZERO_ID)
+        self.assertEqual(struct.unpack_from("<H", decoded["payload"], 314)[0], network.RESULT_OK)
+        self.assertEqual(decoded["payload"][48:80], bytes.fromhex(self.manifest["build_id"]))
         session = decoded["session_id"]
         self.assertEqual(self.hello(), ack)
         self.assertEqual(self.server.session_id, session)
-        self.assertIsNone(self.hello(b"X" * 16, ("127.0.0.1", 12346)))
+        rejected = wire.decode(self.hello(b"X" * 16, ("127.0.0.1", 12346)), self.key)
+        self.assertEqual(rejected["session_id"], wire.ZERO_ID)
+        self.assertEqual(struct.unpack_from("<H", rejected["payload"], 314)[0], network.ERR_CONTROL_SESSION_BUSY)
+
+    def test_authenticated_semantic_hello_rejections_have_zero_session(self):
+        cases = ((wire.hello_payload("wrong", 0, 0, self.nonce), network.ERR_SESSION),
+                 (wire.id32("phantom01") + struct.pack("<HBB", 0, 0, 1) + self.nonce + struct.pack("<I", 0), network.ERR_AUTH),
+                 (wire.id32("phantom01") + struct.pack("<HBB", 1, 0, 0) + self.nonce + struct.pack("<I", 0), network.ERR_UNSUPPORTED),
+                 (wire.id32("phantom01") + struct.pack("<HBB", 0, 0, 0) + self.nonce + struct.pack("<I", 1), network.ERR_UNSUPPORTED))
+        for payload, expected in cases:
+            reply = self.server.process(self.packet("HELLO", payload, 0), self.address, 1.0)
+            decoded = wire.decode(reply, self.key)
+            self.assertEqual(decoded["session_id"], wire.ZERO_ID)
+            self.assertEqual(struct.unpack_from("<H", decoded["payload"], 314)[0], expected)
+            self.assertIsNone(self.server.session_id)
+
+    def test_controller_ipc_contract_gates_session_and_command(self):
+        self.assertEqual(network.IPC_REQUEST.size, 120)
+        self.assertEqual(network.IPC_REPLY.size, 64)
+        class RejectOpen(network.LocalControllerAuthority):
+            def open(self, *unused):
+                return network.ERR_CONTROL_SESSION_BUSY
+        self.server.authority = RejectOpen()
+        rejected = wire.decode(self.hello(), self.key)
+        self.assertEqual(rejected["session_id"], wire.ZERO_ID)
+        self.assertEqual(struct.unpack_from("<H", rejected["payload"], 314)[0], network.ERR_CONTROL_SESSION_BUSY)
+        self.assertIsNone(self.server.session_id)
+        class RejectCommand(network.LocalControllerAuthority):
+            def command(self, *unused):
+                return network.ERR_SESSION
+        self.server.authority = RejectCommand()
+        self.hello()
+        session = self.server.session_id
+        command = self.packet("COMMAND", wire.command_payload(5, [.1, .2, .3], .4), 1, session)
+        self.assertIsNone(self.server.process(command, self.address, 1.1))
+        self.assertIsNone(self.server.session_id)
+        self.assertEqual(self.server.counters["nonzero_motor_writes"], 0)
 
     def test_ping_pong_and_scope_zero_command(self):
         self.hello()
@@ -80,11 +122,13 @@ class NetworkTests(unittest.TestCase):
         q = struct.unpack_from("<3f", telemetry["payload"], 164)
         q_speed = struct.unpack_from("<3f", telemetry["payload"], 176)
         grip = struct.unpack_from("<f", telemetry["payload"], 188)[0]
+        payload_state = telemetry["payload"][232]
         profile = telemetry["payload"][233]
         self.assertEqual(state, network.CONNECTED_UNREFERENCED)
         self.assertEqual(q, (0.0, 0.0, 0.0))
         self.assertEqual(q_speed, (0.0, 0.0, 0.0))
         self.assertEqual(grip, 0.0)
+        self.assertEqual(payload_state, network.PAYLOAD_UNKNOWN)
         self.assertEqual(profile, 1)
 
     def test_bad_hmac_replay_wrong_boot_nan_and_oversize_are_inert(self):
@@ -121,7 +165,9 @@ class NetworkTests(unittest.TestCase):
                                 key=b"K" * 32)
         wrong_robot = self.packet("HELLO", wire.hello_payload("another", 0, 0, self.nonce), 0)
         self.assertIsNone(self.server.process(wrong_key, self.address, 1.1))
-        self.assertIsNone(self.server.process(wrong_robot, self.address, 1.2))
+        rejected = wire.decode(self.server.process(wrong_robot, self.address, 1.2), self.key)
+        self.assertEqual(rejected["session_id"], wire.ZERO_ID)
+        self.assertEqual(struct.unpack_from("<H", rejected["payload"], 314)[0], network.ERR_SESSION)
         self.assertIsNone(self.server.session_id)
         self.assertEqual(self.server.counters["nonzero_motor_writes"], 0)
 

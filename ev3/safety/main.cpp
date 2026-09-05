@@ -16,7 +16,7 @@ int main(int argc,char**argv){
   phantom::RuntimeProfile profile;std::string error;if(!phantom::load_runtime_profile("/opt/phantom/current/config.generated.json","/opt/phantom/current/commissioning-bundle.generated.json",profile,error)){std::cerr<<"runtime profile: "<<error<<"\n";return 5;}const bool network_only=profile.qualification_only&&profile.actuator_scope_mask==0;
   // The supervisor pre-opens all physically present stop I/O but writes only on takeover.
   phantom::Ev3SysfsBackend backend("/sys/class/tacho-motor","/sys/class/lego-sensor",false,profile.actuator_scope_mask,!network_only,!network_only);if(!backend.initialize(error)){std::cerr<<"safety backend: "<<error<<"\n";return 2;}
-  phantom::HeartbeatChannel heartbeat("/run/phantom/safety.sock","/run/phantom/controller.sock",2);if(!heartbeat.valid())return 4;phantom::MotorLease lease;std::signal(SIGINT,stop);std::signal(SIGTERM,stop);
+  phantom::HeartbeatChannel heartbeat("/run/phantom/safety/supervisor.sock","/run/phantom/safety/controller.sock",2);if(!heartbeat.valid())return 4;phantom::MotorLease lease;std::signal(SIGINT,stop);std::signal(SIGTERM,stop);
   const std::uint64_t startup=phantom::monotonic_us();bool seen=false,inhibit=false,reported=false;std::uint64_t inhibit_since=0;
   while(running){const std::uint64_t now=phantom::monotonic_us();heartbeat.drain(now);heartbeat.send(now);if(heartbeat.last_peer_us())seen=true;const auto io=backend.read();const bool stale=seen&&!heartbeat.peer_fresh(now,100000);const bool startup_expired=!seen&&now-startup>500000;
     if(startup_expired&&!seen&&!io.local_stop_pressed){backend.brake_all();lease.release();if(!reported){emergency_event(now,0,false);reported=true;}}

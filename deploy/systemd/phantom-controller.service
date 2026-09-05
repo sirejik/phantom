@@ -7,15 +7,16 @@ PartOf=phantom.target
 
 [Service]
 Type=simple
-User=phantom
-Group=phantom
+User=phantom-ctrl
+Group=phantom-motor
+SupplementaryGroups=phantom-ipc phantom-safety-ipc ev3dev
 ExecStart=/opt/phantom/current/bin/phantom-controller
 ExecStopPost=/bin/sh -c 'for m in /sys/class/tacho-motor/motor*; do echo 0 > "$m/duty_cycle_sp" 2>/dev/null || true; echo brake > "$m/stop_action" 2>/dev/null || true; echo stop > "$m/command" 2>/dev/null || true; done'
 Restart=on-failure
 RestartSec=2
 NoNewPrivileges=true
 ProtectSystem=strict
-ReadWritePaths=/run/phantom /var/lib/phantom /var/log/phantom /sys/class/tacho-motor /sys/class/lego-sensor
+ReadWritePaths=/run/phantom/controller /run/phantom/safety /var/lib/phantom /var/log/phantom /sys/class/tacho-motor /sys/class/lego-sensor
 
 [Install]
 WantedBy=phantom.target

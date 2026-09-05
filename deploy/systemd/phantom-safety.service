@@ -6,13 +6,14 @@ PartOf=phantom.target
 [Service]
 Type=simple
 User=root
-Group=phantom
+Group=phantom-safety-ipc
+SupplementaryGroups=phantom-motor
 ExecStart=/opt/phantom/current/bin/phantom-safety
 Restart=always
 RestartSec=1
 NoNewPrivileges=true
 ProtectSystem=strict
-ReadWritePaths=/run/phantom /var/log/phantom /sys/class/tacho-motor /sys/class/lego-sensor
+ReadWritePaths=/run/phantom/safety /run/phantom/motor-control.lock /var/log/phantom /sys/class/tacho-motor /sys/class/lego-sensor
 
 [Install]
 WantedBy=phantom.target
