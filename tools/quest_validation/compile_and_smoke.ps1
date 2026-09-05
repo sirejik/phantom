@@ -19,3 +19,7 @@ if($LASTEXITCODE -ne 0){exit $LASTEXITCODE}
 if($LASTEXITCODE -ne 0){exit $LASTEXITCODE}
 & "$outDir/CoreSmoke.exe"
 if($LASTEXITCODE -ne 0){exit $LASTEXITCODE}
+& $dotnet $csc -nologo -langversion:9 -noconfig -nostdlib -target:exe -out:"$outDir/Stage3CoreTests.exe" -r:"$api/mscorlib.dll" -r:"$api/System.dll" -r:"$api/System.Core.dll" -r:"$outDir/Phantom.Core.dll" "tools/quest_validation/Stage3CoreTests.cs"
+if($LASTEXITCODE -ne 0){exit $LASTEXITCODE}
+& "$outDir/Stage3CoreTests.exe"
+if($LASTEXITCODE -ne 0){exit $LASTEXITCODE}

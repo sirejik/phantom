@@ -1,4 +1,4 @@
-param([switch]$SkipUnity,[ValidateRange(1,2)][int]$Stage=2)
+param([switch]$SkipUnity,[ValidateRange(1,3)][int]$Stage=3)
 $ErrorActionPreference="Stop"
 $started=(Get-Date).ToUniversalTime()
 $checks=@()
@@ -25,6 +25,8 @@ Run-Check "secret-scan" 1 {python tools/security_scan.py}
 Run-Check "quest-provider-source-audit" 2 {python tools/quest_provider_compatibility_check.py --report}
 Run-Check "spec-test-duration-audit" 1 {python tools/spec_test_duration_check.py --report}
 Run-Check "quest-pure-core-and-synthetic" 1 {powershell -NoProfile -ExecutionPolicy Bypass -File tools/quest_validation/compile_and_smoke.ps1}
+Run-Check "quest-stage3-real-udp-simulator" 3 {powershell -NoProfile -ExecutionPolicy Bypass -File tools/quest_validation/run_udp_integration.ps1}
+Run-Check "quest-android-nsd-contract" 3 {python tools/quest_android_nsd_check.py}
 if($SkipUnity){$checks+=@{test_id="unity-editmode";introduced_at_stage=2;applicable_to_stage=$Stage;status="NOT_RUN";runner="scripts/quest-test.ps1";detail="explicit -SkipUnity"}}
 else{Run-Check "unity-editmode" 2 {powershell -NoProfile -ExecutionPolicy Bypass -File scripts/quest-test.ps1}}
 if(!$SkipUnity)

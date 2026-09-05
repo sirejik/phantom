@@ -9,18 +9,26 @@ powershell -NoProfile -ExecutionPolicy Bypass -File "tools/quest_validation/comp
 if($LASTEXITCODE -ne 0){exit $LASTEXITCODE}
 & $dotnet $csc -nologo -langversion:9 -noconfig -nostdlib -target:exe -out:"$outDir/UdpIntegration.exe" -r:"$api/mscorlib.dll" -r:"$api/System.dll" -r:"$api/System.Core.dll" -r:"$outDir/Phantom.Core.dll" "tools/quest_validation/UdpIntegration.cs"
 if($LASTEXITCODE -ne 0){exit $LASTEXITCODE}
-$stdout=Join-Path $outDir "simulator-integration.stdout.jsonl"
-$stderr=Join-Path $outDir "simulator-integration.stderr.txt"
-$sim=Start-Process -FilePath "python" -ArgumentList @("sim/ev3-simulator/phantom_simulator.py","--bind","127.0.0.1","--port","31339","--scenario","normal") -PassThru -WindowStyle Hidden -RedirectStandardOutput $stdout -RedirectStandardError $stderr
-try
+$bundle=(Get-Content config/generated/config-manifest.json -Raw|ConvertFrom-Json).artifact_hashes.'commissioning_bundle-network-only'
+
+function Invoke-UdpScenario([string]$Scenario,[int]$Port)
 {
-    $deadline=(Get-Date).AddSeconds(3);$boot=$null
-    while((Get-Date)-lt $deadline -and !$boot){Start-Sleep -Milliseconds 50;if(Test-Path $stdout){$first=Get-Content $stdout -First 1 -ErrorAction SilentlyContinue;if($first){$boot=($first|ConvertFrom-Json).controller_boot_id}}}
-    if(!$boot){throw "simulator discovery record timeout"}
-    & "$outDir/UdpIntegration.exe" $boot
-    if($LASTEXITCODE -ne 0){exit $LASTEXITCODE}
+    $stdout=Join-Path $outDir "simulator-$Scenario.stdout.jsonl"
+    $stderr=Join-Path $outDir "simulator-$Scenario.stderr.txt"
+    Remove-Item -LiteralPath $stdout,$stderr -Force -ErrorAction SilentlyContinue
+    $sim=Start-Process -FilePath "python" -ArgumentList @("sim/ev3-simulator/phantom_simulator.py","--bind","127.0.0.1","--port",$Port,"--scenario",$Scenario,"--network-only") -PassThru -WindowStyle Hidden -RedirectStandardOutput $stdout -RedirectStandardError $stderr
+    try
+    {
+        $deadline=(Get-Date).AddSeconds(3);$record=$null
+        while((Get-Date)-lt $deadline -and !$record){Start-Sleep -Milliseconds 50;if(Test-Path -LiteralPath $stdout){$first=Get-Content -LiteralPath $stdout -First 1 -ErrorAction SilentlyContinue;if($first){$record=$first|ConvertFrom-Json}}}
+        if(!$record){throw "simulator discovery record timeout: $Scenario"}
+        & "$outDir/UdpIntegration.exe" $record.controller_boot_id $record.port $bundle $Scenario
+        if($LASTEXITCODE -ne 0){throw "UDP scenario failed: $Scenario"}
+    }
+    finally { if(!$sim.HasExited){Stop-Process -Id $sim.Id} }
 }
-finally
-{
-    if(!$sim.HasExited){Stop-Process -Id $sim.Id}
-}
+
+Invoke-UdpScenario "normal" 31339
+Invoke-UdpScenario "hello_ack_lost" 31340
+Invoke-UdpScenario "bad_hmac" 31341
+Invoke-UdpScenario "telemetry_stop_resume" 31342

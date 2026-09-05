@@ -48,7 +48,8 @@ def main():
         if package.startswith("com.unity.modules."):continue
         require(package in package_lock["dependencies"],"package missing from lock: "+package)
         require(package_lock["dependencies"][package]["version"]==version,"package lock mismatch: "+package)
-    expected_config={"quest":sha(ROOT/"config/generated/quest.generated.json"),
+    expected_config={"quest":{"release":sha(ROOT/"config/generated/quest.generated.json"),
+                              "diagnostic":sha(ROOT/"config/generated/quest-network-only.generated.json")},
                      "ev3":{"release":sha(ROOT/"config/generated/ev3.generated.json"),
                             "diagnostic":sha(ROOT/"config/generated/ev3-network-only.generated.json")}}
     config_manifest=load(ROOT/"config/generated/config-manifest.json")
@@ -64,7 +65,7 @@ def main():
         require(manifest["git_commit"]==commit and manifest.get("worktree_dirty") is False,"Quest artifact is not from the clean current commit")
         require(manifest["apk_sha256"]==sha(apk),"Quest APK hash mismatch")
         require(manifest["protocol_schema_hash"]==protocol and manifest["specification_sha256"]==specification,"Quest source hash mismatch")
-        require(manifest["config_hash"]==expected_config["quest"],"Quest config hash mismatch")
+        require(manifest["config_hash"]==expected_config["quest"][profile],"Quest config hash mismatch")
         require(manifest["source_tree_hash"]==expected_source["quest"],"Quest artifact was not built from current sources")
         require(manifest["package_lock_sha256"]==sha(ROOT/"PhantomQuest/Packages/packages-lock.json"),"Quest package lock hash mismatch")
         expected_versions={

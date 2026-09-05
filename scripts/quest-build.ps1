@@ -20,7 +20,9 @@ $env:PHANTOM_GIT_COMMIT=(git rev-parse HEAD).Trim()
 $env:PHANTOM_WORKTREE_DIRTY=if((git status --porcelain).Count -gt 0){"true"}else{"false"}
 $env:PHANTOM_SPECIFICATION_SHA256=(Get-FileHash docs\PHANTOM_SPECIFICATION.md -Algorithm SHA256).Hash.ToLower()
 $env:PHANTOM_PROTOCOL_SCHEMA_HASH=(Get-Content protocol\generated\schema.sha256).Split()[0]
-$env:PHANTOM_CONFIG_HASH=(Get-FileHash config\generated\quest.generated.json -Algorithm SHA256).Hash.ToLower()
+$questConfig=if($Profile -eq "Diagnostic"){"config\generated\quest-network-only.generated.json"}else{"config\generated\quest.generated.json"}
+$env:PHANTOM_QUEST_CONFIG_PATH=[System.IO.Path]::GetFullPath($questConfig)
+$env:PHANTOM_CONFIG_HASH=(Get-FileHash $questConfig -Algorithm SHA256).Hash.ToLower()
 $env:PHANTOM_PACKAGE_LOCK_SHA256=(Get-FileHash PhantomQuest\Packages\packages-lock.json -Algorithm SHA256).Hash.ToLower()
 $env:PHANTOM_SOURCE_TREE_HASH=(python tools\source_hash.py PhantomQuest\Assets\Phantom PhantomQuest\Assets\Plugins PhantomQuest\Packages PhantomQuest\ProjectSettings).Trim()
 # Android Gradle Prefab corrupts non-ASCII Windows profile paths in generated

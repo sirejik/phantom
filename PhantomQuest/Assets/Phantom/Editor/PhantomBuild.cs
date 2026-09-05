@@ -90,7 +90,8 @@ namespace Phantom.Editor
             Directory.CreateDirectory(Path.GetDirectoryName(EmbeddedBuildPath));
             var manifest=BuildManifestJson(profile,gitCommit,sourceTreeHash,worktreeDirty,specificationHash,protocolHash,configHash,packageLockHash,"","embedded-before-apk-hash");
             File.WriteAllText(EmbeddedBuildPath,manifest+Environment.NewLine,new UTF8Encoding(false));
-            File.Copy(Path.GetFullPath(Path.Combine("..","config","generated","quest.generated.json")),EmbeddedConfigPath,true);
+            var configPath=RequiredEnvironmentVariable("PHANTOM_QUEST_CONFIG_PATH");
+            File.Copy(configPath,EmbeddedConfigPath,true);
             AssetDatabase.ImportAsset(EmbeddedBuildPath,ImportAssetOptions.ForceSynchronousImport);
             AssetDatabase.ImportAsset(EmbeddedConfigPath,ImportAssetOptions.ForceSynchronousImport);
         }

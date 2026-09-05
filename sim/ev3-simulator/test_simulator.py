@@ -25,4 +25,11 @@ class WireTests(unittest.TestCase):
         self.hello();before=list(self.sim.target);packet=bytearray(self.send("COMMAND",wire.command_payload(5,[.1,.2,.3],.4),1));packet[-1]^=1;self.sim.process(bytes(packet),self.address,self.sim.started);self.assertEqual(before,self.sim.target)
         bad=struct.pack("<IffffI",5,float("nan"),0,0,.2,0);data=self.send("COMMAND",bad,2);self.sim.process(data,self.address,self.sim.started);self.assertEqual(before,self.sim.target)
     def test_scenarios_are_declared(self):self.assertTrue({"stall","reference_loss","maintenance","local_stop","disconnect"}.issubset(simulator.SCENARIOS))
+    def test_stage3_network_only_profile_and_controlled_restart(self):
+        sim=simulator.Simulator(network_only=True);address=("127.0.0.1",12345);nonce=b"Q"*16;hello=wire.encode(1,wire.hello_payload("phantom01",0,0,nonce),simulator.TEST_KEY,b"\0"*16,sim.boot_id,0,1);ack=wire.decode(sim.process(hello,address,sim.started)[0][0],simulator.TEST_KEY)
+        self.assertEqual(struct.unpack_from("<H",ack["payload"],308)[0],simulator.CONNECTED_UNREFERENCED);self.assertEqual(ack["payload"][312],1);self.assertEqual(ack["payload"][148:180],sim.bundle_hash)
+        old_boot=sim.boot_id;sim.restart_controller();self.assertNotEqual(old_boot,sim.boot_id);self.assertIsNone(sim.session)
+    def test_stage3_fault_scenarios_are_declared(self):
+        required={"hello_ack_lost","telemetry_stop_resume","bad_hmac","wrong_robot","wrong_protocol","wrong_schema_hash","wrong_bundle_hash","duplicate_packet","stale_packet","controller_boot_change"}
+        self.assertTrue(required.issubset(simulator.SCENARIOS))
 if __name__=="__main__":unittest.main()

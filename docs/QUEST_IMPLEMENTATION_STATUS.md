@@ -1,11 +1,16 @@
 # Quest implementation status
 
 Нормативные требования находятся только в `PHANTOM_SPECIFICATION.md`. Этот файл
-фиксирует текущее состояние реализации этапов 1–2 и не заменяет test evidence.
+фиксирует текущее состояние реализации этапов 1–3 и не заменяет test evidence.
 
 ## Реализовано
 
-- Unity/OpenXR observation-only runtime без motor authority;
+- network-only Stage-3 runtime без motor authority и без формирования `COMMAND`;
+- DNS-SD abstraction с Android NSD backend и deterministic fake backend;
+- bounded background UDP transport, CONTROL HELLO/HELLO_ACK session, HMAC,
+  PING/PONG/RTT, TELEMETRY freshness и reconnect при loss/endpoint/boot change;
+- app-private Android control credential store и ephemeral test store;
+- русский network UI, structured events и bounded Quest network FlightRecorder;
 - адаптер `LOCAL_FLOOR` и канонической системы координат;
 - правый Wrist/grasp, левый Touch Plus и fail-closed state machine;
 - MRUK QR adapter для десяти идентификаторов;
@@ -25,16 +30,25 @@
 - явная классификация Body provider отделяет `API_ABSENT`, неверную
   конфигурацию, explicit SDK incompatibility, неактивные XR/focus и наличие
   live observation; лежащий HMD без live samples не создаёт software FAIL;
-- Diagnostic synthetic AUTO покрывает Wrist, `Body_RightShoulder`, grasp,
+- Diagnostic synthetic Stage-1/2 regressions покрывают Wrist, `Body_RightShoulder`, grasp,
   левый Grip, controller disconnect, stale/fresh, tracking loss/recovery,
   focus/pause/resume, все 10 QR и partial QR rejection, fail-closed state
-  machine и отсутствие `RobotTransport`/motor authority;
+  machine и отсутствие motor authority;
 - Diagnostic автоматически включает physical validation runner, а Release не
   активирует engineering UI; обязательный Space Setup не вызывается для
   выключенного scene-aware UX.
 
-Runtime этапа 2 намеренно не создаёт `RobotTransport` и не посылает команды
-движения. Любая неготовность tracking/provider/QR оставляет систему вне READY.
+Stage-3 runtime создаёт только discovery/session/telemetry transport и не имеет
+публичного actuator command path. Профиль `Diagnostic`,
+`qualification_only=true`, `actuator_scope_mask=0x00`,
+`required_user_inputs=NONE` не требует tracking/provider/QR и никогда не
+переходит в `READY`/`TRACKING`.
+
+Quest-side code и host/simulator automated validation этапа 3 завершены.
+Android Diagnostic и Release APK компилируются; Stage-3 operational profile
+встроен в Diagnostic artifact. Реальная работоспособность Android NSD,
+UDP и lifecycle на Quest 3, а также Quest↔real EV3 остаются `NOT_RUN`.
+Stage 3 overall остаётся `NOT COMPLETE` до этих hardware gates.
 
 ## Аппаратные gates Quest 3
 

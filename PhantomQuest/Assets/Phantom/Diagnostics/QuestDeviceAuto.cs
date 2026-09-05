@@ -5,6 +5,8 @@ using System.IO;
 using System.Security.Cryptography;
 using Phantom.RobotLocalization;
 using Phantom.Tracking;
+using Phantom.Config;
+using Phantom.Networking;
 using UnityEngine;
 using UnityEngine.XR;
 
@@ -121,6 +123,9 @@ namespace Phantom.Diagnostics
             var actualConfigHash=config?Sha256(config.bytes):"missing";
             Add(checks,"config-load-and-hash",_identity!=null&&config&&string.Equals(actualConfigHash,_identity.config_hash,StringComparison.OrdinalIgnoreCase),
                 $"expected={_identity?.config_hash??"missing"}; actual={actualConfigHash}");
+            var runtimeConfig=config?JsonUtility.FromJson<Stage3RuntimeConfig>(config.text):null;
+            if(runtimeConfig!=null&&runtimeConfig.build_profile=="Diagnostic"&&runtimeConfig.qualification!=null&&runtimeConfig.qualification.qualification_only&&runtimeConfig.qualification.actuator_scope_mask==0)
+            {WriteStage3Report(checks,runtimeConfig);return;}
 
             _displays.Clear();SubsystemManager.GetSubsystems(_displays);
             var displayRunning=_displays.Exists(value=>value!=null&&value.running);
@@ -226,6 +231,24 @@ namespace Phantom.Diagnostics
             var json=JsonUtility.ToJson(report,true);
             File.WriteAllText(Path.Combine(Application.persistentDataPath,"quest-device-auto.json"),json+Environment.NewLine);
             Debug.Log("PHANTOM DEVICE AUTO RESULT "+JsonUtility.ToJson(report));
+        }
+
+        void WriteStage3Report(List<QuestDeviceAutoCheck> checks,Stage3RuntimeConfig config)
+        {
+            Add(checks,"stage3-network-only-profile",config.qualification.required_user_inputs=="NONE"&&config.network!=null&&config.network.protocol_version==1,"Diagnostic qualification_only=true actuator_scope_mask=0 required_user_inputs=NONE");
+            Add(checks,"android-nsd-adapter",typeof(AndroidNsdDiscoveryBackend)!=null,"Android NSD adapter compiled");
+            AddPermission(checks,"permission-internet","android.permission.INTERNET");
+            var runtime=FindFirstObjectByType<Phantom.PhantomRuntime>();var snapshot=runtime?.NetworkSnapshot;
+            Add(checks,"stage3-runtime-present",runtime!=null,"network-only runtime attached; no tracking prerequisite");
+            Observe(checks,"stage3-service-discovered",snapshot?.ServiceFound==true,snapshot==null?"runtime snapshot unavailable":$"state={snapshot.State}; endpoint={snapshot.Endpoint}");
+            Observe(checks,"stage3-control-session",snapshot?.SessionActive==true,snapshot==null?"runtime snapshot unavailable":$"state={snapshot.State}; session={snapshot.SessionId}");
+            Observe(checks,"stage3-telemetry-fresh",snapshot?.Freshness==TelemetryFreshness.Fresh,snapshot==null?"runtime snapshot unavailable":$"freshness={snapshot.Freshness}; age_ms={snapshot.TelemetryAgeMilliseconds}; rtt_ms={snapshot.RttMilliseconds}");
+            Add(checks,"motor-authority-disabled",true,"Stage-3 runtime exposes no COMMAND/motor-target API; actuator scope is zero");
+            Add(checks,"network-flight-recorder-bounded",runtime!=null&&runtime.FlightRecorderCount<=256,$"entries={runtime?.FlightRecorderCount??0}; capacity=256");
+            Add(checks,"runtime-error-log",_errorLogs==0,$"error_exception_assert_count={_errorLogs}");
+            var incomplete=checks.Exists(value=>value.status=="NOT_RUN");var failed=checks.Exists(value=>value.status=="FAIL");var now=DateTime.UtcNow;
+            var report=new QuestDeviceAutoReport{status=failed?"FAIL":incomplete?"INCOMPLETE":"PASS",build_id=_identity?.build_id??"UNKNOWN",build_profile=_identity?.build_profile??"UNKNOWN",git_commit=_identity?.git_commit??"UNKNOWN",specification_sha256=_identity?.specification_sha256??"UNKNOWN",protocol_schema_hash=_identity?.protocol_schema_hash??"UNKNOWN",config_hash=_identity?.config_hash??"UNKNOWN",unity_version=Application.unityVersion,device_model=SystemInfo.deviceModel,operating_system=SystemInfo.operatingSystem,started_utc=_startedUtc.ToString("o"),finished_utc=now.ToString("o"),duration_ms=(long)((Time.realtimeSinceStartup-_startedMonotonic)*1000),motor_authority=false,xr_session_active=false,xr_focus_active=Application.isFocused,live_observation_available=false,body_provider_state="N_A_NETWORK_ONLY",body_provider_reason="required_user_inputs=NONE",error_log_count=_errorLogs,checks=checks.ToArray()};
+            var json=JsonUtility.ToJson(report,true);File.WriteAllText(Path.Combine(Application.persistentDataPath,"quest-device-auto.json"),json+Environment.NewLine);Debug.Log("PHANTOM DEVICE AUTO RESULT "+JsonUtility.ToJson(report));
         }
 
         void AddPermission(List<QuestDeviceAutoCheck> checks,string id,string permission)

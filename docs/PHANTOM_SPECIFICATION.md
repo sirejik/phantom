@@ -6790,7 +6790,7 @@ flowchart TD
 
 Цель — реальная сеть без actuator motion. Используется `qualification_only=true`, `actuator_scope_mask=0x00` либо эквивалентный network diagnostic profile.
 
-**Статус:** EV3-side завершён и проверен на реальном Brick 05.09.2026; Quest-side и общий Quest↔EV3 acceptance gate ещё не выполнены, поэтому этап 3 целиком не закрыт.
+**Статус:** EV3-side завершён и проверен на реальном Brick 05.09.2026; Quest-side code и host/simulator automated validation завершены 05.09.2026. Android NSD/UDP/lifecycle на реальном Quest 3 и общий Quest↔real EV3 acceptance gate не выполнялись (`NOT_RUN`), поэтому этап 3 целиком **не закрыт**.
 
 Проверенный EV3-side development baseline:
 
@@ -6805,6 +6805,31 @@ flowchart TD
 | Gates | clean `PRE-INSTALL AUTO`: `16/16 PASS`; EV3 DEVICE AUTO schema v2: `20 PASS`, две normative `N_A` (`OUT_OF_SCOPE`) |
 
 Это development evidence фиксирует реализованный baseline, но не заменяет повторный DEVICE AUTO для каждого нового installed build, Quest-side tests и сквозное HIL evidence. Конкретный DHCP-адрес и значения секретов намеренно не являются частью спецификации.
+
+Quest-side software baseline:
+
+| Область | Реализация и evidence |
+|---|---|
+| Discovery | `IServiceDiscoveryBackend` отделяет lifecycle/business logic от backend; реализованы deterministic `FakeDiscoveryBackend` и Android `NsdManager` adapter с Java/C# callback bridge, main-thread polling, resolve, add/update/remove, несколькими сервисами и выбором только configured `robot_id`. Android API использует `_phantom-ev3._udp`, а subsystem сохраняет каноническую identity `_phantom-ev3._udp.local`. |
+| Identity/recovery | IP не используется как identity; непосредственно перед handshake выполняется свежий resolve. Endpoint change, `controller_boot_id` change, service loss/reappearance уничтожают старые endpoint/session/sequence/RTT/freshness state и требуют новый HELLO с новым nonce/session. |
+| Credential | `IControlCredentialStore`; production implementation читает control PSK только из app-private Android storage, test implementation хранит ephemeral copy и очищает её. PSK не находится в Resources/StreamingAssets/config/bundle/build manifest/log/UI. |
+| Transport | `UdpRobotTransport`: один background worker на socket lifecycle, bounded send/receive queues по 64 datagram, datagram limit 1024, cancellation/close без frame-rate polling и без task/thread-per-packet; restart создаёт новый socket state. |
+| Protocol/session | generated wire v1 и schema hash не изменены. Реализованы CSPRNG HELLO nonce, bounded retry с тем же nonce, полная HELLO_ACK identity/profile/hash/reserved/range validation, server-issued nonzero session id, independent strictly increasing sequences без wrap/reuse, authenticated PING/PONG и monotonic RTT. Stage-3 public runtime path не имеет COMMAND/motor-target API. |
+| Telemetry | Постоянный receive path проверяет exact framing/HMAC/endpoint/session/boot/sequence, enum/bit/reserved/range/finite constraints и обновляет remote state/fault, battery, command age, status/loop flags, build/component/bundle hashes и `incident_id`. Freshness использует только `network.telemetry_max_age_ms` и различает `NoTelemetry/Fresh/Stale/Invalid`. |
+| Diagnostics/UI | Structured события discovery/handshake/session/recovery/auth/config/protocol/telemetry записываются в Quest JSONL и bounded RAM `FlightRecorder` (256 записей) без secret. Русский экран показывает поиск, подключение, session, remote state/fault, battery, freshness, endpoint, RTT, build/boot/hash и packet counters; networking runtime не зависит от Hand/Body/QR/user calibration. |
+| Simulator | Общий generated codec используется в network-only host mode; поддержаны normal, lost HELLO_ACK, telemetry stop/resume, bad HMAC, wrong robot/protocol/schema/bundle, duplicate/stale packets и controller boot change. Fake discovery отдельно детерминированно воспроизводит service add/update/remove, multiple/malformed/wrong identity, endpoint и boot changes. |
+| Automated evidence | schema/generated/config, HMAC/parser/fuzz, Stage-1/2 regressions, EV3 network tests, Quest pure core, Unity EditMode, Android NSD source/signature audit и четыре real localhost UDP scenarios проходят. Diagnostic и Release Android APK успешно компилируются с Java bridge и required network permissions; Stage-3 operational config используется Diagnostic artifact. Hardware-dependent проверки ниже не выдаются за PASS. |
+
+Текущая классификация gate:
+
+```text
+EV3-side software + real EV3 validation:       COMPLETE
+Quest-side implementation:                     COMPLETE
+Quest-side host/simulator automated validation: COMPLETE
+Quest-side real Quest 3 validation:             NOT_RUN
+Quest ↔ real EV3 integration:                   NOT_RUN
+Stage 3 overall:                                NOT COMPLETE
+```
 
 | Направление | Работы |
 |---|---|

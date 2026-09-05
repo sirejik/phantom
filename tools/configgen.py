@@ -61,7 +61,11 @@ def validate(name,obj):
         if ports!=["outA","outB","outC","outD"] or obj["local_stop"]["sensor_port"]!="in4" or obj["gripper_home"]["sensor_port"]!="in3": raise ValueError("EV3 port contract")
         if obj.get("build_profile")=="Release" and (obj.get("qualification_only",False) or obj.get("actuator_scope_mask",15)!=15): raise ValueError("Release scope contract")
         if obj.get("build_profile")=="Diagnostic" and obj.get("qualification_only") is not True: raise ValueError("Diagnostic qualification contract")
-    if name=="quest" and obj["space"].get("require_current_room"): raise ValueError("room mesh cannot gate core path")
+    if name.startswith("quest"):
+        if obj["space"].get("require_current_room"): raise ValueError("room mesh cannot gate core path")
+        qualification=obj["qualification"]
+        if obj["build_profile"]=="Release" and (qualification["qualification_only"] or qualification["actuator_scope_mask"]!=15 or qualification["required_user_inputs"]!="FULL_ARM"):raise ValueError("Quest Release qualification contract")
+        if name.endswith("network-only") and (obj["build_profile"]!="Diagnostic" or qualification!={"qualification_only":True,"actuator_scope_mask":0,"required_user_inputs":"NONE"}):raise ValueError("Quest network-only qualification contract")
 def measured_paths(name,value,path=""):
     found=[]
     if value is None or isinstance(value,str) and "MEASURED_REQUIRED" in value:found.append(name+".json#"+path)
@@ -76,13 +80,15 @@ def main():
     protocol_hash=(ROOT/"protocol"/"generated"/"schema.sha256").read_text().split()[0]
     spec_hash=hashlib.sha256((ROOT/"docs"/"PHANTOM_SPECIFICATION.md").read_bytes()).hexdigest()
     results={};source_objects={}
-    variants=(("commissioning_bundle","commissioning_bundle"),("commissioning_bundle-network-only","commissioning_bundle"),("ev3","ev3"),("ev3-network-only","ev3"),("quest","quest"))
+    variants=(("commissioning_bundle","commissioning_bundle"),("commissioning_bundle-network-only","commissioning_bundle"),("ev3","ev3"),("ev3-network-only","ev3"),("quest","quest"),("quest-network-only","quest"))
     for name,schema_name in variants:
         obj=load(ROOT/"config"/"source"/(name+".json"));source_objects[name]=obj;schema=load(ROOT/"config"/"schema"/(schema_name+".schema.json"));validate_schema(obj,schema);validate(name,obj);artifact=canonical(obj);digest=hashlib.sha256(artifact).hexdigest();results[name]=digest
         path=out/(name+".generated.json")
         if args.check:
             if not path.exists() or path.read_bytes()!=artifact+b"\n": raise SystemExit("generated config stale: "+str(path))
         else: path.write_bytes(artifact+b"\n")
+    if source_objects["quest"]["commissioning_bundle"]["expected_hash"]!=results["commissioning_bundle"]:raise ValueError("Quest Release expected bundle hash mismatch")
+    if source_objects["quest-network-only"]["commissioning_bundle"]["expected_hash"]!=results["commissioning_bundle-network-only"]:raise ValueError("Quest network-only expected bundle hash mismatch")
     measured=load(ROOT/"config"/"source"/"measured_parameters.json");validate_schema(measured,load(ROOT/"config"/"schema"/"measured_parameters.schema.json"))
     placeholders=set()
     for name,obj in source_objects.items():

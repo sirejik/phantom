@@ -1,4 +1,4 @@
-param([switch]$SkipUnity,[switch]$SkipArmel,[ValidateRange(1,7)][int]$Stage=2)
+param([switch]$SkipUnity,[switch]$SkipArmel,[ValidateRange(1,7)][int]$Stage=3)
 $ErrorActionPreference="Stop"
 $started=(Get-Date).ToUniversalTime()
 $checks=@()
@@ -25,6 +25,7 @@ Run-Check "artifact-gate-regressions" 1 {python tools/test_artifact_check.py}
 Run-Check "secret-scan" 1 {python tools/security_scan.py}
 Run-Check "quest-pure-core" 1 {powershell -NoProfile -ExecutionPolicy Bypass -File tools/quest_validation/compile_and_smoke.ps1}
 Run-Check "quest-simulator-integration" 1 {powershell -NoProfile -ExecutionPolicy Bypass -File tools/quest_validation/run_udp_integration.ps1}
+Run-Check "quest-android-nsd-contract" 3 {python tools/quest_android_nsd_check.py}
 Run-Check "ev3-host-release" 1 {powershell -NoProfile -ExecutionPolicy Bypass -File scripts/ev3-host-build.ps1 -Profile Release}
 Run-Check "ev3-host-diagnostic" 1 {powershell -NoProfile -ExecutionPolicy Bypass -File scripts/ev3-host-build.ps1 -Profile Diagnostic}
 Run-Check "ev3-host-asan-ubsan" 1 {wsl.exe -d Ubuntu -- bash -lc "rm -rf /tmp/phantom-ev3-sanitize && cmake -S '$wslEv3Source' -B /tmp/phantom-ev3-sanitize -G Ninja -DCMAKE_BUILD_TYPE=Debug -DCMAKE_CXX_FLAGS='-fsanitize=address,undefined -fno-omit-frame-pointer' && cmake --build /tmp/phantom-ev3-sanitize && ASAN_OPTIONS=detect_leaks=1 ctest --test-dir /tmp/phantom-ev3-sanitize --output-on-failure"}

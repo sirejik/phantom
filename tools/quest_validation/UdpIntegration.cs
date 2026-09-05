@@ -1,6 +1,29 @@
-using System;using System.Threading;using Phantom.Kinematics;using Phantom.Networking;using Phantom.Networking.Generated;
+using System;
+using System.Linq;
+using System.Net;
+using System.Threading;
+using Phantom.Networking;
+
 internal static class UdpIntegration
 {
- static byte[] Hex(string s){var b=new byte[s.Length/2];for(var i=0;i<b.Length;i++)b[i]=Convert.ToByte(s.Substring(i*2,2),16);return b;}static void PutU64(byte[]b,int o,ulong v){for(var i=0;i<8;i++)b[o+i]=(byte)(v>>(8*i));}static void PutF32(byte[]b,int o,float v){var x=BitConverter.GetBytes(v);Buffer.BlockCopy(x,0,b,o,4);}static ulong U64(byte[]b,int o){ulong v=0;for(var i=0;i<8;i++)v|=(ulong)b[o+i]<<(8*i);return v;}static ushort U16(byte[]b,int o)=>(ushort)(b[o]|b[o+1]<<8);
- public static int Main(string[] args){if(args.Length<1)throw new ArgumentException("boot id hex required");using(var client=new PhantomUdpClient("127.0.0.1",31339,Hex("000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f"),Hex(args[0]))){var start=DateTime.UtcNow;while(!client.HandshakeComplete&&(DateTime.UtcNow-start).TotalSeconds<2){client.Send(new JointAngles(),0,CommandFlags.Hello,0);Thread.Sleep(20);client.Poll();}if(!client.HandshakeComplete)throw new Exception("HELLO_ACK timeout");var query=new byte[8];PutU64(query,0,7);client.SendMessage(WireV1.MessageType.CalibrationQuery,query,1);start=DateTime.UtcNow;while(client.LastCalibrationSample.Payload==null&&(DateTime.UtcNow-start).TotalSeconds<1){Thread.Sleep(10);client.Poll();}if(client.LastCalibrationSample.Payload==null)throw new Exception("CALIBRATION_SAMPLE timeout");var sampleId=U64(client.LastCalibrationSample.Payload,8);var reference=new byte[112];PutU64(reference,0,1);Buffer.BlockCopy(client.Handshake.BundleHash,0,reference,8,32);for(var i=0;i<32;i++)reference[40+i]=0x44;PutU64(reference,72,sampleId);PutF32(reference,80,.0f);PutF32(reference,84,.0f);PutF32(reference,88,.5f);PutF32(reference,92,.0f);client.SendMessage(WireV1.MessageType.SetJointReference,reference,2);start=DateTime.UtcNow;while(client.LastReferenceAck.Payload==null&&(DateTime.UtcNow-start).TotalSeconds<1){Thread.Sleep(10);client.Poll();}if(client.LastReferenceAck.Payload==null||U16(client.LastReferenceAck.Payload,8)!=0)throw new Exception("REFERENCE_ACK timeout or rejection");var target=new JointAngles(.5,.4,1);start=DateTime.UtcNow;while((DateTime.UtcNow-start).TotalSeconds<1.5){client.Send(target,.7f,CommandFlags.Tracking,0);Thread.Sleep(20);client.Poll();}var actual=client.LastTelemetry.Actual;if(!client.NetworkReady||actual.Base<.2||client.LastTelemetry.GripActual<.2f)throw new Exception("telemetry did not follow target");client.Send(target,.7f,CommandFlags.Hold,0);Console.WriteLine("PASS: HMAC handshake, reference, command, telemetry, HOLD");return 0;}}
+    static byte[] Hex(string value){var bytes=new byte[value.Length/2];for(var i=0;i<bytes.Length;i++)bytes[i]=Convert.ToByte(value.Substring(i*2,2),16);return bytes;}
+    public static int Main(string[] args)
+    {
+        if(args.Length<3)throw new ArgumentException("boot id, port and bundle hash required");var scenario=args.Length>3?args[3]:"normal";var key=Enumerable.Range(0,32).Select(x=>(byte)x).ToArray();var discovery=new FakeDiscoveryBackend();var transport=new UdpRobotTransport();var recorder=new BoundedNetworkFlightRecorder();
+        using(var client=new Stage3NetworkClient(discovery,transport,new EphemeralControlCredentialStore("control",key),new NetworkClientOptions{RobotId="phantom01",ServiceType="_phantom-ev3._udp.local",ControlKeyId="control",ExpectedBundleHash=Hex(args[2]),ExpectedBuildProfile=1,TelemetryMaxAgeMs=150,HelloRetryMs=100,HelloMaxAttempts=10,PingIntervalMs=100,PingTimeoutMs=300,MaxMissedPongs=3,ReconnectDelayMs=100},null,recorder))
+        {
+            client.Start();discovery.Add(new DiscoveredRobot{ServiceKey="udp-simulator",InstanceName="PHANTOM-phantom01",ServiceType="_phantom-ev3._udp.local",RobotId="phantom01",ProtocolMajor=1,ControllerBootId=Hex(args[0]),BuildId="sim-stage3",Endpoint=new IPEndPoint(IPAddress.Loopback,int.Parse(args[1]))});
+            var deadline=DateTime.UtcNow.AddSeconds(4);while(DateTime.UtcNow<deadline&&(!client.Snapshot.SessionActive||client.Snapshot.Freshness!=TelemetryFreshness.Fresh||client.Snapshot.RttMilliseconds<0)){client.Tick();Thread.Sleep(5);}
+            if(!client.Snapshot.SessionActive)throw new Exception("HELLO_ACK timeout");if(client.Snapshot.Freshness!=TelemetryFreshness.Fresh)throw new Exception("TELEMETRY timeout");if(client.Snapshot.RttMilliseconds<0)throw new Exception("PONG timeout");if(client.Snapshot.RemoteState==RobotRuntimeState.Ready||client.Snapshot.RemoteState==RobotRuntimeState.Tracking)throw new Exception("network-only simulator entered actuator state");if(client.Snapshot.SentSequence<1||client.Snapshot.AcceptedPackets<2)throw new Exception("sequence/packet path incomplete");
+            if(scenario=="hello_ack_lost"&&!recorder.Snapshot().Any(x=>x.Name=="handshake_retry"))throw new Exception("lost HELLO_ACK did not retry");
+            if(scenario=="bad_hmac")
+            {deadline=DateTime.UtcNow.AddSeconds(2);while(DateTime.UtcNow<deadline&&client.Snapshot.AuthenticationFailures==0){client.Tick();Thread.Sleep(5);}if(client.Snapshot.AuthenticationFailures==0)throw new Exception("bad HMAC was not observed");}
+            if(scenario=="telemetry_stop_resume")
+            {
+                deadline=DateTime.UtcNow.AddSeconds(5);var stale=false;var recovered=false;while(DateTime.UtcNow<deadline&&!recovered){client.Tick();if(client.Snapshot.Freshness==TelemetryFreshness.Stale)stale=true;if(stale&&client.Snapshot.Freshness==TelemetryFreshness.Fresh)recovered=true;Thread.Sleep(5);}if(!stale||!recovered)throw new Exception("telemetry stale/recovery not observed");
+            }
+            Console.WriteLine("PASS: real UDP Stage-3 scenario="+scenario+" HELLO/HMAC session, PING/PONG RTT, TELEMETRY; no COMMAND sent");
+        }
+        var workerDeadline=DateTime.UtcNow.AddSeconds(1);while(DateTime.UtcNow<workerDeadline&&UdpRobotTransport.ActiveWorkerCount!=0)Thread.Sleep(5);if(UdpRobotTransport.ActiveWorkerCount!=0)throw new Exception("UDP worker leaked after dispose");return 0;
+    }
 }
