@@ -1,6 +1,5 @@
 #!/usr/bin/env python3
 """Stage-3 EV3 DEVICE AUTO: real network/security checks with zero actuator scope."""
-import calendar
 import hashlib
 import json
 import os
@@ -46,6 +45,26 @@ def sha256(path):
 def semantic_hash(value):
     data = json.dumps(value, ensure_ascii=False, sort_keys=True, separators=(",", ":")).encode("utf-8")
     return hashlib.sha256(data).hexdigest()
+
+
+def wall_clock_state(wall_epoch, timedate_output, timedate_query_status="PASS"):
+    """Record wall-clock trust without making it part of deterministic build identity."""
+    ntp = "unknown"
+    for line in timedate_output.splitlines():
+        key, separator, value = line.strip().partition(":")
+        if separator and key.strip().lower() == "ntp synchronized":
+            ntp = value.strip().lower()
+            break
+    evidence = {
+        "wall_clock_utc": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime(wall_epoch)),
+        "ntp_synchronized": ntp,
+        "timedate_query_status": timedate_query_status,
+        "chronology_trust": "NTP_SYNCHRONIZED" if ntp == "yes" else "HOST_CORRELATION_REQUIRED",
+    }
+    plausible = wall_epoch >= 946684800  # 2000-01-01; catches an uninitialised EV3 calendar.
+    status = "PASS" if plausible else "FAIL"
+    detail = "wall-clock/NTP state recorded; external host correlation is required unless NTP is synchronized"
+    return status, detail, evidence
 
 
 def motor_nodes():
@@ -213,10 +232,16 @@ def main():
                          "python": platform.python_version(), "systemd": systemd[0] if systemd else "unknown"}
     platform_ok = platform_evidence["machine"].startswith("armv5") and sys.version_info[:2] >= (3, 5)
     add("ev3-platform-compatibility", "PASS" if platform_ok else "FAIL", "pinned Stretch runtime compatibility", platform_evidence)
-    built_epoch = calendar.timegm(time.strptime(manifest["built_at"][:19], "%Y-%m-%dT%H:%M:%S"))
     wall_epoch = time.time()
-    add("ev3-wall-clock", "PASS" if wall_epoch + 86400 >= built_epoch else "FAIL", "wall clock must not predate installed build",
-        {"wall_clock_utc": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime(wall_epoch)), "build_time_utc": manifest["built_at"]})
+    try:
+        timedate = run(["timedatectl", "status"], 5)
+        query_status = "PASS" if timedate.returncode == 0 else "EXIT_" + str(timedate.returncode)
+        timedate_output = timedate.stdout
+    except subprocess.TimeoutExpired:
+        query_status, timedate_output = "TIMEOUT", ""
+    clock_status, clock_detail, clock_evidence = wall_clock_state(
+        wall_epoch, timedate_output, query_status)
+    add("ev3-wall-clock", clock_status, clock_detail, clock_evidence)
     integrity = subprocess.run(["sha256sum", "-c", "SHA256SUMS"], cwd=str(root), stdout=subprocess.PIPE,
                                stderr=subprocess.STDOUT, universal_newlines=True, timeout=30)
     add("installed-artifact-integrity", "PASS" if integrity.returncode == 0 else "FAIL", integrity.stdout.strip())

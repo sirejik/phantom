@@ -1,5 +1,19 @@
 # Текущее состояние реализации PHANTOM
 
+## Физический Stage-3 gate от 2026-09-06
+
+Физический запуск network-only candidate `4c842f9a4916389fd5b2898320f840a30763b7ec`
+не дал Stage-3 PASS. PRE-INSTALL прошёл, exact Quest Diagnostic APK был установлен и его bytes
+подтверждены обратным pull/hash. Quest DEVICE AUTO остаётся `NOT_RUN`: Horizon Guardian перехватил
+фокус по `TRACKING_LOST` до старта scene runner и app report не был создан; safety UI не обходился.
+
+EV3 installer проверил exact package и дошёл до DEVICE AUTO, где выявил несовместимость runner с
+deterministic build manifest (`built_at` отсутствует по контракту). Installer выполнил rollback;
+наблюдаемые duty/speed всех найденных motor nodes оставались нулевыми. Исправление и regression
+подготовлены, но DEVICE/HIL PASS переносится только после clean rebuild и повторной установки exact candidate.
+Текущий итог физической приёмки Stage 3 — **NOT COMPLETE**. Рабочая последовательность и точные
+оставшиеся evidence описаны в `exec-plans/STAGE3_HARDWARE_ACCEPTANCE.md`.
+
 > **Ревизия источника состояния:** 2026-09-06.
 > **Тип:** ненормативное summary. Источником PASS/FAIL являются versioned machine-readable
 > reports в repository `results/**`; этот файл никогда не заменяет PRE-INSTALL/DEVICE/HIL/manual
