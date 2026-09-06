@@ -16,6 +16,9 @@ def compiler_matches(expected,facts):
     """
     parts=expected.split()
     return len(parts)>=2 and facts.split()[0]==parts[0] and parts[-1] in facts
+def ev3_package_name(build_id,allow_dirty):
+    prefix="phantom-audit-snapshot" if allow_dirty else "phantom"
+    return f"{prefix}-{build_id}.tar.gz"
 def verify_checksum_manifest(directory):
     manifest_path=directory/"SHA256SUMS"
     require(manifest_path.is_file(),f"SHA256SUMS missing: {directory}")
@@ -67,7 +70,8 @@ def sha_bytes(data):return hashlib.sha256(data).hexdigest()
 def main():
     quest_only="--quest-only" in sys.argv[1:]
     allow_dirty="--allow-dirty-snapshot" in sys.argv[1:]
-    unknown=[arg for arg in sys.argv[1:] if arg not in ("--quest-only","--allow-dirty-snapshot")]
+    skip_ev3_package="--skip-ev3-package" in sys.argv[1:]
+    unknown=[arg for arg in sys.argv[1:] if arg not in ("--quest-only","--allow-dirty-snapshot","--skip-ev3-package")]
     require(not unknown,"unknown arguments: "+", ".join(unknown))
     protocol=(ROOT/"protocol/generated/schema.sha256").read_text().split()[0]
     specification=sha(ROOT/"docs/PHANTOM_SPECIFICATION.md")
@@ -147,15 +151,16 @@ def main():
                 require(lock["cross_toolchain_binary_sha256"] in manifest["toolchain_facts"],"armel compiler hash mismatch")
                 require(manifest["controller_sha256"]==sha(directory/"bin/phantom-controller"),"controller hash mismatch")
                 require(manifest["safety_sha256"]==sha(directory/"bin/phantom-safety"),"safety hash mismatch")
-    if not quest_only:
+    if not quest_only and not skip_ev3_package:
         ev3_manifest=load(ROOT/"build/ev3-armel/diagnostic/build-manifest.json")
-        package=ROOT/f"build/ev3-packages/phantom-{ev3_manifest['build_id']}.tar.gz"
+        package=ROOT/"build/ev3-packages"/ev3_package_name(ev3_manifest["build_id"],allow_dirty)
         provenance=pathlib.Path(str(package)+".build-manifest.json")
         require(package.is_file() and provenance.is_file(),"EV3 Diagnostic package/provenance missing")
         package_manifest=load(provenance)
         require(package_manifest.get("component")=="EV3" and package_manifest.get("build_profile")=="Diagnostic","EV3 package profile mismatch")
         require(package_manifest.get("build_id")==ev3_manifest["build_id"],"EV3 package build_id mismatch")
-        require(package_manifest.get("worktree_dirty") is False and package_manifest.get("install_authorized") is True,"EV3 package is not install-authorized")
+        require(package_manifest.get("worktree_dirty") is expected_dirty,"EV3 package dirty-state mismatch")
+        require(package_manifest.get("install_authorized") is (not expected_dirty),"EV3 package install authorization mismatch")
         require(package_manifest.get("artifact_sha256")==sha(package),"EV3 package SHA-256 mismatch")
     print(("audit-snapshot artifact validation PASS: " if allow_dirty else "artifact gate PASS: ")+("Quest package locks, profiles, hashes, metadata" if quest_only else "package locks, profiles, hashes, metadata, pinned armel image"))
 if __name__=="__main__":

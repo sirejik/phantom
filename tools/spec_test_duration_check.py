@@ -6,7 +6,7 @@ import re
 import sys
 
 ROOT = pathlib.Path(__file__).resolve().parents[1]
-SPEC = ROOT / "docs/PHANTOM_SPECIFICATION.md"
+SPEC_SET = ROOT / "docs/PHANTOM/spec-set.json"
 PATTERNS = (
     re.compile(r"30[- ]?минут", re.IGNORECASE),
     re.compile(r">=?\s*30\s*min", re.IGNORECASE),
@@ -17,9 +17,14 @@ PATTERNS = (
 
 def main():
     violations = []
-    for number, line in enumerate(SPEC.read_text(encoding="utf-8-sig").splitlines(), 1):
-        if any(pattern.search(line) for pattern in PATTERNS):
-            violations.append({"line": number, "text": line.strip()})
+    spec_set = json.loads(SPEC_SET.read_text(encoding="utf-8"))
+    for relative in spec_set["normative_files"]:
+        path = ROOT / relative
+        for number, line in enumerate(path.read_text(encoding="utf-8").splitlines(), 1):
+            if any(pattern.search(line) for pattern in PATTERNS):
+                violations.append(
+                    {"path": relative, "line": number, "text": line.strip()}
+                )
     report = {
         "schema_version": 1,
         "test_case_limit_seconds": 60,

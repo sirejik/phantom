@@ -1,4 +1,9 @@
-param([switch]$SkipUnity,[switch]$SkipArmel,[ValidateRange(1,7)][int]$Stage=3)
+param(
+  [switch]$SkipUnity,
+  [switch]$SkipArmel,
+  [switch]$AllowDirtyAuditSnapshot,
+  [ValidateRange(1,7)][int]$Stage=3
+)
 $ErrorActionPreference="Stop"
 $started=(Get-Date).ToUniversalTime()
 $checks=@()
@@ -33,8 +38,14 @@ Run-Check "ev3-host-diagnostic" 1 {powershell -NoProfile -ExecutionPolicy Bypass
 Run-Check "ev3-host-asan-ubsan" 1 {wsl.exe -d Ubuntu -- bash -lc "rm -rf /tmp/phantom-ev3-sanitize && cmake -S '$wslEv3Source' -B /tmp/phantom-ev3-sanitize -G Ninja -DCMAKE_BUILD_TYPE=Debug -DCMAKE_CXX_FLAGS='-fsanitize=address,undefined -fno-omit-frame-pointer' && cmake --build /tmp/phantom-ev3-sanitize && ASAN_OPTIONS=detect_leaks=1 ctest --test-dir /tmp/phantom-ev3-sanitize --output-on-failure"}
 if($SkipUnity){$checks+=@{test_id="unity-editmode";introduced_at_stage=2;applicable_to_stage=$Stage;status="NOT_RUN";runner="scripts/quest-test.ps1";detail="explicit -SkipUnity"}}else{Run-Check "unity-editmode" 2 {powershell -NoProfile -ExecutionPolicy Bypass -File scripts/quest-test.ps1}}
 if($SkipArmel){$checks+=@{test_id="ev3-armel-release-diagnostic";introduced_at_stage=1;applicable_to_stage=$Stage;status="NOT_RUN";runner="scripts/ev3-armel-docker.ps1";detail="explicit -SkipArmel"}}else{Run-Check "ev3-armel-release-diagnostic" 1 {powershell -NoProfile -ExecutionPolicy Bypass -File scripts/ev3-armel-docker.ps1}}
-if(!$SkipArmel -and $Stage -ge 3){Run-Check "ev3-stage3-diagnostic-package" 3 {powershell -NoProfile -ExecutionPolicy Bypass -File scripts/ev3-package.ps1 -Profile Diagnostic}}
-Run-Check "post-build-artifacts" 2 {python tools/artifact_check.py}
+if(!$SkipArmel -and $Stage -ge 3){Run-Check "ev3-stage3-diagnostic-package" 3 {
+  if($AllowDirtyAuditSnapshot){powershell -NoProfile -ExecutionPolicy Bypass -File scripts/ev3-package.ps1 -Profile Diagnostic -AllowDirtyAuditSnapshot}
+  else{powershell -NoProfile -ExecutionPolicy Bypass -File scripts/ev3-package.ps1 -Profile Diagnostic}
+}}
+Run-Check "post-build-artifacts" 2 {
+  if($AllowDirtyAuditSnapshot){python tools/artifact_check.py --allow-dirty-snapshot}
+  else{python tools/artifact_check.py}
+}
 $mandatoryIncomplete=$checks|Where-Object status -ne "PASS"
 $status=if($mandatoryIncomplete){"INCOMPLETE"}else{"PASS"}
 $commit=(git rev-parse HEAD).Trim()
@@ -42,7 +53,7 @@ $dirty=((git status --porcelain).Count -gt 0)
 $sourceTreeHash=(python tools/source_hash.py PhantomQuest/Assets/Phantom PhantomQuest/Assets/Plugins PhantomQuest/Packages PhantomQuest/ProjectSettings ev3 protocol config tools scripts sim deploy).Trim()
 $specificationHash=(Get-FileHash docs/PHANTOM_SPECIFICATION.md -Algorithm SHA256).Hash.ToLower()
 $protocolHash=(Get-Content protocol/generated/schema.sha256).Split()[0]
-if($dirty){$status="INCOMPLETE";$checks+=@{test_id="clean-worktree";introduced_at_stage=1;applicable_to_stage=$Stage;status="FAIL";runner="git status --porcelain";detail="PRE-INSTALL PASS requires a clean committed source tree"}}
+if($dirty -and !$AllowDirtyAuditSnapshot){$status="INCOMPLETE";$checks+=@{test_id="clean-worktree";introduced_at_stage=1;applicable_to_stage=$Stage;status="FAIL";runner="git status --porcelain";detail="PRE-INSTALL PASS requires a clean committed source tree"}}
 $artifacts=@()
 $currentEv3BuildIds=@(Get-ChildItem build\ev3-armel\*\build-manifest.json -File -ErrorAction SilentlyContinue|ForEach-Object{(Get-Content $_.FullName -Raw|ConvertFrom-Json).build_id})
 $artifactFiles=@(
@@ -53,7 +64,8 @@ $artifactFiles=@(
 )
 $artifactFiles|Sort-Object FullName -Unique|ForEach-Object{$artifacts+=@{path=$_.FullName.Substring((Resolve-Path .).Path.Length+1);sha256=(Get-FileHash $_.FullName -Algorithm SHA256).Hash.ToLower()}}
 $buildIds=@();$artifactFiles|Where-Object Name -eq "build-manifest.json"|ForEach-Object{$buildIds+=(Get-Content $_.FullName -Raw|ConvertFrom-Json).build_id};$artifactFiles|Where-Object Name -like "*.build-manifest.json"|ForEach-Object{$buildIds+=(Get-Content $_.FullName -Raw|ConvertFrom-Json).build_id};$buildIds=@($buildIds|Sort-Object -Unique)
-$report=[ordered]@{schema_version=2;gate="PRE-INSTALL AUTO";stage=$Stage;status=$status;git_commit=$commit;build_ids=$buildIds;source_tree_hash=$sourceTreeHash;worktree_dirty=$dirty;specification_sha256=$specificationHash;protocol_schema_hash=$protocolHash;started_at=$started.ToString('o');finished_at=(Get-Date).ToUniversalTime().ToString('o');checks=$checks;artifacts=$artifacts}
+$gateName=if($AllowDirtyAuditSnapshot){"PRE-INSTALL AUTO AUDIT SNAPSHOT"}else{"PRE-INSTALL AUTO"}
+$report=[ordered]@{schema_version=2;gate=$gateName;stage=$Stage;status=$status;install_authorized=(!$dirty -and !$AllowDirtyAuditSnapshot);git_commit=$commit;build_ids=$buildIds;source_tree_hash=$sourceTreeHash;worktree_dirty=$dirty;specification_sha256=$specificationHash;protocol_schema_hash=$protocolHash;started_at=$started.ToString('o');finished_at=(Get-Date).ToUniversalTime().ToString('o');checks=$checks;artifacts=$artifacts}
 New-Item -ItemType Directory -Force results\pre-install|Out-Null
 $report|ConvertTo-Json -Depth 8|Set-Content results\pre-install\report.json -Encoding UTF8
 Write-Output "PRE-INSTALL AUTO: $status"

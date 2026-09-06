@@ -1,6 +1,6 @@
 import unittest
 
-from artifact_check import compiler_matches
+from artifact_check import compiler_matches, ev3_package_name
 
 
 class CompilerFactTests(unittest.TestCase):
@@ -12,6 +12,16 @@ class CompilerFactTests(unittest.TestCase):
         facts="arm-linux-gnueabi-g++ (Debian 6.3.0-17) 6.3.0 20170516"
         self.assertFalse(compiler_matches("arm-linux-gnueabi-g++ 6.3.0-18",facts))
         self.assertFalse(compiler_matches("arm-linux-gnueabihf-g++ 6.3.0-17",facts))
+
+
+class PackageNameTests(unittest.TestCase):
+    def test_clean_package_is_installable_name(self):
+        self.assertEqual(ev3_package_name("abc",False),"phantom-abc.tar.gz")
+
+    def test_dirty_package_is_visibly_audit_only(self):
+        self.assertEqual(
+            ev3_package_name("abc",True),"phantom-audit-snapshot-abc.tar.gz"
+        )
 
 
 if __name__=="__main__":unittest.main()

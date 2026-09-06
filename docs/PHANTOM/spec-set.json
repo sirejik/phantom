@@ -1,0 +1,17 @@
+{
+  "format_version": 5,
+  "normative_files": [
+    "docs/PHANTOM/SPECIFICATION_GOVERNANCE.md",
+    "docs/PHANTOM/PRODUCT_REQUIREMENTS.md",
+    "docs/PHANTOM/SYSTEM_ARCHITECTURE.md",
+    "docs/PHANTOM/QUEST_SPECIFICATION.md",
+    "docs/PHANTOM/MECHANICAL_SPECIFICATION.md",
+    "docs/PHANTOM/EV3_SPECIFICATION.md",
+    "docs/PHANTOM/PROTOCOL_SPECIFICATION.md",
+    "docs/PHANTOM/SAFETY.md",
+    "docs/PHANTOM/ENGINEERING.md",
+    "docs/PHANTOM/TEST_PLAN.md",
+    "docs/PHANTOM/IMPLEMENTATION_STAGES.md",
+    "docs/PHANTOM/REFERENCE.md"
+  ]
+}

@@ -12,7 +12,7 @@ $dirty=((git status --porcelain).Count -ne 0)
 if($dirty -and !$AllowDirtyAuditSnapshot){throw "EV3 packages require a clean committed worktree"}
 if($AllowDirtyAuditSnapshot)
 {
-  python tools/artifact_check.py --allow-dirty-snapshot
+  python tools/artifact_check.py --allow-dirty-snapshot --skip-ev3-package
   if($LASTEXITCODE-ne 0){throw "Dirty audit snapshot artifacts failed validation"}
 }
 $input=[System.IO.Path]::GetFullPath((Join-Path $repo $InputRoot))
