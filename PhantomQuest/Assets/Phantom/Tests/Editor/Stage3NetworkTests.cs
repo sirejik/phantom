@@ -6,6 +6,7 @@ using Phantom.Config;
 using Phantom.Networking;
 using Phantom.Networking.Generated;
 using Phantom.UI;
+using UnityEngine;
 
 namespace Phantom.Tests
 {
@@ -17,8 +18,23 @@ namespace Phantom.Tests
 
         [Test] public void NetworkOnlyConfigurationHasZeroScopeAndNoUserInputs()
         {
-            var config=new Stage3RuntimeConfig{schema_version=1,robot_id="phantom01",build_profile="Diagnostic",qualification=new QuestQualificationConfig{qualification_only=true,qualification_evidence_manifest_hash=new string('0',64),actuator_scope_mask=0,safety_observation_mask=0,required_user_inputs="NONE"},commissioning_bundle=new QuestBundleConfig{expected_hash=new string('4',64)},network=new QuestNetworkConfig{discovery_service_type="_phantom-ev3._udp",discovery_domain="local.",ip_family="IPV4",protocol_version=1,control_key_id="control",telemetry_max_age_ms=100}};
+            var config=new Stage3RuntimeConfig{schema_version=1,robot_id="phantom01",build_profile="Diagnostic",qualification=new QuestQualificationConfig{qualification_only=true,qualification_evidence_manifest_hash=new string('0',64),actuator_scope_mask=0,safety_observation_mask=0,required_user_inputs="NONE"},commissioning_bundle=new QuestBundleConfig{expected_hash=new string('4',64)},network=new QuestNetworkConfig{discovery_service_type="_phantom-ev3._udp",discovery_domain="local.",ip_family="IPV4",default_port=30470,protocol_version=1,control_key_id="control",telemetry_max_age_ms=100}};
             var options=config.ToOptions();Assert.That(options.ExpectedBuildProfile,Is.EqualTo(1));Assert.That(config.qualification.actuator_scope_mask,Is.Zero);
+        }
+
+        [Test] public void GeneratedJsonNullCommissioningKeyIsAcceptedAsAbsent()
+        {
+            const string json="{\"schema_version\":1,\"robot_id\":\"phantom01\",\"build_profile\":\"Diagnostic\",\"qualification\":{\"qualification_only\":true,\"qualification_evidence_manifest_hash\":\"0000000000000000000000000000000000000000000000000000000000000000\",\"actuator_scope_mask\":0,\"safety_observation_mask\":0,\"required_user_inputs\":\"NONE\"},\"commissioning_bundle\":{\"expected_hash\":\"4444444444444444444444444444444444444444444444444444444444444444\"},\"network\":{\"discovery_service_type\":\"_phantom-ev3._udp\",\"discovery_domain\":\"local.\",\"ip_family\":\"IPV4\",\"default_port\":30470,\"protocol_version\":1,\"control_key_id\":\"phantom01-control\",\"commissioning_key_id\":null,\"telemetry_max_age_ms\":100}}";
+            var config=JsonUtility.FromJson<Stage3RuntimeConfig>(json);
+            Assert.That(config.network.commissioning_key_id,Is.EqualTo(string.Empty));
+            Assert.DoesNotThrow(()=>config.ToOptions());
+        }
+
+        [Test] public void NetworkOnlyConfigurationRejectsCommissioningKeySlot()
+        {
+            var config=new Stage3RuntimeConfig{schema_version=1,robot_id="phantom01",build_profile="Diagnostic",qualification=new QuestQualificationConfig{qualification_only=true,qualification_evidence_manifest_hash=new string('0',64),actuator_scope_mask=0,safety_observation_mask=0,required_user_inputs="NONE"},commissioning_bundle=new QuestBundleConfig{expected_hash=new string('4',64)},network=new QuestNetworkConfig{discovery_service_type="_phantom-ev3._udp",discovery_domain="local.",ip_family="IPV4",default_port=30470,protocol_version=1,control_key_id="control",commissioning_key_id="commissioning",telemetry_max_age_ms=100}};
+            var error=Assert.Throws<InvalidOperationException>(()=>config.ToOptions());
+            Assert.That(error.Message,Does.Contain("commissioning_key_id_must_be_unset"));
         }
 
         [Test] public void FakeDiscoveryCreatesAuthenticatedFreshSessionAndInvalidatesOnLoss()

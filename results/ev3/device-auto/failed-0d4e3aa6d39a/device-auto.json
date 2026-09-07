@@ -1,0 +1,287 @@
+{
+  "artifact_sha256": {
+    "controller": null,
+    "safety": null
+  },
+  "build_id": null,
+  "checks": [
+    {
+      "applicable_to_stage": 3,
+      "detail": "Diagnostic qualification_only with authoritative actuator_scope_mask=0x00",
+      "evidence": {
+        "actuator_scope_mask": 0,
+        "build_profile": "Diagnostic",
+        "qualification_only": true
+      },
+      "introduced_at_stage": 3,
+      "status": "PASS",
+      "test_id": "ev3-stage3-profile"
+    },
+    {
+      "applicable_to_stage": 3,
+      "detail": "pinned Stretch runtime compatibility",
+      "evidence": {
+        "kernel": "4.14.117-ev3dev-2.3.5-ev3",
+        "machine": "armv5tejl",
+        "python": "3.5.3",
+        "systemd": "systemd 232"
+      },
+      "introduced_at_stage": 2,
+      "status": "PASS",
+      "test_id": "ev3-platform-compatibility"
+    },
+    {
+      "applicable_to_stage": 3,
+      "detail": "wall-clock/NTP state recorded; external host correlation is required unless NTP is synchronized",
+      "evidence": {
+        "chronology_trust": "HOST_CORRELATION_REQUIRED",
+        "ntp_synchronized": "unknown",
+        "timedate_query_status": "TIMEOUT",
+        "wall_clock_utc": "2026-09-07T04:51:36Z"
+      },
+      "introduced_at_stage": 2,
+      "status": "PASS",
+      "test_id": "ev3-wall-clock"
+    },
+    {
+      "applicable_to_stage": 3,
+      "detail": "build-manifest.json: OK\ncommissioning-bundle.generated.json: OK\nconfig.generated.json: OK\nbin/ipc_layout.py: OK\nbin/jcs.py: OK\nbin/phantom-controller: OK\nbin/phantom-device-auto: OK\nbin/phantom-mdns: OK\nbin/phantom-network: OK\nbin/phantom-safety: OK\nbin/phantom-wifi-autoconnect: OK\nbin/phantom_protocol.py: OK\nbin/wire_schema.yaml: OK\nsystemd/phantom-controller.service: OK\nsystemd/phantom-mdns.service: OK\nsystemd/phantom-network.service: OK\nsystemd/phantom-safety.service: OK\nsystemd/phantom-wifi-autoconnect.service: OK\nsystemd/phantom.target: OK\ntmpfiles/phantom.conf: OK",
+      "introduced_at_stage": 2,
+      "status": "PASS",
+      "test_id": "installed-artifact-integrity"
+    },
+    {
+      "applicable_to_stage": 3,
+      "detail": "ed161d4d8d1e4f9817d52607e4c17f879ccb724e32b4261d0101f5d512802467",
+      "introduced_at_stage": 2,
+      "status": "PASS",
+      "test_id": "installed-config-hash"
+    },
+    {
+      "applicable_to_stage": 3,
+      "detail": "17e18488df22ff736b3ede887b82397b9e06f9ac052beed011dc6c2a7eeaaeb9",
+      "introduced_at_stage": 3,
+      "status": "PASS",
+      "test_id": "installed-bundle-hash"
+    },
+    {
+      "applicable_to_stage": 3,
+      "detail": "USB 0846:9030, ath9k_htc and one discovered wireless interface",
+      "evidence": {
+        "driver": "ath9k_htc",
+        "interfaces": [
+          "wlxe0469a16afb7"
+        ],
+        "vid_pid": "0846:9030"
+      },
+      "introduced_at_stage": 3,
+      "status": "PASS",
+      "test_id": "ev3-wna1100"
+    },
+    {
+      "applicable_to_stage": 3,
+      "detail": "wireless association and DHCP IPv4",
+      "evidence": {
+        "carrier": "1",
+        "interface": "wlxe0469a16afb7",
+        "ipv4_present": true
+      },
+      "introduced_at_stage": 3,
+      "status": "PASS",
+      "test_id": "ev3-wifi-dhcp"
+    },
+    {
+      "applicable_to_stage": 3,
+      "detail": "network-only actuator_scope_mask=0x00; no motor I/O required",
+      "evidence": {
+        "outb": {
+          "count_per_rot": "360",
+          "driver": "lego-ev3-l-motor",
+          "reason": "OUT_OF_SCOPE"
+        },
+        "outc": {
+          "count_per_rot": "360",
+          "driver": "lego-ev3-l-motor",
+          "reason": "OUT_OF_SCOPE"
+        },
+        "outd": {
+          "count_per_rot": "360",
+          "driver": "lego-ev3-m-motor",
+          "reason": "OUT_OF_SCOPE"
+        }
+      },
+      "introduced_at_stage": 3,
+      "status": "N_A",
+      "test_id": "ev3-motor-discovery"
+    },
+    {
+      "applicable_to_stage": 3,
+      "detail": "network-only actuator_scope_mask=0x00; motor safety inputs not required",
+      "evidence": {},
+      "introduced_at_stage": 3,
+      "status": "N_A",
+      "test_id": "ev3-local-safety-inputs"
+    },
+    {
+      "applicable_to_stage": 3,
+      "detail": "7325333",
+      "introduced_at_stage": 2,
+      "status": "PASS",
+      "test_id": "ev3-battery-telemetry"
+    },
+    {
+      "applicable_to_stage": 3,
+      "detail": "self-test PASS: latched STOPPED survives release, RESET_STOPPED recovers without arming, motor output zero, p99_us=21444, max_us=23754",
+      "introduced_at_stage": 2,
+      "status": "PASS",
+      "test_id": "phantom-controller-on-device-self-test"
+    },
+    {
+      "applicable_to_stage": 3,
+      "detail": "safety self-test PASS: brake path available",
+      "introduced_at_stage": 2,
+      "status": "PASS",
+      "test_id": "phantom-safety-on-device-self-test"
+    },
+    {
+      "applicable_to_stage": 3,
+      "detail": "all Stage-3 services active",
+      "evidence": {
+        "phantom-controller.service": false,
+        "phantom-mdns.service": false,
+        "phantom-network.service": false,
+        "phantom-safety.service": true,
+        "phantom-wifi-autoconnect.service": true
+      },
+      "introduced_at_stage": 2,
+      "status": "FAIL",
+      "test_id": "ev3-systemd-startup"
+    },
+    {
+      "applicable_to_stage": 3,
+      "detail": "controller/network/mDNS use distinct service identities",
+      "evidence": {
+        "phantom-controller.service": "User=phantom-ctrl\nGroup=phantom-motor",
+        "phantom-mdns.service": "User=phantom-mdns\nGroup=phantom-mdns",
+        "phantom-network.service": "User=phantom-net\nGroup=phantom-net"
+      },
+      "introduced_at_stage": 3,
+      "status": "PASS",
+      "test_id": "ev3-runtime-identities"
+    },
+    {
+      "applicable_to_stage": 3,
+      "detail": "fixed datagram endpoints mode 0660 group phantom-ipc",
+      "evidence": {
+        "/run/phantom/network/controller.sock": {
+          "group": "phantom-ipc",
+          "mode": "0o660"
+        }
+      },
+      "introduced_at_stage": 3,
+      "status": "FAIL",
+      "test_id": "ev3-controller-network-ipc-permissions"
+    },
+    {
+      "applicable_to_stage": 3,
+      "detail": "motor and PSK DAC domains are disjoint",
+      "evidence": {
+        "phantom-ctrl-psk-read-denied": true,
+        "phantom-mdns-psk-read-denied": true,
+        "phantom-net-motor-write-denied": true
+      },
+      "introduced_at_stage": 3,
+      "status": "PASS",
+      "test_id": "ev3-privilege-separation"
+    },
+    {
+      "applicable_to_stage": 3,
+      "detail": "all physically present motors stationary/BRAKE",
+      "evidence": {
+        "outb": {
+          "duty_cycle": "0",
+          "duty_cycle_sp": "0",
+          "speed": "0",
+          "state": "",
+          "stop_action": "brake"
+        },
+        "outc": {
+          "duty_cycle": "0",
+          "duty_cycle_sp": "0",
+          "speed": "0",
+          "state": "",
+          "stop_action": "brake"
+        },
+        "outd": {
+          "duty_cycle": "0",
+          "duty_cycle_sp": "0",
+          "speed": "0",
+          "state": "",
+          "stop_action": "brake"
+        }
+      },
+      "introduced_at_stage": 2,
+      "status": "PASS",
+      "test_id": "ev3-zero-output-startup"
+    },
+    {
+      "applicable_to_stage": 3,
+      "detail": "prerequisite startup/profile/zero-output check failed",
+      "introduced_at_stage": 2,
+      "status": "FAIL",
+      "test_id": "ev3-supervisor-takeover"
+    },
+    {
+      "applicable_to_stage": 3,
+      "detail": "takeover was not run",
+      "introduced_at_stage": 2,
+      "status": "FAIL",
+      "test_id": "ev3-safe-restart"
+    },
+    {
+      "applicable_to_stage": 3,
+      "detail": "restart was not run",
+      "introduced_at_stage": 3,
+      "status": "FAIL",
+      "test_id": "ev3-controller-boot-id-rotation"
+    },
+    {
+      "applicable_to_stage": 3,
+      "detail": "live multicast DNS-SD response",
+      "evidence": {
+        "controller_boot_id_matches": false,
+        "responses": 18,
+        "service": "_phantom-ev3._udp.local"
+      },
+      "introduced_at_stage": 3,
+      "status": "FAIL",
+      "test_id": "ev3-dns-sd-stage3"
+    },
+    {
+      "applicable_to_stage": 3,
+      "detail": "HELLO/HELLO_ACK, PING/PONG, TELEMETRY and authenticated COMMAND with scope zero",
+      "evidence": {
+        "category": "ProtocolError",
+        "detail": "identifier length"
+      },
+      "introduced_at_stage": 3,
+      "status": "FAIL",
+      "test_id": "ev3-udp-session-stage3"
+    },
+    {
+      "applicable_to_stage": 3,
+      "detail": "JSONDecodeError('Expecting value: line 1 column 1 (char 0)',)",
+      "introduced_at_stage": 2,
+      "status": "FAIL",
+      "test_id": "device-auto-runner"
+    }
+  ],
+  "commissioning_bundle_hash": null,
+  "config_hash": null,
+  "gate": "DEVICE AUTO",
+  "git_commit": null,
+  "monotonic_finished_us": 2945575223,
+  "schema_version": 2,
+  "stage": 3,
+  "status": "FAIL"
+}

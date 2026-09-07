@@ -16,5 +16,7 @@ tools/specgen.py text eol=lf
 tools/docindex.py text eol=lf
 tools/doclint.py text eol=lf
 deploy/scripts/* text eol=lf
+deploy/systemd/* text eol=lf
+deploy/tmpfiles/* text eol=lf
 scripts/ev3-* text eol=lf
 *.py text eol=lf

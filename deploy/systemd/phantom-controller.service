@@ -16,7 +16,7 @@ Restart=on-failure
 RestartSec=2
 NoNewPrivileges=true
 ProtectSystem=strict
-ReadWritePaths=/run/phantom/controller /run/phantom/safety /var/lib/phantom /var/log/phantom /sys/class/tacho-motor /sys/class/lego-sensor
+ReadWritePaths=/run/phantom/controller /run/phantom/safety /run/phantom/motor-control.lock /var/lib/phantom /var/log/phantom /sys/class/tacho-motor /sys/class/lego-sensor
 
 [Install]
 WantedBy=phantom.target

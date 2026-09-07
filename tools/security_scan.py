@@ -50,6 +50,12 @@ HASH_TRAIL_MARKERS = ("hash", "sha256", "digest", "id", "checksum", "manifest")
 # Keys whose *identifier* is public by design; only their value would be secret.
 PUBLIC_KEY_ID_FIELDS = ("control_key_id", "commissioning_key_id", "signing_key_id", "key_slot")
 
+# Legacy DEVICE AUTO reports emitted these public digests as the entire detail
+# value before the runner gained structured evidence fields. Keep the exception
+# tied to exact test identifiers and exact digest shape; arbitrary detail fields
+# remain subject to the credential detector.
+PUBLIC_HASH_DETAIL_TEST_IDS = ("installed-config-hash", "installed-bundle-hash")
+
 TEXT_SUFFIXES = {".py", ".cs", ".java", ".json", ".yaml", ".yml", ".md", ".ps1", ".sh",
                  ".txt", ".cpp", ".hpp", ".service", ".conf", ".xml", ".csv", ".lock"}
 
@@ -96,10 +102,13 @@ def scan_json_artifact(label, path, findings):
     except (ValueError, OSError, UnicodeDecodeError):
         return
 
-    def walk(node, trail):
+    def walk(node, trail, public_hash_detail=False):
         if isinstance(node, dict):
+            legacy_hash_detail = (node.get("test_id") in PUBLIC_HASH_DETAIL_TEST_IDS and
+                                  isinstance(node.get("detail"), str) and
+                                  re.fullmatch("[0-9a-fA-F]{64}", node["detail"]) is not None)
             for key, value in node.items():
-                walk(value, trail + "/" + str(key))
+                walk(value, trail + "/" + str(key), legacy_hash_detail and key == "detail")
         elif isinstance(node, list):
             for index, value in enumerate(node):
                 walk(value, trail + "/" + str(index))
@@ -109,7 +118,7 @@ def scan_json_artifact(label, path, findings):
                 return
             lowered = trail.lower()
             declared = any(marker in lowered for marker in HASH_TRAIL_MARKERS)
-            if re.fullmatch("[0-9a-fA-F]{64}", node) and not declared:
+            if re.fullmatch("[0-9a-fA-F]{64}", node) and not declared and not public_hash_detail:
                 findings.append("%s: 64 hex characters at %s outside a declared hash/id field" % (label, trail))
             if len(node) >= 24 and re.fullmatch("[A-Za-z0-9+/]+={0,2}", node):
                 try:

@@ -46,6 +46,22 @@
 - Quest cold start был прерван системным Guardian из-за `TRACKING_LOST` до запуска scene runner;
   обход Guardian не выполнялся.
 
+- Повторный DEVICE AUTO candidate `0d4e3aa6...` дошёл до реальных systemd services. Первый
+  отказ — `phantom-controller` exit 3: `ProtectSystem=strict` не разрешал открыть
+  `/run/phantom/motor-control.lock`, потому что lock отсутствовал в `ReadWritePaths` controller unit.
+  `phantom-network` timeout и `phantom-mdns` dependency failure были каскадом этого отказа.
+- Rollback вернул `/opt/phantom/current` на release `70c5f541...`, но оставил candidate units и
+  tmpfiles в `/etc`; текущая установка поэтому смешанная и оставлена с остановленными PHANTOM
+  services до следующей контролируемой установки.
+- На Stage 3 обнаруженные `outB/outC/outD` являются `OUT_OF_SCOPE`; отсутствие `outA` нормативно
+  допустимо при `actuator_scope_mask=0x00` и не связано со startup failure.
+- Off-hardware remediation добавляет controller lock в systemd sandbox, transactional restoration
+  units/tmpfiles при rollback, отдельную проверку каждого обязательного service и dependency-aware
+  `NOT_RUN` в DEVICE AUTO. Пустой `network-status.json` больше не разрушает report identity.
+- Quest-конфигурация содержала canonical `commissioning_key_id:null`, который Unity
+  `JsonUtility` материализует как пустую строку. Runtime теперь принимает null/empty только как
+  отсутствие commissioning slot и продолжает отклонять любое непустое значение.
+
 ## Решения
 
 - Wall-clock не возвращается в deterministic EV3 manifest. DEVICE AUTO фиксирует календарь, NTP и
@@ -55,7 +71,16 @@
 
 ## Проверка
 
-- `python tools/test_ev3_device_auto.py` — `PASS`, 3/3.
+- `python tools/test_ev3_device_auto.py` — `PASS`, 16/16: sandbox path, per-service admission,
+  rollback metadata/ownership contract, dependency-aware `NOT_RUN`, boot-id validation и
+  empty/malformed status handling.
+- `powershell -File scripts/quest-test.ps1` — `PASS`, Unity EditMode 32/32, включая реальную
+  `JsonUtility`-десериализацию `commissioning_key_id:null` в пустую строку.
+- `tools/quest_validation/compile_and_smoke.ps1` — `PASS`: pure core 81 checks и 21/21 golden
+  decode/round-trip vectors.
+- EV3 host Release/Diagnostic — `PASS`, по 4/4 CTest; shell/Python syntax checks — `PASS`.
+- `python tools/security_scan.py` — `PASS`; старый failed DEVICE AUTO сохраняется без ручного
+  редактирования и распознаётся только как legacy public-hash evidence.
 - `powershell -File scripts/ev3-clock-correlation.ps1` — `PASS` на физическом EV3.
 - EV3 exact-candidate DEVICE AUTO после исправления — `NOT_RUN` до clean build/installation.
 - Quest DEVICE AUTO — `NOT_RUN`: app report не создан из-за системного `TRACKING_LOST`/Guardian preemption.

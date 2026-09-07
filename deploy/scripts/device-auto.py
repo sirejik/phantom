@@ -15,6 +15,7 @@ import time
 CURRENT = pathlib.Path("/opt/phantom/current")
 REPORT = pathlib.Path("/var/lib/phantom/device-auto.json")
 checks = []
+report_manifest = {}
 
 
 def add(test_id, status, detail, evidence=None, introduced_at_stage=2):
@@ -96,6 +97,34 @@ def zero_state(nodes):
 
 def active(unit):
     return run(["systemctl", "is-active", "--quiet", unit], 5).returncode == 0
+
+
+def read_json_object(path):
+    """Return structured evidence instead of throwing on a missing/partial status write."""
+    if not path.is_file():
+        return None, {"category": "MISSING", "path": str(path)}
+    try:
+        raw = path.read_text(encoding="utf-8-sig")
+    except (OSError, UnicodeError) as error:
+        return None, {"category": "READ_ERROR", "path": str(path), "detail": str(error)}
+    if not raw.strip():
+        return None, {"category": "EMPTY", "path": str(path)}
+    try:
+        value = json.loads(raw)
+    except ValueError as error:
+        return None, {"category": "MALFORMED", "path": str(path), "detail": str(error)}
+    if not isinstance(value, dict):
+        return None, {"category": "NOT_OBJECT", "path": str(path)}
+    return value, None
+
+
+def valid_boot_id(value):
+    if len(value) != 32:
+        return False
+    try:
+        return len(bytes.fromhex(value)) == 16
+    except ValueError:
+        return False
 
 
 def dns_name(name):
@@ -212,11 +241,13 @@ def write_report(manifest):
 
 
 def main():
+    global report_manifest
     if os.geteuid() != 0:
         add("device-auto-root", "FAIL", "root is required for sysfs takeover checks")
         return write_report({})
     root = CURRENT.resolve()
     manifest = json.loads((root / "build-manifest.json").read_text(encoding="utf-8-sig"))
+    report_manifest = manifest
     config = json.loads((root / "config.generated.json").read_text(encoding="utf-8-sig"))
     bundle = json.loads((root / "commissioning-bundle.generated.json").read_text(encoding="utf-8-sig"))
     profile_ok = (config.get("build_profile") == "Diagnostic" and config.get("qualification_only") is True and
@@ -246,9 +277,13 @@ def main():
                                stderr=subprocess.STDOUT, universal_newlines=True, timeout=30)
     add("installed-artifact-integrity", "PASS" if integrity.returncode == 0 else "FAIL", integrity.stdout.strip())
     config_hash = sha256(root / "config.generated.json")
-    add("installed-config-hash", "PASS" if config_hash == manifest.get("config_hash") else "FAIL", config_hash)
+    add("installed-config-hash", "PASS" if config_hash == manifest.get("config_hash") else "FAIL",
+        "installed config bytes match manifest", {"config_hash": config_hash,
+                                                   "expected_config_hash": manifest.get("config_hash")})
     bundle_hash = semantic_hash(bundle)
-    add("installed-bundle-hash", "PASS" if bundle_hash == manifest.get("commissioning_bundle_hash") else "FAIL", bundle_hash, introduced_at_stage=3)
+    add("installed-bundle-hash", "PASS" if bundle_hash == manifest.get("commissioning_bundle_hash") else "FAIL",
+        "installed bundle semantics match manifest", {"commissioning_bundle_hash": bundle_hash,
+                                                       "expected_commissioning_bundle_hash": manifest.get("commissioning_bundle_hash")}, 3)
 
     usb_devices = []
     for node in pathlib.Path("/sys/bus/usb/devices").iterdir():
@@ -284,8 +319,9 @@ def main():
         result = run([str(root / "bin" / binary), "--self-test"], 15)
         add(binary + "-on-device-self-test", "PASS" if result.returncode == 0 else "FAIL", result.stdout.strip())
     units = ("phantom-safety.service", "phantom-wifi-autoconnect.service", "phantom-controller.service", "phantom-network.service", "phantom-mdns.service")
-    services_ok = all(active(unit) for unit in units)
-    add("ev3-systemd-startup", "PASS" if services_ok else "FAIL", "all Stage-3 services active", {unit: active(unit) for unit in units})
+    service_states = {unit: active(unit) for unit in units}
+    services_ok = all(service_states.values())
+    add("ev3-systemd-startup", "PASS" if services_ok else "FAIL", "all Stage-3 services active", service_states)
     identities={unit:run(["systemctl","show","-p","User","-p","Group",unit],5).stdout.strip() for unit in ("phantom-controller.service","phantom-network.service","phantom-mdns.service")}
     identity_ok="User=phantom-ctrl" in identities["phantom-controller.service"] and "User=phantom-net" in identities["phantom-network.service"] and "User=phantom-mdns" in identities["phantom-mdns.service"]
     add("ev3-runtime-identities", "PASS" if identity_ok else "FAIL", "controller/network/mDNS use distinct service identities", identities, 3)
@@ -325,24 +361,44 @@ def main():
         add("ev3-controller-boot-id-rotation", "PASS" if recovered and boot_after and boot_after != boot_before else "FAIL",
             "controller restart creates a fresh identity and invalidates prior sessions", {"changed": boot_after != boot_before}, 3)
     else:
-        add("ev3-supervisor-takeover", "FAIL", "prerequisite startup/profile/zero-output check failed")
-        add("ev3-safe-restart", "FAIL", "takeover was not run")
-        add("ev3-controller-boot-id-rotation", "FAIL", "restart was not run", introduced_at_stage=3)
+        prerequisite = {"services_active": services_ok, "profile_valid": profile_ok, "zero_output": safe}
+        add("ev3-supervisor-takeover", "NOT_RUN", "prerequisite startup/profile/zero-output check failed", prerequisite)
+        add("ev3-safe-restart", "NOT_RUN", "takeover was not run", prerequisite)
+        add("ev3-controller-boot-id-rotation", "NOT_RUN", "restart was not run", prerequisite, 3)
         boot_after = boot_before
 
-    mdns_ok, mdns_evidence = mdns_probe(config["robot_id"], boot_after)
-    add("ev3-dns-sd-stage3", "PASS" if mdns_ok else "FAIL", "live multicast DNS-SD response", mdns_evidence, 3)
-    try:
-        protocol_ok, protocol_evidence = protocol_probe(root, config, boot_after, motors)
-    except Exception as error:
-        protocol_ok, protocol_evidence = False, {"category": type(error).__name__, "detail": str(error)}
-    add("ev3-udp-session-stage3", "PASS" if protocol_ok else "FAIL", "HELLO/HELLO_ACK, PING/PONG, TELEMETRY and authenticated COMMAND with scope zero", protocol_evidence, 3)
-    time.sleep(1.1)
-    network_status_path = pathlib.Path("/run/phantom/network-status.json")
-    network_status = json.loads(network_status_path.read_text()) if network_status_path.is_file() else {}
-    counters = network_status.get("counters", {})
-    security_ok = counters.get("hmac_fail", 0) >= 1 and counters.get("replay_reject", 0) >= 1
-    add("ev3-network-security-stage3", "PASS" if security_ok else "FAIL", "invalid HMAC and replay rejected", counters, 3)
+    probe_service_states = {unit: active(unit) for unit in units}
+    runtime_services_ok = all(probe_service_states.values())
+    if not runtime_services_ok:
+        prerequisite = {"services": probe_service_states, "controller_boot_id_valid": valid_boot_id(boot_after)}
+        add("ev3-dns-sd-stage3", "NOT_RUN", "systemd startup prerequisite failed", prerequisite, 3)
+        add("ev3-udp-session-stage3", "NOT_RUN", "systemd startup prerequisite failed", prerequisite, 3)
+        add("ev3-network-security-stage3", "NOT_RUN", "systemd startup prerequisite failed", prerequisite, 3)
+    elif not valid_boot_id(boot_after):
+        prerequisite = {"controller_boot_id_valid": False, "observed_length": len(boot_after)}
+        add("ev3-dns-sd-stage3", "FAIL", "controller boot identity is invalid", prerequisite, 3)
+        add("ev3-udp-session-stage3", "NOT_RUN", "valid controller boot identity is required", prerequisite, 3)
+        add("ev3-network-security-stage3", "NOT_RUN", "valid controller boot identity is required", prerequisite, 3)
+    else:
+        mdns_ok, mdns_evidence = mdns_probe(config["robot_id"], boot_after)
+        add("ev3-dns-sd-stage3", "PASS" if mdns_ok else "FAIL", "live multicast DNS-SD response", mdns_evidence, 3)
+        try:
+            protocol_ok, protocol_evidence = protocol_probe(root, config, boot_after, motors)
+            protocol_completed = True
+        except Exception as error:
+            protocol_ok, protocol_evidence = False, {"category": type(error).__name__, "detail": str(error)}
+            protocol_completed = False
+        add("ev3-udp-session-stage3", "PASS" if protocol_ok else "FAIL", "HELLO/HELLO_ACK, PING/PONG, TELEMETRY and authenticated COMMAND with scope zero", protocol_evidence, 3)
+        if not protocol_completed:
+            add("ev3-network-security-stage3", "NOT_RUN", "protocol probe did not reach the security cases", protocol_evidence, 3)
+        else:
+            time.sleep(1.1)
+            network_status_path = pathlib.Path("/run/phantom/network-status.json")
+            network_status, status_error = read_json_object(network_status_path)
+            counters = network_status.get("counters", {}) if network_status is not None else {}
+            security_ok = status_error is None and counters.get("hmac_fail", 0) >= 1 and counters.get("replay_reject", 0) >= 1
+            security_evidence = counters if status_error is None else status_error
+            add("ev3-network-security-stage3", "PASS" if security_ok else "FAIL", "invalid HMAC and replay rejected", security_evidence, 3)
     final_safe, final_evidence = zero_state(motors)
     # The old proof was a counter the network worker incremented nowhere, so it
     # read zero whether or not the process could drive a motor. Real evidence is
@@ -368,6 +424,6 @@ if __name__ == "__main__":
     except Exception as error:
         add("device-auto-runner", "FAIL", repr(error))
         try:
-            write_report({})
+            write_report(report_manifest)
         finally:
             raise

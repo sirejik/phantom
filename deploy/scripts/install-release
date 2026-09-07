@@ -1,6 +1,8 @@
 #!/bin/sh
 set -eu
 archive=${1:?release archive required};gate=${2:?PRE-INSTALL report required};root=/opt/phantom
+units="phantom-controller.service phantom-safety.service phantom-network.service phantom-mdns.service phantom-wifi-autoconnect.service phantom.target"
+runtime_services="phantom-safety.service phantom-wifi-autoconnect.service phantom-controller.service phantom-network.service phantom-mdns.service"
 test "$(id -u)" = 0 || { echo "root required" >&2;exit 1; }
 release_id=$(basename "$archive" .tar.gz);case "$release_id" in ''|.|..|*[!A-Za-z0-9._-]*) echo "unsafe release id" >&2;exit 1;;esac
 dest="$root/releases/$release_id";test ! -e "$dest" || { echo "release exists" >&2;exit 1; }
@@ -32,7 +34,6 @@ adduser phantom-ctrl phantom-ipc >/dev/null 2>&1||true
 adduser phantom-ctrl phantom-safety-ipc >/dev/null 2>&1||true
 adduser phantom-net phantom-ipc >/dev/null 2>&1||true
 getent group ev3dev >/dev/null 2>&1&&adduser phantom-ctrl ev3dev >/dev/null 2>&1||true
-if test -d /var/lib/phantom/secrets;then chown root:phantom-net /var/lib/phantom/secrets;chmod 0750 /var/lib/phantom/secrets;find /var/lib/phantom/secrets -type f -exec chown root:phantom-net {} + -exec chmod 0640 {} +;fi
 # The bench characterization harness provisions NOPASSWD root for a binary in a
 # robot-writable path. That is acceptable for an isolated measurement rig, but on
 # a brick that then runs production it is a trivial bypass of the phantom-ctrl /
@@ -49,12 +50,74 @@ for stray in /etc/sudoers.d/phantom-*; do
   echo "refusing to install: unexpected phantom sudoers fragment $stray" >&2
   exit 1
 done
-install -m 0644 "$dest/tmpfiles/phantom.conf" /etc/tmpfiles.d/phantom.conf
-systemd-tmpfiles --create /etc/tmpfiles.d/phantom.conf
+
+install_runtime_metadata(){
+  release=$1
+  network_group=$(sed -n 's/^Group=//p' "$release/systemd/phantom-network.service"|head -n 1)
+  case "$network_group" in ''|*[!A-Za-z0-9._-]*) echo "invalid network service group in $release" >&2;return 1;;esac
+  getent group "$network_group" >/dev/null 2>&1||{ echo "network service group is unavailable: $network_group" >&2;return 1; }
+  for unit in $units;do install -m 0644 "$release/systemd/$unit" "/etc/systemd/system/$unit"||return 1;done
+  install -m 0644 "$release/tmpfiles/phantom.conf" /etc/tmpfiles.d/phantom.conf||return 1
+  systemctl daemon-reload||return 1
+  # Services are stopped before every call. Remove release-specific sockets,
+  # status files and subdirectories while preserving the lease inode itself;
+  # tmpfiles then recreates exactly the selected release's volatile layout.
+  if test -d /run/phantom;then
+    find /run/phantom -mindepth 1 -maxdepth 1 ! -name motor-control.lock -exec rm -rf -- {} +||return 1
+  fi
+  systemd-tmpfiles --create /etc/tmpfiles.d/phantom.conf||return 1
+  if test -d /var/lib/phantom/secrets;then
+    chown "root:$network_group" /var/lib/phantom/secrets||return 1
+    chmod 0750 /var/lib/phantom/secrets||return 1
+    find /var/lib/phantom/secrets -type f -exec chown "root:$network_group" {} + -exec chmod 0640 {} +||return 1
+  fi
+}
+runtime_metadata_matches(){
+  release=$1
+  for unit in $units;do cmp -s "$release/systemd/$unit" "/etc/systemd/system/$unit"||return 1;done
+  cmp -s "$release/tmpfiles/phantom.conf" /etc/tmpfiles.d/phantom.conf
+}
+all_services_active(){
+  for unit in $runtime_services;do
+    systemctl is-active --quiet "$unit"||{ echo "required service is not active: $unit" >&2;return 1; }
+  done
+}
 previous=$(readlink -f "$root/current" 2>/dev/null||true)
-rollback(){ systemctl stop phantom-mdns.service phantom-network.service phantom-controller.service phantom-wifi-autoconnect.service phantom-safety.service phantom.target||true;if test -n "$previous";then ln -sfn "$previous" "$root/current";systemctl start phantom.target||true;else rm -f "$root/current";fi;rm -rf -- "$dest"; }
-systemctl stop phantom-mdns.service phantom-network.service phantom-controller.service phantom-wifi-autoconnect.service phantom-safety.service phantom.target||true;if test -n "$previous";then ln -sfn "$previous" "$root/previous";fi;ln -sfn "$dest" "$root/current"
-install -m 0644 "$dest/systemd/phantom-controller.service" "$dest/systemd/phantom-safety.service" "$dest/systemd/phantom-network.service" "$dest/systemd/phantom-mdns.service" "$dest/systemd/phantom-wifi-autoconnect.service" "$dest/systemd/phantom.target" /etc/systemd/system/
-systemctl daemon-reload;systemctl start phantom.target
-systemctl is-active --quiet phantom-safety.service phantom-wifi-autoconnect.service phantom-controller.service phantom-network.service phantom-mdns.service || { rollback;exit 1; }
-"$dest/bin/phantom-device-auto" || { rollback;exit 1; }
+rollback(){
+  rollback_status=0
+  systemctl stop phantom-mdns.service phantom-network.service phantom-controller.service phantom-wifi-autoconnect.service phantom-safety.service phantom.target||rollback_status=1
+  if test -n "$previous";then
+    ln -sfn "$previous" "$root/current"||rollback_status=1
+    install_runtime_metadata "$previous"||rollback_status=1
+    runtime_metadata_matches "$previous"||{ echo "rollback metadata does not match previous release" >&2;rollback_status=1; }
+    if test "$rollback_status" = 0;then
+      systemctl start phantom.target||rollback_status=1
+      all_services_active||rollback_status=1
+    fi
+    if test "$rollback_status" != 0;then
+      systemctl stop phantom-mdns.service phantom-network.service phantom-controller.service phantom-wifi-autoconnect.service phantom-safety.service phantom.target||true
+    fi
+  else
+    rm -f "$root/current"
+    for unit in $units;do rm -f "/etc/systemd/system/$unit";done
+    rm -f /etc/tmpfiles.d/phantom.conf
+    systemctl daemon-reload||rollback_status=1
+  fi
+  rm -rf -- "$dest"
+  test "$rollback_status" = 0
+}
+fail_with_rollback(){
+  reason=$1
+  echo "$reason; rolling back release metadata and current symlink" >&2
+  rollback||echo "ROLLBACK FAILED: manual recovery is required before another install" >&2
+  exit 1
+}
+
+systemctl stop phantom-mdns.service phantom-network.service phantom-controller.service phantom-wifi-autoconnect.service phantom-safety.service phantom.target||true
+if test -n "$previous";then ln -sfn "$previous" "$root/previous";fi
+ln -sfn "$dest" "$root/current"||fail_with_rollback "cannot activate candidate symlink"
+install_runtime_metadata "$dest"||fail_with_rollback "cannot install candidate runtime metadata"
+runtime_metadata_matches "$dest"||fail_with_rollback "installed runtime metadata differs from candidate"
+systemctl start phantom.target||fail_with_rollback "candidate target failed to start"
+all_services_active||fail_with_rollback "candidate service startup check failed"
+"$dest/bin/phantom-device-auto"||fail_with_rollback "candidate DEVICE AUTO failed"

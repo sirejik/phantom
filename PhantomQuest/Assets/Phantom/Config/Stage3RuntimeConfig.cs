@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using Phantom.Networking;
 
 namespace Phantom.Config
@@ -14,8 +15,25 @@ namespace Phantom.Config
         public int schema_version;public string robot_id,build_profile;public QuestQualificationConfig qualification;public QuestBundleConfig commissioning_bundle;public QuestNetworkConfig network;
         public NetworkClientOptions ToOptions()
         {
-            if(schema_version!=1||build_profile!="Diagnostic"||qualification==null||!qualification.qualification_only||qualification.actuator_scope_mask!=0||qualification.safety_observation_mask!=0||qualification.required_user_inputs!="NONE"||qualification.qualification_evidence_manifest_hash!=new string('0',64))throw new InvalidOperationException("Stage 3 requires Diagnostic qualification_only scope/observation 0x00, zero evidence hash and no user inputs");
-            if(network==null||network.protocol_version!=1||network.discovery_service_type!="_phantom-ev3._udp"||network.discovery_domain!="local."||network.ip_family!="IPV4"||network.commissioning_key_id!=null||commissioning_bundle==null)throw new InvalidOperationException("Stage 3 network configuration is incomplete");
+            if(schema_version!=1||build_profile!="Diagnostic"||qualification==null||!qualification.qualification_only||qualification.actuator_scope_mask!=0||qualification.safety_observation_mask!=0||qualification.required_user_inputs!="NONE"||qualification.qualification_evidence_manifest_hash!=new string('0',64))throw new InvalidOperationException("Stage 3 требует Diagnostic qualification_only, scope/observation 0x00, нулевой evidence hash и отсутствие пользовательских inputs");
+            var incomplete=new List<string>();
+            if(string.IsNullOrEmpty(robot_id))incomplete.Add("robot_id");
+            if(commissioning_bundle==null)incomplete.Add("commissioning_bundle");
+            if(network==null)incomplete.Add("network");
+            else
+            {
+                if(network.protocol_version!=1)incomplete.Add("protocol_version");
+                if(network.discovery_service_type!="_phantom-ev3._udp")incomplete.Add("discovery_service_type");
+                if(network.discovery_domain!="local.")incomplete.Add("discovery_domain");
+                if(network.ip_family!="IPV4")incomplete.Add("ip_family");
+                if(string.IsNullOrEmpty(network.control_key_id))incomplete.Add("control_key_id");
+                // JsonUtility materializes a JSON null string as String.Empty on
+                // the Quest runtime. Both null and empty mean that commissioning
+                // is intentionally unavailable in the network-only profile.
+                if(!string.IsNullOrEmpty(network.commissioning_key_id))incomplete.Add("commissioning_key_id_must_be_unset");
+                if(network.default_port<1||network.default_port>65535)incomplete.Add("default_port");
+            }
+            if(incomplete.Count!=0)throw new InvalidOperationException("Конфигурация сети Stage 3 неполна: "+string.Join(",",incomplete));
             return new NetworkClientOptions{RobotId=robot_id,ServiceType=network.discovery_service_type,ControlKeyId=network.control_key_id,ProtocolMajor=network.protocol_version,TelemetryMaxAgeMs=network.telemetry_max_age_ms,HelloRetryMs=network.hello_retry_ms,HelloMaxAttempts=network.hello_max_attempts,PingIntervalMs=network.ping_interval_ms,PingTimeoutMs=network.ping_timeout_ms,MaxMissedPongs=network.max_missed_pongs,ReconnectDelayMs=network.reconnect_delay_ms,ExpectedBuildProfile=1,ExpectedBundleHash=Hex32(commissioning_bundle.expected_hash)};
         }
         public static byte[] Hex32(string value)
