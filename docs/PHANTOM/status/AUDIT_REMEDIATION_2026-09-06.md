@@ -82,8 +82,8 @@ L-11 и L-12 закрыты одной правкой `AGENTS.md` и показ�
 ## Дефекты, внесённые самой remediation и исправленные до завершения
 
 Эти проблемы не были findings аудита: их создала текущая работа, и они найдены и закрыты
-внутри неё. Записаны потому, что два из трёх были невидимы для детерминированных gates и это
-само по себе было дефектом покрытия.
+внутри неё. Записаны потому, что три из них были невидимы для детерминированных gates, и это
+само по себе было дефектом покрытия — в двух случаях он устранён вместе с самим дефектом.
 
 | дефект | как обнаружен | исправление |
 |---|---|---|
@@ -91,6 +91,10 @@ L-11 и L-12 закрыты одной правкой `AGENTS.md` и показ�
 | `QuestAutoQualification.cs` утверждал прежний контракт re-arm и падал необработанным исключением | зависший `compile_and_smoke.ps1` | синтетические случаи переписаны под полную последовательность S9; добавлен случай `synthetic-stale-telemetry-blocks-rearm`. Тест исправлен под реальный контракт, а не удалён |
 | `StartupWizardModel.cs` ссылался на удалённое `PhantomState.Fault`; runtime-сборка Unity не компилировалась | Unity EditMode gate | файл приведён к текущей модели состояний; **и устранён сам разрыв покрытия**: `compile_and_smoke.ps1` больше не использует рукописный список каталогов, а выводит набор из репозитория, поэтому каждый Unity-независимый runtime-файл компилируется детерминированным gate, а не только Unity |
 | `deploy/scripts/device-auto.py` продолжал читать удалённый счётчик `nonzero_motor_writes`, из-за чего `ev3-stage3-zero-output-audit` всегда давал бы FAIL на реальном устройстве | самопроверка после remediation | проверка переведена на реальные доказательства (sysfs, DAC, `motor_write_attempts_rejected`); добавлены три regression-теста в `tools/test_ev3_device_auto.py` |
+| `PhantomNsdBridge.java` использовал `catch (RuntimeException \| SecurityException)`; `SecurityException` — подкласс `RuntimeException`, поэтому androidlib не компилировался и Android-сборка падала в Gradle | сборка APK | multi-catch исправлен; **и устранён разрыв покрытия**: `tools/quest_validation/compile_androidlib.ps1` компилирует плагин штатным JDK против compileSdk проекта и включён в PRE-INSTALL. Gate проверен в обе стороны — он падает именно на этом дефекте и проходит после исправления |
+| `scripts/quest-build.ps1` и `scripts/quest-pull-logs.ps1` сохраняли жёстко зашитые пути Unity/adb: L-05 был применён только наполовину | самопроверка | оба переведены на `Get-PhantomUnityExe`/`Get-PhantomAdb` |
+| javac-выход попал в `results/**` и был закоммичен; `results/**` — evidence выполненных gates, а не выход компилятора | ревью коммита | выход перенесён в `build/quest/androidlib-classes`, `.class` удалены из индекса |
+| Unity добавляет `RuntimeActionBindings.json` и записи `preloadedAssets` на время Android-сборки и удаляет их после; они попали в коммит из-за прерванной сборки | ревью `git status` после сборки | транзиентное состояние возвращено к settled-виду, иначе worktree был бы грязным всё время сборки и `install_authorized` не достигался бы |
 
 ## Изменение identity
 
@@ -106,6 +110,12 @@ specification_sha256: c665c4c4… → ab5745c6…
 инструментами. Прежние PASS и artifact identities остаются **только provenance** и не
 переносятся на новый candidate: требуется свежая сборка и повторный PRE-INSTALL перед любой
 установкой.
+
+## Итоговый детерминированный gate
+
+`powershell scripts/pre-install-auto.ps1 -Stage 3` на candidate
+`4b6d24430c79de16d0556003a6f544e8906cacea`: **PASS, 35/35**, `worktree_dirty=false`,
+`install_authorized=true`. Подробности и хеши артефактов — в `CURRENT_STATUS.md`.
 
 ## Что осталось `NOT_RUN` (аппаратное)
 
