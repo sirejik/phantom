@@ -33,6 +33,8 @@ namespace Phantom.Networking
         public void Validate()
         {
             if(string.IsNullOrWhiteSpace(RobotId)||RobotId.Length>32||!string.Equals(ServiceType,"_phantom-ev3._udp",StringComparison.Ordinal)||string.IsNullOrWhiteSpace(ControlKeyId))throw new ArgumentException("network identity");
+            // The configured type stays strictly canonical; only what the platform
+            // reports back is normalized (see AndroidNsdDiscoveryBackend).
             if(ProtocolMajor!=1||ProtocolMinor!=0||ControlKeySlot!=(int)WireV1.KeySlot.Control||TelemetryMaxAgeMs<1||HelloRetryMs<10||HelloMaxAttempts<1||HelloMaxAttempts>20||PingIntervalMs<10||PingTimeoutMs<10||MaxMissedPongs<1||ReconnectDelayMs<10)throw new ArgumentException("network bounds");
             if(ExpectedBundleHash==null||ExpectedBundleHash.Length!=32)throw new ArgumentException("expected bundle hash");
             if(ExpectedSpecificationHash!=null&&ExpectedSpecificationHash.Length!=32)throw new ArgumentException("expected specification hash");
@@ -67,6 +69,15 @@ namespace Phantom.Networking
 
     public sealed class Stage3NetworkClient:IDisposable
     {
+        // Flags a network-only robot must never assert. Built from the generated
+        // bitfield constants so a schema change cannot leave a stale literal here.
+        internal const uint NetworkOnlyForbiddenStatusFlags=
+            WireV1.TelemetryStatusFlagsJointReferenceValid|
+            WireV1.TelemetryStatusFlagsGripperReferenceValid|
+            WireV1.TelemetryStatusFlagsPayloadProfileValid|
+            WireV1.TelemetryStatusFlagsActiveJointSafeSetValid|
+            WireV1.TelemetryStatusFlagsCommissioningActuatorQualificationActive;
+
         readonly IServiceDiscoveryBackend _discovery;readonly IDatagramTransport _transport;readonly IControlCredentialStore _credentials;readonly NetworkClientOptions _options;readonly IMonotonicClock _clock;readonly INetworkEventSink _events;
         readonly Dictionary<string,DiscoveredRobot> _visible=new Dictionary<string,DiscoveredRobot>(StringComparer.Ordinal);
         byte[] _key,_nonce,_session,_safeSetHash;DiscoveredRobot _active;long _nextHello,_lastTelemetry=-1,_nextPing,_pingSentAt,_nextReconnect;int _helloAttempts,_missedPongs;ulong _txSequence,_rxSequence,_pingId,_pingToken;bool _running,_paused,_disposed,_pingOutstanding;
@@ -135,7 +146,7 @@ namespace Phantom.Networking
             }
             if(service==null||string.IsNullOrEmpty(service.ServiceKey))return;
             _visible[service.ServiceKey]=service.Clone();Emit("service_found",service.RobotId??"");
-            if(!string.Equals(service.ServiceType,_options.ServiceType,StringComparison.Ordinal)||!string.Equals(service.RobotId,_options.RobotId,StringComparison.Ordinal)||service.Endpoint==null||service.Endpoint.AddressFamily!=System.Net.Sockets.AddressFamily.InterNetwork){Emit("service_ignored","identity_or_ip_family");return;}
+            if(!string.Equals(AndroidNsdDiscoveryBackend.NormalizeServiceType(service.ServiceType),_options.ServiceType,StringComparison.Ordinal)||!string.Equals(service.RobotId,_options.RobotId,StringComparison.Ordinal)||service.Endpoint==null||service.Endpoint.AddressFamily!=System.Net.Sockets.AddressFamily.InterNetwork){Emit("service_ignored","identity_or_ip_family");return;}
             if(service.ProtocolMajor!=_options.ProtocolMajor){InvalidateSession("protocol_mismatch");_active=service.Clone();Snapshot.ServiceFound=true;SetState(NetworkState.ProtocolMismatch);Emit("protocol_mismatch","discovery_protocol_major");return;}
             if(!service.HasValidBootId){Emit("service_ignored","invalid_boot_id");return;}
             if(_active!=null&&string.Equals(_active.ServiceKey,service.ServiceKey,StringComparison.Ordinal))
@@ -201,7 +212,7 @@ namespace Phantom.Networking
         bool HandleTelemetry(DecodedDatagram decoded)
         {
             TelemetryPacket telemetry;
-            if(!ServerProtocol.TryDecodeTelemetry(decoded,out telemetry)||!string.Equals(telemetry.RobotId,_options.RobotId,StringComparison.Ordinal)||!Equal(telemetry.BundleHash,_options.ExpectedBundleHash)||!Equal(telemetry.ActiveJointSafeSetHash,_safeSetHash)||telemetry.BuildProfile!=_options.ExpectedBuildProfile||(!string.IsNullOrEmpty(Snapshot.BuildId)&&!string.Equals(telemetry.BuildId,Snapshot.BuildId,StringComparison.Ordinal))||telemetry.State==RobotRuntimeState.Ready||telemetry.State==RobotRuntimeState.Hold||telemetry.State==RobotRuntimeState.Tracking||telemetry.State==RobotRuntimeState.RobotCalibration||telemetry.State==RobotRuntimeState.Commissioning||(telemetry.StatusFlags&0x383u)!=0||telemetry.ActivePayloadProfileId!="UNSELECTED"||telemetry.PayloadState!=2||!Zero(telemetry.Actual)||!Zero(telemetry.Speed)||telemetry.GripActual!=0)
+            if(!ServerProtocol.TryDecodeTelemetry(decoded,out telemetry)||!string.Equals(telemetry.RobotId,_options.RobotId,StringComparison.Ordinal)||!Equal(telemetry.BundleHash,_options.ExpectedBundleHash)||!Equal(telemetry.ActiveJointSafeSetHash,_safeSetHash)||telemetry.BuildProfile!=_options.ExpectedBuildProfile||(!string.IsNullOrEmpty(Snapshot.BuildId)&&!string.Equals(telemetry.BuildId,Snapshot.BuildId,StringComparison.Ordinal))||telemetry.State==RobotRuntimeState.Ready||telemetry.State==RobotRuntimeState.Hold||telemetry.State==RobotRuntimeState.Tracking||telemetry.State==RobotRuntimeState.RobotCalibration||telemetry.State==RobotRuntimeState.Commissioning||(telemetry.StatusFlags&NetworkOnlyForbiddenStatusFlags)!=0||telemetry.ActivePayloadProfileId!="UNSELECTED"||telemetry.PayloadState!=(byte)WireV1.PayloadState.Unknown||!Zero(telemetry.Actual)||!Zero(telemetry.Speed)||telemetry.GripActual!=0)
             {Snapshot.RejectedPackets++;Snapshot.Freshness=TelemetryFreshness.Invalid;return false;}
             var recovered=Snapshot.Freshness==TelemetryFreshness.Stale||Snapshot.Freshness==TelemetryFreshness.Invalid;
             _lastTelemetry=_clock.NowMilliseconds;Snapshot.Freshness=TelemetryFreshness.Fresh;Snapshot.TelemetryAgeMilliseconds=0;Snapshot.RemoteState=telemetry.State;Snapshot.Fault=telemetry.Fault;Snapshot.BatteryMv=telemetry.BatteryMv;Snapshot.CommandAgeMs=telemetry.CommandAgeMs;Snapshot.StatusFlags=telemetry.StatusFlags;Snapshot.LoopHealthFlags=telemetry.LoopHealthFlags;Snapshot.BuildId=telemetry.BuildId;Snapshot.BundleHash=ShortHex(telemetry.BundleHash);Snapshot.ActiveJointSafeSetHash=ShortHex(telemetry.ActiveJointSafeSetHash);Snapshot.IncidentId=ShortHex(telemetry.IncidentId);SetState(NetworkState.TelemetryFresh);if(recovered)Emit("telemetry_recovered","");return true;

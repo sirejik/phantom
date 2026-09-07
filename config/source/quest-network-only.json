@@ -1,6 +1,7 @@
 {
   "schema_version":1,"robot_id":"phantom01","build_profile":"Diagnostic",
   "qualification":{"qualification_only":true,"qualification_evidence_manifest_hash":"0000000000000000000000000000000000000000000000000000000000000000","actuator_scope_mask":0,"safety_observation_mask":0,"required_user_inputs":"NONE"},
+  "human_mapping":{"arm_reach_min_technical_m":"NOT_APPLICABLE_NETWORK_ONLY","arm_reach_max_technical_m":"NOT_APPLICABLE_NETWORK_ONLY","max_mapping_scale":"NOT_APPLICABLE_NETWORK_ONLY"},
   "space":{"require_local_floor":false,"require_spatial_data_permission":false,"require_scene_support_for_qr":false,"require_anchor_support_for_qr":false,"require_current_room":false,"require_scene_floor_anchor":false,"scene_aware_ux_enabled":false},
   "hand_tracking":{"required":false,"wrist_joint":"Wrist","wrist_max_pose_age_ms":50,"wrist_dropout_grace_ms":null},
   "body_tracking":{"required":false,"joint_set":"UPPER_BODY","shoulder_joint":"Body_RightShoulder","require_iobt":false,"max_pose_age_ms":50,"qualification_profile_id":"NOT_APPLICABLE_NETWORK_ONLY","require_runtime_profile_match":false},

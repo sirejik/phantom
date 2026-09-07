@@ -1,0 +1,37 @@
+{
+  "schema_version": 1,
+  "description": "Declared host tooling for PHANTOM builds and PRE-INSTALL AUTO. Every entry has an environment override so a workstation with a different layout needs no script edits. The Unity version itself is pinned by PhantomQuest/ProjectSettings/ProjectVersion.txt, never here.",
+  "unity": {
+    "override_environment_variable": "PHANTOM_UNITY_ROOT",
+    "search_paths": [
+      "C:\\Program Files\\Unity\\Hub\\Editor\\{version}",
+      "C:\\Program Files (x86)\\Unity\\Hub\\Editor\\{version}",
+      "D:\\Unity\\Hub\\Editor\\{version}"
+    ]
+  },
+  "android": {
+    "override_environment_variable": "PHANTOM_ADB",
+    "adb_relative_paths": [
+      "PlaybackEngines\\AndroidPlayer\\SDK\\platform-tools\\adb.exe"
+    ],
+    "adb_search_paths": [
+      "C:\\Android\\platform-tools\\adb.exe"
+    ]
+  },
+  "wsl": {
+    "override_environment_variable": "PHANTOM_WSL_DISTRO",
+    "distribution": "Ubuntu",
+    "required_packages": ["cmake", "ninja-build", "g++"]
+  },
+  "docker": {
+    "required": true,
+    "pinned_ev3_cross_image": "ev3dev/debian-stretch-cross@sha256:819ea7442bbe109d2b39c6c7766e7d1fe635bb98b86c4f6c3b636c0ce176a29f"
+  },
+  "git_bash": {
+    "override_environment_variable": "PHANTOM_GIT_BASH",
+    "search_paths": [
+      "C:\\Program Files\\Git\\bin\\bash.exe"
+    ],
+    "used_by": "scripts/ev3-bench-* POSIX shell helpers"
+  }
+}

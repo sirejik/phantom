@@ -11,7 +11,12 @@ namespace Phantom.Workspace
         public double NearYawRadius;
         public double FloorZ;
         public double BaseForbiddenRadius;
-        public static WorkspaceConfig Default => new WorkspaceConfig { InnerReach = 0.10, OuterReach = 0.43, NearYawRadius = 0.05, FloorZ = 0.02, BaseForbiddenRadius = 0.05 };
+        /// <summary>
+        /// Synthetic, deliberately unqualified geometry for pure-logic tests only.
+        /// The real values are MEASURED parameters carried by RobotGeometry in the
+        /// CommissioningBundle; the actuator path must never take them from here.
+        /// </summary>
+        public static WorkspaceConfig UnqualifiedTestFixture => new WorkspaceConfig { InnerReach = 0.10, OuterReach = 0.43, NearYawRadius = 0.05, FloorZ = 0.02, BaseForbiddenRadius = 0.05 };
     }
 
     public struct WorkspaceProjection

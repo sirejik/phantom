@@ -1,0 +1,308 @@
+{
+  "ipc_schema_sha256": "34918932cb81c6305e276e4410d0d44d0ca30aaaf52291669fe42358f4706455",
+  "vectors": [
+    {
+      "name": "ControllerRequestV1",
+      "direction": "network_to_controller",
+      "length": 120,
+      "bytes_hex": "5048495001000100000000000102030405060708090a0b0c0d0e0f1001000000000000000102030405060708090a0b0c0d0e0f100101010001020304010200000102030405060708090a0b0c0d0e0f10010000000000000001000000000000000102030405060708090a0b0c0d0e0f101112131415161718",
+      "sha256": "b85044eebabfe522a92575b47a047d040d09f62944f13e280e22c1f06808c0ad",
+      "fields": [
+        {
+          "name": "magic",
+          "offset": 0,
+          "size": 4,
+          "hex": "50484950"
+        },
+        {
+          "name": "ipc_version",
+          "offset": 4,
+          "size": 2,
+          "hex": "0100"
+        },
+        {
+          "name": "request_type",
+          "offset": 6,
+          "size": 2,
+          "hex": "0100"
+        },
+        {
+          "name": "reserved0",
+          "offset": 8,
+          "size": 4,
+          "hex": "00000000"
+        },
+        {
+          "name": "controller_boot_id",
+          "offset": 12,
+          "size": 16,
+          "hex": "0102030405060708090a0b0c0d0e0f10"
+        },
+        {
+          "name": "session_generation",
+          "offset": 28,
+          "size": 8,
+          "hex": "0100000000000000"
+        },
+        {
+          "name": "session_id",
+          "offset": 36,
+          "size": 16,
+          "hex": "0102030405060708090a0b0c0d0e0f10"
+        },
+        {
+          "name": "role",
+          "offset": 52,
+          "size": 1,
+          "hex": "01"
+        },
+        {
+          "name": "key_slot",
+          "offset": 53,
+          "size": 1,
+          "hex": "01"
+        },
+        {
+          "name": "remote_family",
+          "offset": 54,
+          "size": 1,
+          "hex": "01"
+        },
+        {
+          "name": "reserved1",
+          "offset": 55,
+          "size": 1,
+          "hex": "00"
+        },
+        {
+          "name": "remote_ipv4_network_order",
+          "offset": 56,
+          "size": 4,
+          "hex": "01020304"
+        },
+        {
+          "name": "remote_port_network_order",
+          "offset": 60,
+          "size": 2,
+          "hex": "0102"
+        },
+        {
+          "name": "reserved2",
+          "offset": 62,
+          "size": 2,
+          "hex": "0000"
+        },
+        {
+          "name": "client_nonce",
+          "offset": 64,
+          "size": 16,
+          "hex": "0102030405060708090a0b0c0d0e0f10"
+        },
+        {
+          "name": "wire_sequence",
+          "offset": 80,
+          "size": 8,
+          "hex": "0100000000000000"
+        },
+        {
+          "name": "rx_monotonic_us",
+          "offset": 88,
+          "size": 8,
+          "hex": "0100000000000000"
+        },
+        {
+          "name": "command_payload",
+          "offset": 96,
+          "size": 24,
+          "hex": "0102030405060708090a0b0c0d0e0f101112131415161718"
+        }
+      ]
+    },
+    {
+      "name": "ControllerReplyV1",
+      "direction": "controller_to_network",
+      "length": 64,
+      "bytes_hex": "50484950020002000000000008090a0b0c0d0e0f1011121314151617020000000000000008090a0b0c0d0e0f1011121314151617020000000000000002000000",
+      "sha256": "e056989468c4bf4105f5dab7bc807d5adc656ed0e8b2eb0bd2cf1cb40538e184",
+      "fields": [
+        {
+          "name": "magic",
+          "offset": 0,
+          "size": 4,
+          "hex": "50484950"
+        },
+        {
+          "name": "ipc_version",
+          "offset": 4,
+          "size": 2,
+          "hex": "0200"
+        },
+        {
+          "name": "reply_type",
+          "offset": 6,
+          "size": 2,
+          "hex": "0200"
+        },
+        {
+          "name": "reserved0",
+          "offset": 8,
+          "size": 4,
+          "hex": "00000000"
+        },
+        {
+          "name": "controller_boot_id",
+          "offset": 12,
+          "size": 16,
+          "hex": "08090a0b0c0d0e0f1011121314151617"
+        },
+        {
+          "name": "session_generation",
+          "offset": 28,
+          "size": 8,
+          "hex": "0200000000000000"
+        },
+        {
+          "name": "session_id",
+          "offset": 36,
+          "size": 16,
+          "hex": "08090a0b0c0d0e0f1011121314151617"
+        },
+        {
+          "name": "request_wire_sequence",
+          "offset": 52,
+          "size": 8,
+          "hex": "0200000000000000"
+        },
+        {
+          "name": "result_code",
+          "offset": 60,
+          "size": 2,
+          "hex": "0200"
+        },
+        {
+          "name": "reserved_tail",
+          "offset": 62,
+          "size": 2,
+          "hex": "0000"
+        }
+      ]
+    },
+    {
+      "name": "ControllerTelemetrySnapshotV1",
+      "direction": "controller_to_network",
+      "length": 108,
+      "bytes_hex": "5048495003000300000000000f101112131415161718191a1b1c1d1e03000000000000000300000000000000030003000300000003000300030000000f101112131415161718191a1b1c1d1e0000403f0000803f0000a03f0000403f0000803f0000a03f0000403f00000000",
+      "sha256": "44ae26cc98dd30845c3f892f4f78b35e8274006a096128703d9f1fe4b5ff2908",
+      "fields": [
+        {
+          "name": "magic",
+          "offset": 0,
+          "size": 4,
+          "hex": "50484950"
+        },
+        {
+          "name": "ipc_version",
+          "offset": 4,
+          "size": 2,
+          "hex": "0300"
+        },
+        {
+          "name": "reply_type",
+          "offset": 6,
+          "size": 2,
+          "hex": "0300"
+        },
+        {
+          "name": "reserved0",
+          "offset": 8,
+          "size": 4,
+          "hex": "00000000"
+        },
+        {
+          "name": "controller_boot_id",
+          "offset": 12,
+          "size": 16,
+          "hex": "0f101112131415161718191a1b1c1d1e"
+        },
+        {
+          "name": "session_generation",
+          "offset": 28,
+          "size": 8,
+          "hex": "0300000000000000"
+        },
+        {
+          "name": "snapshot_monotonic_us",
+          "offset": 36,
+          "size": 8,
+          "hex": "0300000000000000"
+        },
+        {
+          "name": "state",
+          "offset": 44,
+          "size": 2,
+          "hex": "0300"
+        },
+        {
+          "name": "fault_code",
+          "offset": 46,
+          "size": 2,
+          "hex": "0300"
+        },
+        {
+          "name": "status_flags",
+          "offset": 48,
+          "size": 4,
+          "hex": "03000000"
+        },
+        {
+          "name": "battery_mv",
+          "offset": 52,
+          "size": 2,
+          "hex": "0300"
+        },
+        {
+          "name": "grip_state",
+          "offset": 54,
+          "size": 2,
+          "hex": "0300"
+        },
+        {
+          "name": "loop_health_flags",
+          "offset": 56,
+          "size": 4,
+          "hex": "03000000"
+        },
+        {
+          "name": "incident_id",
+          "offset": 60,
+          "size": 16,
+          "hex": "0f101112131415161718191a1b1c1d1e"
+        },
+        {
+          "name": "q_actual_rad",
+          "offset": 76,
+          "size": 12,
+          "hex": "0000403f0000803f0000a03f"
+        },
+        {
+          "name": "q_speed_rad_s",
+          "offset": 88,
+          "size": 12,
+          "hex": "0000403f0000803f0000a03f"
+        },
+        {
+          "name": "grip_actual",
+          "offset": 100,
+          "size": 4,
+          "hex": "0000403f"
+        },
+        {
+          "name": "reserved_tail",
+          "offset": 104,
+          "size": 4,
+          "hex": "00000000"
+        }
+      ]
+    }
+  ]
+}

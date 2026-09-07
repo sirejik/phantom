@@ -1,0 +1,65 @@
+{
+  "specification": "RFC 8785",
+  "vectors": [
+    {
+      "name": "empty_object",
+      "input_json": "{}",
+      "canonical_utf8_hex": "7b7d",
+      "sha256": "44136fa355b3678a1146ad16f7e8649e94fb4fc21fe77e8310c060f61caaff8a"
+    },
+    {
+      "name": "empty_array",
+      "input_json": "[]",
+      "canonical_utf8_hex": "5b5d",
+      "sha256": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945"
+    },
+    {
+      "name": "literals",
+      "input_json": "{\"t\": true, \"f\": false, \"n\": null}",
+      "canonical_utf8_hex": "7b2266223a66616c73652c226e223a6e756c6c2c2274223a747275657d",
+      "sha256": "22e00dc2f7b01420f940fbdbfbdf34fa0667cc6500186495023ba37722cbd05e"
+    },
+    {
+      "name": "small_integers",
+      "input_json": "{\"zero\": 0, \"one\": 1, \"negative\": -1, \"max_safe\": 9007199254740991}",
+      "canonical_utf8_hex": "7b226d61785f73616665223a393030373139393235343734303939312c226e65676174697665223a2d312c226f6e65223a312c227a65726f223a307d",
+      "sha256": "d613b1a54144148ed1ab024fade18d1d976aff46d3f3784f1b8e028ee8c76482"
+    },
+    {
+      "name": "integral_floats",
+      "input_json": "[1.0, 2.0, 100.0, -0.0, 1e+20]",
+      "canonical_utf8_hex": "5b312c322c3130302c302c3130303030303030303030303030303030303030305d",
+      "sha256": "cedc7a5d4497716d07d7cafea70e30b0cd303535b749fdfda50ff3bbf797b3b6"
+    },
+    {
+      "name": "fractional",
+      "input_json": "[0.5, 0.1, -1.25, 333333333.3333333]",
+      "canonical_utf8_hex": "5b302e352c302e312c2d312e32352c3333333333333333332e333333333333335d",
+      "sha256": "44d3e545d371aeb244ced503d5e0ce74cd9eabf3bcd16e11304573a01c504ddc"
+    },
+    {
+      "name": "exponent_forms",
+      "input_json": "[1e+21, 1e-06, 1e-07, 9.999999999999997e+22]",
+      "canonical_utf8_hex": "5b31652b32312c302e3030303030312c31652d372c392e393939393939393939393939393937652b32325d",
+      "sha256": "9c4b33d69d3cf64dba12b406294cd083d78ba2f77e7c738a9f27db4b53ce2584"
+    },
+    {
+      "name": "utf16_key_order",
+      "input_json": "{\"é\": 1, \"😀\": 2, \"פּ\": 3, \"a\": 4}",
+      "canonical_utf8_hex": "7b2261223a342c22c3a9223a312c22f09f9880223a322c22efad84223a337d",
+      "sha256": "0b452ac6626e4644c23b5c82075012e8def0ad647b457ec0b36c139155045ad9"
+    },
+    {
+      "name": "string_escapes",
+      "input_json": "{\"s\": \"line\\nquote\\\"back\\\\slash\\ttab\\u0001\"}",
+      "canonical_utf8_hex": "7b2273223a226c696e655c6e71756f74655c226261636b5c5c736c6173685c747461625c7530303031227d",
+      "sha256": "2d114a2c27090be2631933e76c69ea5221abd2a0001c9824f5399bcde93b4d1c"
+    },
+    {
+      "name": "nested",
+      "input_json": "{\"b\": [{\"y\": 1, \"x\": [1, 2.5, null]}], \"a\": {\"\": \"\"}}",
+      "canonical_utf8_hex": "7b2261223a7b22223a22227d2c2262223a5b7b2278223a5b312c322e352c6e756c6c5d2c2279223a317d5d7d",
+      "sha256": "64aab6e1f6659c8946b6272262c6541961219302e8124cda256db024f4b478dd"
+    }
+  ]
+}

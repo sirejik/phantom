@@ -10,6 +10,28 @@ This is an **experimental measurement harness**, not the Phantom production moto
 - `--arm` means the operator has inspected the rig and intentionally enables motion. E7 additionally requires `--stall-fixture`; E9 requires `--crash-ack`.
 - E9 baseline is intentionally dangerous: it tests whether `run-direct` survives process death. It uses 12% duty and an independent parent watchdog stops it after 150 ms. Keep physical access to the brick.
 
+## Relationship to production PHANTOM
+
+This harness is **not** part of the production runtime and is outside the PHANTOM
+safety perimeter. It has its own wiring, its own port mapping and its own
+privilege model, none of which describe the assembled robot:
+
+| | bench harness | production PHANTOM |
+|---|---|---|
+| port mapping | Large=`outB`, Medium=`outA` (whatever the current rig is wired as) | `outA` Base, `outB` Shoulder, `outC` Elbow, `outD` Gripper, fixed by `config/source/ev3.json` |
+| motor authority | direct `run-direct` writes from `ev3-bench` | only `phantom-controller`, masked by `actuator_scope_mask` |
+| privileges | `robot` via a NOPASSWD sudo rule | dedicated `phantom-ctrl` / `phantom-net` service identities and DAC groups |
+| results | `results/ev3/**` characterization captures | `results/**` gate evidence tied to a build identity |
+
+A bench port mapping is never evidence about production wiring, and a bench
+result is never a DEVICE/HIL gate result.
+
+**Do not leave the bench sudo rule on a brick that will run production.**
+`deploy/scripts/install-release` removes `/etc/sudoers.d/phantom-ev3-bench`
+before installing and refuses to continue if it cannot, because that rule grants
+NOPASSWD root on a `robot`-writable path and would bypass the privilege
+separation the production safety argument relies on.
+
 The currently measured bench mapping is Large=`outB`, Medium=`outA`. Discovery always matches sysfs `address` and verifies `driver_name`; it never relies on `motor0`/`motor1` numbering. Override ports only with `--large-address` and `--medium-address` after a new E0 capture.
 
 ## USB setup and build
@@ -47,7 +69,7 @@ To stop password prompts, provision the bench-only SSH key once. It creates an u
 & $bash scripts/ev3-bench-setup-key
 ```
 
-After E0, use the observed `address` fields to pass the current port mapping explicitly if it differs from the documented Large=`outA`, Medium=`outD` example:
+After E0, use the observed `address` fields to pass the current port mapping explicitly. The example below uses the currently measured rig mapping (Large=`outB`, Medium=`outA`); substitute whatever E0 reported for your rig:
 
 ```sh
 scripts/ev3-bench-run e1 --large-address outB --medium-address outA --motor all --mode persistent --rate 50

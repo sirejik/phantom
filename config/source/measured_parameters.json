@@ -1,35 +1,302 @@
 {
-  "schema_version":1,
-  "parameters":{
-    "commissioning_bundle.json#/mechanical_revision":{"owner":"mechanical_engineer","measurement_procedure":"Finalize pin-accurate Studio/LDraw assembly and record model SHA-256 (§6.17)","required_before":"HIL","units":"artifact_id","validity_range":"non-empty qualified revision","value":null,"evidence":null},
-    "commissioning_bundle.json#/robot_geometry/l1_m":{"owner":"commissioning_engineer","measurement_procedure":"QR center measurement (§5.16, §11.6)","required_before":"READY","units":"m","validity_range":"0.08..0.40","value":null,"evidence":null},
-    "commissioning_bundle.json#/robot_geometry/l2_m":{"owner":"commissioning_engineer","measurement_procedure":"QR center measurement (§5.16, §11.6)","required_before":"READY","units":"m","validity_range":"0.08..0.40","value":null,"evidence":null},
-    "commissioning_bundle.json#/robot_geometry/shoulder_height_m":{"owner":"commissioning_engineer","measurement_procedure":"RobotBaseFrame to floor measurement (§5.16)","required_before":"READY","units":"m","validity_range":"positive finite","value":null,"evidence":null},
-    "commissioning_bundle.json#/robot_geometry/marker_mounts":{"owner":"mechanical_engineer","measurement_procedure":"Measure ten rigid QR mount transforms (§6.8)","required_before":"READY","units":"transform_artifact","validity_range":"ten unique qualified mounts","value":null,"evidence":null},
-    "commissioning_bundle.json#/drive_calibration/status":{"owner":"commissioning_engineer","measurement_procedure":"Bidirectional multiposition QR/encoder calibration (§5.16.7)","required_before":"READY","units":"qualification","validity_range":"QUALIFIED only","value":null,"evidence":null},
-    "commissioning_bundle.json#/drive_calibration/axes/A":{"owner":"commissioning_engineer","measurement_procedure":"Base QR/encoder calibration (§5.16.7)","required_before":"READY","units":"rad_per_count","validity_range":"finite measured curve","value":null,"evidence":null},
-    "commissioning_bundle.json#/drive_calibration/axes/B":{"owner":"commissioning_engineer","measurement_procedure":"Shoulder QR/encoder calibration (§5.16.7)","required_before":"READY","units":"rad_per_count","validity_range":"finite measured curve","value":null,"evidence":null},
-    "commissioning_bundle.json#/drive_calibration/axes/C":{"owner":"commissioning_engineer","measurement_procedure":"Elbow QR/encoder calibration (§5.16.7)","required_before":"READY","units":"rad_per_count","validity_range":"finite measured curve","value":null,"evidence":null},
-    "commissioning_bundle.json#/drive_calibration/axes/D":{"owner":"commissioning_engineer","measurement_procedure":"Gripper home and QR opening calibration (§5.16.8)","required_before":"READY","units":"mm_per_count_curve","validity_range":"monotone measured branches","value":null,"evidence":null},
-    "commissioning_bundle.json#/collision_model/status":{"owner":"safety_engineer","measurement_procedure":"CAD/mechanics collision model qualification (§5.12)","required_before":"HIL","units":"qualification","validity_range":"QUALIFIED only","value":null,"evidence":null},
-    "commissioning_bundle.json#/joint_safe_sets/status":{"owner":"safety_engineer","measurement_procedure":"Exhaustive offline generation and boundary HIL (§7.15)","required_before":"READY","units":"qualification","validity_range":"profile-specific GRID3D_V1 hashes","value":null,"evidence":null},
-    "commissioning_bundle.json#/payload_profiles/status":{"owner":"safety_engineer","measurement_procedure":"Static/dynamic payload HIL (§7.16)","required_before":"READY","units":"qualification","validity_range":"qualified profiles only","value":null,"evidence":null},
-    "commissioning_bundle.json#/payload_profiles/profiles/EMPTY/mass_kg":{"owner":"mechanical_engineer","measurement_procedure":"Weigh empty end-effector payload (§6.14)","required_before":"READY","units":"kg","validity_range":"non-negative finite","value":null,"evidence":null},
-    "commissioning_bundle.json#/payload_profiles/profiles/EMPTY/cog_offset_m":{"owner":"mechanical_engineer","measurement_procedure":"Measure payload center-of-gravity offset (§6.14)","required_before":"READY","units":"m","validity_range":"non-negative finite","value":null,"evidence":null},
-    "commissioning_bundle.json#/safety_envelope/external_power_cut_present":{"owner":"safety_engineer","measurement_procedure":"Physical inspection of independent POWER_CUT (§6.10)","required_before":"HIL","units":"bool","validity_range":"true","value":null,"evidence":null},
-    "commissioning_bundle.json#/safety_envelope/external_power_cut_tested":{"owner":"safety_engineer","measurement_procedure":"De-energization test before powered HIL (§9.1.6)","required_before":"HIL","units":"bool","validity_range":"true","value":null,"evidence":null},
-    "commissioning_bundle.json#/safety_envelope/payload_mass_max_kg":{"owner":"safety_engineer","measurement_procedure":"Qualified payload HIL (§7.16)","required_before":"READY","units":"kg","validity_range":"positive qualified maximum","value":null,"evidence":null},
-    "commissioning_bundle.json#/safety_envelope/payload_cog_offset_max_m":{"owner":"safety_engineer","measurement_procedure":"Qualified payload HIL (§7.16)","required_before":"READY","units":"m","validity_range":"non-negative qualified maximum","value":null,"evidence":null},
-    "commissioning_bundle.json#/safety_envelope/tcp_static_moment_max_Nm":{"owner":"safety_engineer","measurement_procedure":"Static load and counterweight test (§6.14)","required_before":"READY","units":"N_m","validity_range":"positive qualified maximum","value":null,"evidence":null},
-    "commissioning_bundle.json#/safety_envelope/swept_volume_margin_m":{"owner":"safety_engineer","measurement_procedure":"CAD plus physical swept-volume qualification (§5.12)","required_before":"READY","units":"m","validity_range":"positive qualified margin","value":null,"evidence":null},
-    "commissioning_bundle.json#/safety_envelope/pinch_exclusion_margin_m":{"owner":"safety_engineer","measurement_procedure":"Physical pinch-zone inspection (§6.15)","required_before":"READY","units":"m","validity_range":"positive qualified margin","value":null,"evidence":null},
-    "ev3.json#/axes/base/limits":{"owner":"safety_engineer","measurement_procedure":"Physical hard-stop/cable-range measurement (§6.12)","required_before":"READY","units":"rad","validity_range":"inside physical stops","value":null,"evidence":null},
-    "ev3.json#/axes/shoulder/limits":{"owner":"safety_engineer","measurement_procedure":"Physical joint range measurement (§6.12)","required_before":"READY","units":"rad","validity_range":"flexion <= 90 deg","value":null,"evidence":null},
-    "ev3.json#/axes/elbow/limits":{"owner":"safety_engineer","measurement_procedure":"Physical joint range measurement (§6.12)","required_before":"READY","units":"rad","validity_range":"flexion <= 90 deg","value":null,"evidence":null},
-    "ev3.json#/axes/gripper/limits":{"owner":"safety_engineer","measurement_procedure":"GRIPPER_HOME and QR maximum opening (§5.16.8)","required_before":"READY","units":"mm","validity_range":"closed..measured open","value":null,"evidence":null},
-    "ev3.json#/gripper_home/debounce_ms":{"owner":"controls_engineer","measurement_procedure":"Repeated switch actuation timing test","required_before":"HIL","units":"ms","validity_range":"positive bounded integer","value":null,"evidence":null},
-    "ev3.json#/network/rx_rate_limit_pps":{"owner":"network_engineer","measurement_procedure":"Controlled flood while profiling 50-Hz loop (§7.21)","required_before":"HIL","units":"packets_per_second","validity_range":"positive qualified limit","value":null,"evidence":null},
-    "ev3.json#/network/rx_burst_packets":{"owner":"network_engineer","measurement_procedure":"Controlled flood while profiling bounded RX (§7.21)","required_before":"HIL","units":"packets","validity_range":"positive bounded integer","value":null,"evidence":null},
-    "quest.json#/hand_tracking/wrist_dropout_grace_ms":{"owner":"tracking_engineer","measurement_procedure":"Replay dropout/timestamp scenarios plus Quest physical test (§5.19)","required_before":"READY","units":"ms","validity_range":"qualified bounded duration","value":null,"evidence":null}
+  "schema_version": 1,
+  "parameters": {
+    "commissioning_bundle.json#/collision_model/status": {
+      "owner": "safety_engineer",
+      "measurement_procedure": "CAD/mechanics collision model qualification (§5.12)",
+      "required_before": "HIL",
+      "units": "qualification",
+      "validity_range": "QUALIFIED only",
+      "value": null,
+      "evidence": null
+    },
+    "commissioning_bundle.json#/drive_calibration/axes/A": {
+      "owner": "commissioning_engineer",
+      "measurement_procedure": "Base QR/encoder calibration (§5.16.7)",
+      "required_before": "READY",
+      "units": "rad_per_count",
+      "validity_range": "finite measured curve",
+      "value": null,
+      "evidence": null
+    },
+    "commissioning_bundle.json#/drive_calibration/axes/B": {
+      "owner": "commissioning_engineer",
+      "measurement_procedure": "Shoulder QR/encoder calibration (§5.16.7)",
+      "required_before": "READY",
+      "units": "rad_per_count",
+      "validity_range": "finite measured curve",
+      "value": null,
+      "evidence": null
+    },
+    "commissioning_bundle.json#/drive_calibration/axes/C": {
+      "owner": "commissioning_engineer",
+      "measurement_procedure": "Elbow QR/encoder calibration (§5.16.7)",
+      "required_before": "READY",
+      "units": "rad_per_count",
+      "validity_range": "finite measured curve",
+      "value": null,
+      "evidence": null
+    },
+    "commissioning_bundle.json#/drive_calibration/axes/D": {
+      "owner": "commissioning_engineer",
+      "measurement_procedure": "Gripper home and QR opening calibration (§5.16.8)",
+      "required_before": "READY",
+      "units": "mm_per_count_curve",
+      "validity_range": "monotone measured branches",
+      "value": null,
+      "evidence": null
+    },
+    "commissioning_bundle.json#/drive_calibration/status": {
+      "owner": "commissioning_engineer",
+      "measurement_procedure": "Bidirectional multiposition QR/encoder calibration (§5.16.7)",
+      "required_before": "READY",
+      "units": "qualification",
+      "validity_range": "QUALIFIED only",
+      "value": null,
+      "evidence": null
+    },
+    "commissioning_bundle.json#/joint_safe_sets/status": {
+      "owner": "safety_engineer",
+      "measurement_procedure": "Exhaustive offline generation and boundary HIL (§7.15)",
+      "required_before": "READY",
+      "units": "qualification",
+      "validity_range": "profile-specific GRID3D_V1 hashes",
+      "value": null,
+      "evidence": null
+    },
+    "commissioning_bundle.json#/mechanical_revision": {
+      "owner": "mechanical_engineer",
+      "measurement_procedure": "Finalize pin-accurate Studio/LDraw assembly and record model SHA-256 (§6.17)",
+      "required_before": "HIL",
+      "units": "artifact_id",
+      "validity_range": "non-empty qualified revision",
+      "value": null,
+      "evidence": null
+    },
+    "commissioning_bundle.json#/payload_profiles/profiles/EMPTY/cog_offset_m": {
+      "owner": "mechanical_engineer",
+      "measurement_procedure": "Measure payload center-of-gravity offset (§6.14)",
+      "required_before": "READY",
+      "units": "m",
+      "validity_range": "non-negative finite",
+      "value": null,
+      "evidence": null
+    },
+    "commissioning_bundle.json#/payload_profiles/profiles/EMPTY/mass_kg": {
+      "owner": "mechanical_engineer",
+      "measurement_procedure": "Weigh empty end-effector payload (§6.14)",
+      "required_before": "READY",
+      "units": "kg",
+      "validity_range": "non-negative finite",
+      "value": null,
+      "evidence": null
+    },
+    "commissioning_bundle.json#/payload_profiles/status": {
+      "owner": "safety_engineer",
+      "measurement_procedure": "Static/dynamic payload HIL (§7.16)",
+      "required_before": "READY",
+      "units": "qualification",
+      "validity_range": "qualified profiles only",
+      "value": null,
+      "evidence": null
+    },
+    "commissioning_bundle.json#/robot_geometry/l1_m": {
+      "owner": "commissioning_engineer",
+      "measurement_procedure": "QR center measurement (§5.16, §11.6)",
+      "required_before": "READY",
+      "units": "m",
+      "validity_range": "0.08..0.40",
+      "value": null,
+      "evidence": null
+    },
+    "commissioning_bundle.json#/robot_geometry/l2_m": {
+      "owner": "commissioning_engineer",
+      "measurement_procedure": "QR center measurement (§5.16, §11.6)",
+      "required_before": "READY",
+      "units": "m",
+      "validity_range": "0.08..0.40",
+      "value": null,
+      "evidence": null
+    },
+    "commissioning_bundle.json#/robot_geometry/marker_mounts": {
+      "owner": "mechanical_engineer",
+      "measurement_procedure": "Measure ten rigid QR mount transforms (§6.8)",
+      "required_before": "READY",
+      "units": "transform_artifact",
+      "validity_range": "ten unique qualified mounts",
+      "value": null,
+      "evidence": null
+    },
+    "commissioning_bundle.json#/robot_geometry/shoulder_height_m": {
+      "owner": "commissioning_engineer",
+      "measurement_procedure": "RobotBaseFrame to floor measurement (§5.16)",
+      "required_before": "READY",
+      "units": "m",
+      "validity_range": "positive finite",
+      "value": null,
+      "evidence": null
+    },
+    "commissioning_bundle.json#/safety_envelope/external_power_cut_present": {
+      "owner": "safety_engineer",
+      "measurement_procedure": "Physical inspection of independent POWER_CUT (§6.10)",
+      "required_before": "HIL",
+      "units": "bool",
+      "validity_range": "true",
+      "value": null,
+      "evidence": null
+    },
+    "commissioning_bundle.json#/safety_envelope/external_power_cut_tested": {
+      "owner": "safety_engineer",
+      "measurement_procedure": "De-energization test before powered HIL (§9.1.6)",
+      "required_before": "HIL",
+      "units": "bool",
+      "validity_range": "true",
+      "value": null,
+      "evidence": null
+    },
+    "commissioning_bundle.json#/safety_envelope/payload_cog_offset_max_m": {
+      "owner": "safety_engineer",
+      "measurement_procedure": "Qualified payload HIL (§7.16)",
+      "required_before": "READY",
+      "units": "m",
+      "validity_range": "non-negative qualified maximum",
+      "value": null,
+      "evidence": null
+    },
+    "commissioning_bundle.json#/safety_envelope/payload_mass_max_kg": {
+      "owner": "safety_engineer",
+      "measurement_procedure": "Qualified payload HIL (§7.16)",
+      "required_before": "READY",
+      "units": "kg",
+      "validity_range": "positive qualified maximum",
+      "value": null,
+      "evidence": null
+    },
+    "commissioning_bundle.json#/safety_envelope/pinch_exclusion_margin_m": {
+      "owner": "safety_engineer",
+      "measurement_procedure": "Physical pinch-zone inspection (§6.15)",
+      "required_before": "READY",
+      "units": "m",
+      "validity_range": "positive qualified margin",
+      "value": null,
+      "evidence": null
+    },
+    "commissioning_bundle.json#/safety_envelope/swept_volume_margin_m": {
+      "owner": "safety_engineer",
+      "measurement_procedure": "CAD plus physical swept-volume qualification (§5.12)",
+      "required_before": "READY",
+      "units": "m",
+      "validity_range": "positive qualified margin",
+      "value": null,
+      "evidence": null
+    },
+    "commissioning_bundle.json#/safety_envelope/tcp_static_moment_max_Nm": {
+      "owner": "safety_engineer",
+      "measurement_procedure": "Static load and counterweight test (§6.14)",
+      "required_before": "READY",
+      "units": "N_m",
+      "validity_range": "positive qualified maximum",
+      "value": null,
+      "evidence": null
+    },
+    "ev3.json#/axes/base/limits": {
+      "owner": "safety_engineer",
+      "measurement_procedure": "Physical hard-stop/cable-range measurement (§6.12)",
+      "required_before": "READY",
+      "units": "rad",
+      "validity_range": "inside physical stops",
+      "value": null,
+      "evidence": null
+    },
+    "ev3.json#/axes/elbow/limits": {
+      "owner": "safety_engineer",
+      "measurement_procedure": "Physical joint range measurement (§6.12)",
+      "required_before": "READY",
+      "units": "rad",
+      "validity_range": "flexion <= 90 deg",
+      "value": null,
+      "evidence": null
+    },
+    "ev3.json#/axes/gripper/limits": {
+      "owner": "safety_engineer",
+      "measurement_procedure": "GRIPPER_HOME and QR maximum opening (§5.16.8)",
+      "required_before": "READY",
+      "units": "mm",
+      "validity_range": "closed..measured open",
+      "value": null,
+      "evidence": null
+    },
+    "ev3.json#/axes/shoulder/limits": {
+      "owner": "safety_engineer",
+      "measurement_procedure": "Physical joint range measurement (§6.12)",
+      "required_before": "READY",
+      "units": "rad",
+      "validity_range": "flexion <= 90 deg",
+      "value": null,
+      "evidence": null
+    },
+    "ev3.json#/gripper_home/debounce_ms": {
+      "owner": "controls_engineer",
+      "measurement_procedure": "Repeated switch actuation timing test",
+      "required_before": "HIL",
+      "units": "ms",
+      "validity_range": "positive bounded integer",
+      "value": null,
+      "evidence": null
+    },
+    "ev3.json#/network/rx_burst_packets": {
+      "owner": "network_engineer",
+      "measurement_procedure": "Controlled flood while profiling bounded RX (§7.21)",
+      "required_before": "HIL",
+      "units": "packets",
+      "validity_range": "positive bounded integer",
+      "value": null,
+      "evidence": null
+    },
+    "ev3.json#/network/rx_rate_limit_pps": {
+      "owner": "network_engineer",
+      "measurement_procedure": "Controlled flood while profiling 50-Hz loop (§7.21)",
+      "required_before": "HIL",
+      "units": "packets_per_second",
+      "validity_range": "positive qualified limit",
+      "value": null,
+      "evidence": null
+    },
+    "quest.json#/hand_tracking/wrist_dropout_grace_ms": {
+      "owner": "tracking_engineer",
+      "measurement_procedure": "Replay dropout/timestamp scenarios plus Quest physical test (§5.19)",
+      "required_before": "READY",
+      "units": "ms",
+      "validity_range": "qualified bounded duration",
+      "value": null,
+      "evidence": null
+    },
+    "quest.json#/human_mapping/arm_reach_max_technical_m": {
+      "owner": "quest_engineer",
+      "measurement_procedure": "Technical sanity ceiling for human_arm_reach calibration (§5.7, §11.6); not an anthropometric limit",
+      "required_before": "READY",
+      "units": "m",
+      "validity_range": "0.10..1.20",
+      "value": null,
+      "evidence": null
+    },
+    "quest.json#/human_mapping/arm_reach_min_technical_m": {
+      "owner": "quest_engineer",
+      "measurement_procedure": "Technical sanity floor for human_arm_reach calibration (§5.7, §11.6); not an anthropometric limit",
+      "required_before": "READY",
+      "units": "m",
+      "validity_range": "0.10..1.20",
+      "value": null,
+      "evidence": null
+    },
+    "quest.json#/human_mapping/max_mapping_scale": {
+      "owner": "quest_engineer",
+      "measurement_procedure": "Qualified linear mapping ceiling from replay noise-amplification plus physical mapping HIL (§11.1.1, §11.6)",
+      "required_before": "READY",
+      "units": "ratio",
+      "validity_range": "0.20..3.00",
+      "value": null,
+      "evidence": null
+    }
   }
 }

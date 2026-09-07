@@ -14,37 +14,49 @@
 
 ```text
 phantom/
-├── AGENTS.md
+├── AGENTS.md                       # правила для AI-агентов (canonical)
+├── CLAUDE.md                       # указатель на AGENTS.md для Claude Code
 ├── ARCHITECTURE.md
-├── .agents/
-│   └── skills/
-├── PhantomQuest/
+├── .agents/skills/                 # repo skills (Codex-совместимое размещение)
+├── .claude/skills/                 # те же skills для Claude Code
+├── PhantomQuest/                   # Unity-проект Quest
+│   └── Assets/Plugins/Android/     # androidlib: NSD bridge + credential store
 ├── ev3/
+│   ├── include/, src/, safety/, tests/   # production controller/supervisor
+│   ├── network/                     # phantom-network, phantom-mdns
+│   └── bench/                       # НЕ production: характеризационный harness
 ├── protocol/
-│   ├── wire_schema.yaml
-│   ├── protocol.md                 # generated
-│   ├── golden_vectors/
-│   └── fuzz_corpus/
+│   ├── wire_schema.yaml             # normative Quest↔EV3 wire source
+│   ├── ipc_schema.yaml              # normative EV3-local IPC source
+│   ├── jcs.py                       # RFC 8785 канонизация (общая для всех компонентов)
+│   ├── phantom_protocol.py          # reference codec
+│   ├── protocol.md                  # generated wire mirror
+│   ├── generated/                   # generated constants/layout/canonical/hashes
+│   └── golden_vectors/              # wire, IPC и JCS фикстуры
 ├── config/
-│   ├── schema/
-│   ├── source/
-│   └── generated/
+│   ├── schema/, source/, generated/
 ├── tools/
-│   ├── specgen.py
-│   ├── docindex.py
-│   ├── doclint.py
-│   ├── configgen.py
-│   └── protocolgen.py
-├── sim/
-├── deploy/
-├── scripts/
+│   ├── specgen.py, docindex.py, doclint.py
+│   ├── protocolgen.py, configgen.py, build_identity.py
+│   ├── artifact_check.py, security_scan.py, spec_contract_check.py
+│   ├── toolchain.ps1                # единая точка обнаружения host-инструментов
+│   ├── test_*.py                    # deterministic регрессии
+│   ├── quest_validation/, ev3_validation/
+├── sim/                             # PC-симулятор EV3 и tracking replay
+├── deploy/                          # systemd units, tmpfiles, install/device-auto
+├── scripts/                         # build/test/package/device/provisioning
 ├── toolchains/
+│   ├── ev3dev-stretch.lock.json     # pinned cross image/compiler
+│   └── host-tools.json              # объявленные host-инструменты и override-переменные
+├── mechanical/                      # BOM, сборка, safety inspection
+├── results/                         # machine-readable evidence реально выполненных gates
 ├── docs/
-│   ├── PHANTOM_SPECIFICATION.md    # generated spec-set manifest
+│   ├── PHANTOM_SPECIFICATION.md     # generated spec-set manifest
 │   └── PHANTOM/
 │       ├── README.md
-│       ├── SECTION_INDEX.md        # generated navigation index
+│       ├── SECTION_INDEX.md         # generated navigation index
 │       ├── spec-set.json
+│       ├── SPECIFICATION_GOVERNANCE.md
 │       ├── PRODUCT_REQUIREMENTS.md
 │       ├── SYSTEM_ARCHITECTURE.md
 │       ├── QUEST_SPECIFICATION.md
@@ -54,9 +66,11 @@ phantom/
 │       ├── SAFETY.md
 │       ├── ENGINEERING.md
 │       ├── TEST_PLAN.md
+│       ├── IMPLEMENTATION_STAGES.md
 │       ├── REFERENCE.md
 │       ├── REFERENCES.md
 │       ├── CHANGELOG.md
+│       ├── implementation-map.json  # requirement → stage → status → verification
 │       ├── decisions/
 │       ├── exec-plans/
 │       ├── risks/
@@ -64,6 +78,37 @@ phantom/
 ├── README.md
 └── .github/workflows/
 ```
+
+`ev3/bench/**`, `scripts/ev3-bench-*` и `tools/ev3_validation/**` являются **инженерной
+оснасткой вне production и вне safety-периметра**: собственная разводка портов, прямые
+`run-direct` записи и собственная привилегированная модель. Их результаты никогда не являются
+DEVICE/HIL evidence production-сборки. `deploy/scripts/install-release` удаляет
+`/etc/sudoers.d/phantom-ev3-bench` перед установкой и отказывается продолжать, если правило
+не удалось убрать: NOPASSWD root на writable для `robot` путь обходит разделение
+`phantom-ctrl`/`phantom-net`, на котором построена часть safety-аргументации §7.2.2.
+
+`results/**` хранит machine-readable evidence реально выполненных gates:
+`results/pre-install/report.json` (schema `config/schema/pre_install_report.schema.json`),
+`results/quest/device-auto/<quest_build_id>/`, `results/ev3/**` и краткие summaries.
+`status/**` только суммирует эти файлы и никогда не заменяет их.
+
+<a id="sec-8-1-1"></a>
+### 8.1.1. Среда разработчика
+
+Host-инструменты объявлены в `toolchains/host-tools.json` и разрешаются единственным модулем
+`tools/toolchain.ps1`; абсолютные пути не дублируются по скриптам. Каждый инструмент имеет
+override через переменную окружения:
+
+| инструмент | зачем | override | по умолчанию |
+|---|---|---|---|
+| Unity Editor | Quest build, EditMode tests, Roslyn/mono для host-компиляции | `PHANTOM_UNITY_ROOT` | Hub-путь для версии из `PhantomQuest/ProjectSettings/ProjectVersion.txt` |
+| `adb` | Quest DEVICE AUTO и provisioning | `PHANTOM_ADB` | platform-tools из Unity Android SDK, затем `PATH` |
+| WSL distribution | host-сборка и sanitizers EV3 | `PHANTOM_WSL_DISTRO` | `Ubuntu` (нужны `cmake`, `ninja-build`, `g++`) |
+| Docker | pinned ARMv5TEJ cross image | — | образ по digest из `toolchains/ev3dev-stretch.lock.json` |
+| Git Bash | POSIX-скрипты bench | `PHANTOM_GIT_BASH` | `C:\Program Files\Git\bin\bash.exe` |
+
+Версия Unity закреплена самим проектом (`ProjectVersion.txt`), а не скриптом: скрипт ищет
+именно её и завершается с понятным сообщением, если она не установлена.
 
 <a id="sec-8-2"></a>
 ## 8.2. Общие правила исходного кода
@@ -130,6 +175,24 @@ flowchart LR
 ```
 
 До и во время сборки выполняются быстрые проверки, чтобы раньше обнаруживать ошибки. После сборки обязательный `PRE-INSTALL AUTO` повторно выполняет весь набор, необходимый для допуска конкретного `build_id` к установке.
+
+Соотношение двух исполнителей зафиксировано явно, иначе «CI зелёный» и «установка разрешена»
+означают разное:
+
+- **`scripts/pre-install-auto.ps1`** — полный gate на рабочей станции разработчика/релиза. Он
+  единственный авторизует установку (`install_authorized`), и потому обязан включать проверки
+  актуальности specification manifest и section index (`specgen --check`, `docindex --check`,
+  `doclint`). Без них отчёт мог бы объявить `specification_sha256`, который фактически не
+  покрывает текущие нормативные документы. Требует Unity, Docker и WSL.
+- **`.github/workflows/ci.yml`** — максимально возможное **детерминированное подмножество**
+  того же набора: identity/lint, все generated artifacts, canonicalization, protocol и IPC
+  cross-implementation vectors, config-boundary тесты, регрессии shipped EV3 worker и
+  device-auto runner, анализаторы отчётов, статические Quest-контракты, provisioning audit,
+  host-сборка EV3 с sanitizers и оба on-host self-test. Вне CI остаётся только то, что
+  требует Unity, Windows-Docker или физического устройства.
+
+Проверка, добавляемая в PRE-INSTALL, обязана быть добавлена и в CI, если она детерминирована и
+не требует Unity/устройства.
 
 Обязательные проверки включают:
 
@@ -467,7 +530,7 @@ commissioning PSK  -> HELLO role=COMMISSIONING / CALIBRATION_JOG / calibration w
 1. доверенная commissioning workstation генерирует CSPRNG **два независимых секрета минимум по 32 случайных байта каждый**;
 2. секреты получают разные `key_id`/key slots (`phantom01-control`, `phantom01-commissioning`) и не выводятся друг из друга KDF без отдельного пересмотра threat model;
 3. оба секрета устанавливаются на EV3 в раздельные защищённые credential files/slots с минимальными permissions;
-4. control PSK передаётся на Quest вне исполнительного UDP-протокола и хранится через app-private credential service; plaintext в `PlayerPrefs`, Resources/StreamingAssets или build manifest запрещён. Android Keystore используется для wrapping/encryption key там, где он доступен текущему Quest runtime, а фактический backend/permissions фиксируются P0/DEVICE evidence;
+4. control PSK передаётся на Quest вне исполнительного UDP-протокола и хранится через app-private credential service; plaintext в `PlayerPrefs`, Resources/StreamingAssets или build manifest запрещён. Android Keystore используется для wrapping/encryption key там, где он доступен текущему Quest runtime, а фактический backend/permissions фиксируются P0/DEVICE evidence. Реализованный путь описан в §8.11.1;
 5. commissioning PSK устанавливается только в доверенный Diagnostic/engineering credential store; Release profile не должен иметь доступного `commissioning_key_id`/секрета;
 6. role/key-slot mismatch отклоняется до создания session: control PSK не авторизует commissioning operations, commissioning role не повышается из CONTROL session;
 7. ротация каждого ключа выполняется независимо только при запрещённом actuator motion; после ротации соответствующие sessions инвалидируются и обе стороны должны получить согласованный новый credential;
@@ -476,6 +539,41 @@ commissioning PSK  -> HELLO role=COMMISSIONING / CALIBRATION_JOG / calibration w
 Проверенный EV3 layout для control credential: `/var/lib/phantom/secrets/control.psk`, каталог `root:phantom-net 0750`, файл `root:phantom-net 0640`, `key_slot=0`. Только `phantom-net` читает wire PSK; `phantom-ctrl`, `phantom-mdns` и helpers не получают эту группу/файл. Commissioning credential имеет тот же owner model, но устанавливается только Diagnostic/engineering profile. Loader принимает минимум 32 raw random bytes; совместимый provisioning также может хранить ровно 64 ASCII hex symbols, декодируемых в 32 bytes. Содержимое не выводится даже при startup/config error. Commissioning PSK хранится отдельным файлом/slot и не требуется для network-only gate.
 
 Такое разделение является обязательным для этапов 4–5: раннее управление Gripper остаётся engineering qualification и не получает commissioning authority из обычного control credential.
+
+<a id="sec-8-11-1"></a>
+### 8.11.1. Реализованный путь provisioning CONTROL PSK на Quest
+
+Без установленного credential аутентифицированная CONTROL session физически невозможна,
+поэтому этот путь является частью Stage-3 exit criteria, а не опциональным удобством.
+
+```text
+доверенная commissioning workstation
+  → scripts/quest-provision-credential.ps1 -KeyFile <вне репозитория>
+  → adb push в app-specific provisioning directory
+  → первый запуск Diagnostic-сборки: importProvisioningDrop()
+  → AES-GCM ciphertext в app-private preferences, wrapping key в Android Keystore
+  → plaintext drop перезаписывается нулями и удаляется
+  → DEVICE AUTO строка quest-control-credential-present = PASS
+```
+
+Обязательные свойства:
+
+- ключ никогда не является аргументом командной строки, не печатается скриптом, не попадает в
+  APK, `Resources`, `StreamingAssets`, build manifest, build identity или обычные logs;
+  наружу выходит только факт наличия credential;
+- импорт выполняется один раз; после успешного или отклонённого импорта plaintext-файл
+  затирается и удаляется, поэтому он не переживает установку;
+- принимаются только 32+ случайных байта либо ровно 64 ASCII hex-символа (`NFR-SEC-02`);
+- путь доступен **только** в `Diagnostic`: Release-сборка не импортирует provisioning drop;
+- отсутствующий или отклонённый credential fail-closed: клиент остаётся в
+  `AuthenticationFailure` и не отправляет `HELLO`;
+- provisioning drop проходит через app-specific external storage, что является известным
+  ограничением инженерного пути на неотлаживаемой сборке; окно существования drop
+  ограничено одним запуском приложения, и это допущение действует только внутри доверенной
+  изолированной лаборатории §8.12.
+
+Commissioning PSK использует ту же механику с отдельным `key_id` и появляется вместе с
+этапом, который его требует.
 
 <a id="sec-8-12"></a>
 ## 8.12. Сетевая изоляция

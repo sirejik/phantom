@@ -1,5 +1,6 @@
 import hashlib
 import hmac
+import json
 import importlib.util
 import pathlib
 import struct
@@ -44,6 +45,21 @@ class NetworkTests(unittest.TestCase):
 
     def tearDown(self):
         self.temp.cleanup()
+
+    def assertNoMotorAuthority(self):
+        """The network worker must own no actuator path at all.
+
+        This replaces a counter that was structurally always zero: it asserts the
+        structural property (no motor interface, no scope, motion requests
+        counted as rejected) instead of reading back a constant.
+        """
+        self.assertEqual(0, self.config["actuator_scope_mask"])
+        self.assertEqual(0, self.bundle["actuator_scope_mask"])
+        for forbidden in ("set_duty", "brake_all", "motor", "duty_cycle_sp"):
+            self.assertFalse(hasattr(self.server, forbidden),
+                             "network worker exposed an actuator surface: " + forbidden)
+        self.assertNotIn("nonzero_motor_writes", self.server.counters)
+        self.assertIn("motor_write_attempts_rejected", self.server.counters)
 
     def packet(self, name, payload, sequence, session=None, boot=None, key=None):
         return wire.encode(wire.NAMES[name]["type"], payload, self.key if key is None else key,
@@ -101,7 +117,7 @@ class NetworkTests(unittest.TestCase):
         command = self.packet("COMMAND", wire.command_payload(5, [.1, .2, .3], .4), 1, session)
         self.assertIsNone(self.server.process(command, self.address, 1.1))
         self.assertIsNone(self.server.session_id)
-        self.assertEqual(self.server.counters["nonzero_motor_writes"], 0)
+        self.assertNoMotorAuthority()
 
     def test_ping_pong_and_scope_zero_command(self):
         self.hello()
@@ -114,7 +130,7 @@ class NetworkTests(unittest.TestCase):
         command = self.packet("COMMAND", wire.command_payload(5, [.1, .2, .3], .4), 2, session)
         self.assertIsNone(self.server.process(command, self.address, 1.2))
         self.assertEqual(self.server.last_command_sequence, 2)
-        self.assertEqual(self.server.counters["nonzero_motor_writes"], 0)
+        self.assertNoMotorAuthority()
         telemetry = wire.decode(self.server.telemetry(1.21), self.key, expected_session=session,
                                 expected_boot=self.boot)
         self.assertEqual(telemetry["message"], "TELEMETRY")
@@ -146,7 +162,7 @@ class NetworkTests(unittest.TestCase):
             bad_command = self.packet("COMMAND", bad_float, 2, session)
             self.assertIsNone(self.server.process(bad_command, self.address, 1.5))
         self.assertIsNone(self.server.process(b"X" * 1025, self.address, 1.6))
-        self.assertEqual(self.server.counters["nonzero_motor_writes"], 0)
+        self.assertNoMotorAuthority()
 
     def test_cheap_parser_identity_and_unknown_key_rejections_are_inert(self):
         hello = self.packet("HELLO", wire.hello_payload("phantom01", 0, 0, self.nonce), 0)
@@ -169,7 +185,7 @@ class NetworkTests(unittest.TestCase):
         self.assertEqual(rejected["session_id"], wire.ZERO_ID)
         self.assertEqual(struct.unpack_from("<H", rejected["payload"], 314)[0], network.ERR_SESSION)
         self.assertIsNone(self.server.session_id)
-        self.assertEqual(self.server.counters["nonzero_motor_writes"], 0)
+        self.assertNoMotorAuthority()
 
     def test_stale_old_duplicate_and_reordered_session_packets_are_inert(self):
         self.hello()
@@ -183,7 +199,7 @@ class NetworkTests(unittest.TestCase):
         stale = self.packet("COMMAND", wire.command_payload(5, [.1, .2, .3], .4), 4, old_session)
         self.assertIsNone(self.server.process(stale, self.address, 7.0))
         self.assertEqual(self.server.last_command_sequence, 0)
-        self.assertEqual(self.server.counters["nonzero_motor_writes"], 0)
+        self.assertNoMotorAuthority()
 
     def test_controller_restart_invalidates_session(self):
         self.hello()
@@ -195,7 +211,70 @@ class NetworkTests(unittest.TestCase):
         self.assertNotEqual(old, self.server.session_id)
         self.assertIsNone(self.server.process(old_target, self.address, 1.1))
         self.assertEqual(self.server.last_command_sequence, 0)
-        self.assertEqual(self.server.counters["nonzero_motor_writes"], 0)
+        self.assertNoMotorAuthority()
+
+    def test_telemetry_is_serialised_from_the_controller_snapshot(self):
+        """Telemetry state/fault/battery must come from the controller, not constants."""
+        self.hello()
+        session = self.server.session_id
+
+        class Reporting(network.LocalControllerAuthority):
+            def snapshot(self, boot_id, rx_us):
+                return {"state": network.DISCOVERY, "fault_code": 107,
+                        "status_flags": 0x18, "battery_mv": 7123, "grip_state": 1,
+                        "loop_health_flags": 4, "incident_id": b"\xab" * 16,
+                        "q_actual": (0.0, 0.0, 0.0), "q_speed": (0.0, 0.0, 0.0),
+                        "grip_actual": 0.0, "snapshot_monotonic_us": rx_us}
+
+        self.server.authority = Reporting()
+        self.server.authority.session = session
+        telemetry = wire.decode(self.server.telemetry(1.3), self.key)
+        payload = telemetry["payload"]
+        self.assertEqual(network.DISCOVERY, struct.unpack_from("<H", payload, 128)[0])
+        self.assertEqual(107, struct.unpack_from("<H", payload, 130)[0])
+        self.assertEqual(0x18, struct.unpack_from("<I", payload, 132)[0])
+        self.assertEqual(b"\xab" * 16, payload[136:152])
+        self.assertEqual(7123, struct.unpack_from("<H", payload, 194)[0])
+        self.assertEqual(4, struct.unpack_from("<I", payload, 196)[0])
+        self.assertNoMotorAuthority()
+
+    def test_absent_controller_snapshot_suppresses_telemetry_and_handshake(self):
+        """An unobservable controller must not be reported as a healthy robot."""
+        class Silent(network.LocalControllerAuthority):
+            def snapshot(self, boot_id, rx_us):
+                return None
+
+        self.hello()
+        self.assertIsNotNone(self.server.session_id)
+        self.server.authority = Silent()
+        self.assertIsNone(self.server.telemetry(1.4))
+        self.assertGreater(self.server.counters["controller_snapshot_stale"], 0)
+
+        self.server.end_session("test")
+        self.assertIsNone(self.hello())
+        self.assertIsNone(self.server.session_id)
+        self.assertNoMotorAuthority()
+
+    def test_motion_request_at_zero_scope_is_counted_as_rejected(self):
+        self.hello()
+        session = self.server.session_id
+        hold = self.packet("COMMAND", wire.command_payload(2, [0.0, 0.0, 0.0], 0.0), 1, session)
+        self.server.process(hold, self.address, 1.1)
+        self.assertEqual(0, self.server.counters["motor_write_attempts_rejected"])
+        moving = self.packet("COMMAND", wire.command_payload(5, [.1, .2, .3], .4), 2, session)
+        self.server.process(moving, self.address, 1.2)
+        self.assertEqual(1, self.server.counters["motor_write_attempts_rejected"])
+        self.assertNoMotorAuthority()
+
+    def test_status_snapshot_reports_controller_observability(self):
+        self.hello()
+        self.server.telemetry(1.1)
+        self.server.status()
+        report = json.loads(self.status_path.read_text(encoding="utf-8"))
+        self.assertEqual(2, report["schema_version"])
+        self.assertTrue(report["controller_snapshot_fresh"])
+        self.assertEqual(network.CONNECTED_UNREFERENCED, report["controller_state"])
+        self.assertNotIn("nonzero_motor_writes", report["counters"])
 
     def test_token_bucket_bounds_flood(self):
         self.server.rate = 1
@@ -205,7 +284,7 @@ class NetworkTests(unittest.TestCase):
         for unused in range(1000):
             self.server.process(packet, self.address, 2.0)
         self.assertGreater(self.server.counters["rx_drop"], 990)
-        self.assertEqual(self.server.counters["nonzero_motor_writes"], 0)
+        self.assertNoMotorAuthority()
 
 
 if __name__ == "__main__":

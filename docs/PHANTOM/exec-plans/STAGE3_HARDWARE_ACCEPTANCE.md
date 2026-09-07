@@ -7,8 +7,8 @@
 ## Цель
 
 Получить воспроизводимый machine-readable результат физической приёмки Stage 3 для одного
-точно идентифицированного clean candidate, не создавая motor authority и сохраняя
-`nonzero_motor_writes=0` во всех выполненных сценариях.
+точно идентифицированного clean candidate, не создавая motor authority и сохраняя нулевое
+наблюдаемое motor state во всех выполненных сценариях.
 
 ## Границы
 
@@ -66,5 +66,5 @@
 - Выполнить clean build/PRE-INSTALL/install нового exact candidate и полный EV3 DEVICE AUTO.
 - Обеспечить Quest устойчивой визуальной tracking-сценой/валидной Guardian boundary без обхода safety UI,
   затем повторить нулевзаимодействующий DEVICE AUTO.
-- После двух DEVICE PASS выполнить только network/session/reconnect/reboot tests и проверить общий
-  `nonzero_motor_writes=0`.
+- После двух DEVICE PASS выполнить только network/session/reconnect/reboot tests и проверить, что
+  наблюдаемое motor state остаётся нулевым, а `phantom-net` не имеет motor-write authority.

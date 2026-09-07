@@ -344,9 +344,21 @@ def main():
     security_ok = counters.get("hmac_fail", 0) >= 1 and counters.get("replay_reject", 0) >= 1
     add("ev3-network-security-stage3", "PASS" if security_ok else "FAIL", "invalid HMAC and replay rejected", counters, 3)
     final_safe, final_evidence = zero_state(motors)
-    zero_writes = counters.get("nonzero_motor_writes") == 0
-    add("ev3-stage3-zero-output-audit", "PASS" if final_safe and zero_writes else "FAIL",
-        "nonzero motor writes = 0 across startup/session/command/replay/restart", {"nonzero_motor_writes": counters.get("nonzero_motor_writes"), "sysfs": final_evidence}, 3)
+    # The old proof was a counter the network worker incremented nowhere, so it
+    # read zero whether or not the process could drive a motor. Real evidence is
+    # observed sysfs state on every present motor, a network process outside the
+    # motor-I/O DAC domain, and a rejection counter that is actually written.
+    rejected = counters.get("motor_write_attempts_rejected")
+    audit = {"sysfs": final_evidence,
+             "motor_write_attempts_rejected": rejected,
+             "phantom_net_motor_write_denied": access_checks["phantom-net-motor-write-denied"],
+             "controller_state": network_status.get("controller_state")}
+    zero_output_ok = (final_safe
+                      and isinstance(rejected, int)
+                      and access_checks["phantom-net-motor-write-denied"])
+    add("ev3-stage3-zero-output-audit", "PASS" if zero_output_ok else "FAIL",
+        "no motor output and no network motor-write authority across startup/session/command/replay/restart",
+        audit, 3)
     return write_report(manifest)
 
 

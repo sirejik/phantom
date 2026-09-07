@@ -19,6 +19,18 @@ namespace Phantom.Networking
         int _callbackDepth;
         public event Action<DiscoveryChange> Changed;
         public bool IsRunning{get;private set;}
+        // Device evidence for the bounded MulticastLock; false on host builds.
+        public bool MulticastLockHeld
+        {
+            get
+            {
+#if UNITY_ANDROID && !UNITY_EDITOR
+                try{return _bridge!=null&&_bridge.Call<bool>("isMulticastLockHeld");}catch(Exception){return false;}
+#else
+                return false;
+#endif
+            }
+        }
 #if UNITY_ANDROID && !UNITY_EDITOR
         AndroidJavaObject _bridge;ListenerProxy _listener;
 #endif
@@ -75,18 +87,34 @@ namespace Phantom.Networking
             IPAddress address;int major;byte[] boot;
             if(!IPAddress.TryParse(host,out address)||address.AddressFamily!=System.Net.Sockets.AddressFamily.InterNetwork||port<1||port>65535||!int.TryParse(protocolMajor,out major)||!TryHex16(bootHex,out boot))
             {PublishError("android_nsd_malformed_metadata");return;}
-            var canonical=_requestedServiceType??serviceType;var key=Key(instance,canonical);var service=new DiscoveredRobot{ServiceKey=key,InstanceName=instance,ServiceType=canonical,RobotId=robotId,ProtocolMajor=major,ControllerBootId=boot,BuildId=buildId,Endpoint=new IPEndPoint(address,port)};
+            var canonical=NormalizeServiceType(_requestedServiceType??serviceType);var key=Key(instance,canonical);var service=new DiscoveredRobot{ServiceKey=key,InstanceName=instance,ServiceType=canonical,RobotId=robotId,ProtocolMajor=major,ControllerBootId=boot,BuildId=buildId,Endpoint=new IPEndPoint(address,port)};
             Enqueue(new DiscoveryChange{Kind=DiscoveryChangeKind.Updated,Service=service,ServiceKey=key});
         }
         void OnLost(string instance,string serviceType)
         {var key=Key(instance,_requestedServiceType??serviceType);Enqueue(new DiscoveryChange{Kind=DiscoveryChangeKind.Removed,ServiceKey=key});}
         void PublishError(string category)=>Enqueue(new DiscoveryChange{Kind=DiscoveryChangeKind.Error,ErrorCategory=category});
         void Enqueue(DiscoveryChange change){lock(_callbackGate){if(!IsRunning)return;if(Interlocked.Increment(ref _callbackDepth)>128){Interlocked.Decrement(ref _callbackDepth);return;}_callbacks.Enqueue(change);}}
-        static string Key(string instance,string serviceType)=>(serviceType??"")+"|"+(instance??"");
+        static string Key(string instance,string serviceType)=>(NormalizeServiceType(serviceType))+"|"+(instance??"");
         static string AndroidServiceType(string canonical)
         {
-            if(canonical!="_phantom-ev3._udp")throw new ArgumentException("DNS-SD service type");
-            return canonical;
+            if(NormalizeServiceType(canonical)!="_phantom-ev3._udp")throw new ArgumentException("DNS-SD service type");
+            return "_phantom-ev3._udp";
+        }
+
+        // Android reports the DNS-SD type as `_x._udp`, `_x._udp.`, `_x._udp.local`
+        // or `_x._udp.local.` depending on version and callback. Reducing every
+        // spelling to `_service._proto` keeps a real robot from being discarded as
+        // an unknown service type.
+        internal static string NormalizeServiceType(string value)
+        {
+            if(string.IsNullOrEmpty(value))return "";
+            var trimmed=value.Trim();
+            while(trimmed.EndsWith("."))trimmed=trimmed.Substring(0,trimmed.Length-1);
+            var lowered=trimmed.ToLowerInvariant();
+            var udp=lowered.IndexOf("._udp",StringComparison.Ordinal);
+            var tcp=lowered.IndexOf("._tcp",StringComparison.Ordinal);
+            var end=udp>=0?udp+5:tcp>=0?tcp+5:-1;
+            return end>0?trimmed.Substring(0,end):trimmed;
         }
         static bool TryHex16(string value,out byte[] bytes)
         {

@@ -24,7 +24,7 @@ TXT:
   build_id=<installed build id>
 ```
 
-На EV3 publication выполняется через системный Avahi по D-Bus; собственная реализация mDNS-пакетов не используется. В API Avahi `type="_phantom-ev3._udp"`, `domain="local."` (либо default domain, подтверждённый как `local.`), publication ограничена IPv4 для protocol v1. Android Quest передаёт `NsdManager` именно service type `_phantom-ev3._udp`; `.local` не является частью serviceType. TXT содержит только публичную identity/compatibility metadata. Wi-Fi credential, control/commissioning PSK, HMAC material, session id и локальные пути к secret files в TXT запрещены.
+На EV3 publication выполняется через системный Avahi по D-Bus; собственная реализация mDNS-пакетов не используется. В API Avahi `type="_phantom-ev3._udp"`, `domain="local."` (либо default domain, подтверждённый как `local.`), publication ограничена IPv4 для protocol v1. Android Quest передаёт `NsdManager` именно service type `_phantom-ev3._udp`; `.local` не является частью serviceType. Однако платформа возвращает тип в разных написаниях (`_phantom-ev3._udp`, `_phantom-ev3._udp.`, `_phantom-ev3._udp.local`, `_phantom-ev3._udp.local.`), поэтому adapter обязан нормализовать полученное значение до `_service._proto` перед сравнением. Строгое сравнение с одной формой молча отбрасывает реально объявленного робота. TXT содержит только публичную identity/compatibility metadata. Wi-Fi credential, control/commissioning PSK, HMAC material, session id и локальные пути к secret files в TXT запрещены.
 
 Scope v1 допускает обнаружение нескольких DNS-SD instances, но активна только одна выбранная/ожидаемая пара Quest↔`robot_id`; одновременное управление несколькими роботами не реализуется.
 
@@ -151,7 +151,7 @@ signed_direction        # +1 / -1
 max_encoder_delta
 max_duration_ms
 max_speed_counts_s
-max_duty_pct
+max_duty_permille
 ```
 
 EV3 **не принимает из Quest целевой физический угол для `CALIBRATION_JOG`**. Он только ограниченно вращает вал выбранного мотора и прекращает движение при первом из условий: `max_encoder_delta`, `max_duration_ms`, локальное ограничение скорости или `duty`, признак препятствия/заклинивания, `LOCAL_STOP`, потеря heartbeat процесса безопасности или другая неисправность. Ограничения из пакета могут быть только строже локальных: фактический предел равен `min(requested_limit, local_engineering_limit)`, поэтому Quest не может сетевой командой увеличить разрешённые скорость, `duty`, длительность или изменение энкодера.
@@ -317,7 +317,7 @@ Wire `state` по-прежнему остаётся `COMMISSIONING`, но active
 
 `loop_health_flags` сообщает нормальное состояние или факт недавнего overrun без передачи полного массива диагностических timing-счётчиков.
 
-Поля `raw_encoder_count`, `q_ref`, `duty_pct`, детальные временные показатели цикла, счётчики парсера и измерения инженерной калибровки относятся к `DIAGNOSTIC_TELEMETRY` и не должны постоянно передаваться в штатном `Release`-режиме.
+Поля `raw_encoder_count`, `q_ref`, `duty_permille`, детальные временные показатели цикла, счётчики парсера и измерения инженерной калибровки относятся к `DIAGNOSTIC_TELEMETRY` и не должны постоянно передаваться в штатном `Release`-режиме.
 
 <a id="sec-11-2"></a>
 ## 11.2. Семантика состояний и ошибок

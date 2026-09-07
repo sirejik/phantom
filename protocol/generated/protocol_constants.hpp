@@ -3,7 +3,7 @@
 #include <cstddef>
 #include <cstdint>
 namespace phantom { namespace wire {
-constexpr const char* kProtocolSchemaSha256 = "48d85291e972cb6a954c7a8549349ba28c39f8f5b411d8e2a056f64bfb3317e3";
+constexpr const char* kProtocolSchemaSha256 = "960d64e335cd891ca16186c997a813e0121b44c0518bd75f255906d0f8c50818";
 constexpr std::size_t kHeaderBytes=64, kHmacBytes=32, kMaxDatagramBytes=1024;
 enum class MessageType : std::uint16_t {
   HELLO = 0x0001,
@@ -144,6 +144,13 @@ constexpr std::uint32_t kLoopHealthFlagsSeriousOverrunOver40Ms = (std::uint32_t(
 constexpr std::uint32_t kLoopHealthFlagsSafeHoldOverrunSeen = (std::uint32_t(1) << 2);
 constexpr std::uint32_t kLoopHealthFlagsLoggerBackpressureSeen = (std::uint32_t(1) << 3);
 constexpr std::uint32_t kLoopHealthFlagsNetworkBackpressureSeen = (std::uint32_t(1) << 4);
+constexpr std::uint32_t kGripperCapabilitiesGripperPresent = (std::uint32_t(1) << 0);
+constexpr std::uint32_t kGripperCapabilitiesGripperReferenceCapable = (std::uint32_t(1) << 1);
+constexpr std::uint32_t kCommandMotionFlagsMask = 0x0000000Fu;
+constexpr std::uint32_t kReferenceFlagsMask = 0x00000003u;
+constexpr std::uint32_t kTelemetryStatusFlagsMask = 0x000003FFu;
+constexpr std::uint32_t kLoopHealthFlagsMask = 0x0000001Fu;
+constexpr std::uint32_t kGripperCapabilitiesMask = 0x00000003u;
 constexpr std::size_t kHelloPayloadBytes = 56;
 constexpr std::size_t kHelloAckPayloadBytes = 364;
 constexpr std::size_t kCalibrationQueryPayloadBytes = 8;

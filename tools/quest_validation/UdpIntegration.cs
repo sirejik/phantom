@@ -9,10 +9,10 @@ internal static class UdpIntegration
     static byte[] Hex(string value){var bytes=new byte[value.Length/2];for(var i=0;i<bytes.Length;i++)bytes[i]=Convert.ToByte(value.Substring(i*2,2),16);return bytes;}
     public static int Main(string[] args)
     {
-        if(args.Length<3)throw new ArgumentException("boot id, port and bundle hash required");var scenario=args.Length>3?args[3]:"normal";var key=Enumerable.Range(0,32).Select(x=>(byte)x).ToArray();var discovery=new FakeDiscoveryBackend();var transport=new UdpRobotTransport();var recorder=new BoundedNetworkFlightRecorder();
+        if(args.Length<3)throw new ArgumentException("boot id, port and bundle hash required");var scenario=args.Length>3?args[3]:"normal";var buildId=args.Length>4?args[4]:"257fb3d9c32bbdac0b267b4b1ed15952f134cbd3f56a6cb68f7708ef8757c590";var key=Enumerable.Range(0,32).Select(x=>(byte)x).ToArray();var discovery=new FakeDiscoveryBackend();var transport=new UdpRobotTransport();var recorder=new BoundedNetworkFlightRecorder();
         using(var client=new Stage3NetworkClient(discovery,transport,new EphemeralControlCredentialStore("control",key),new NetworkClientOptions{RobotId="phantom01",ServiceType="_phantom-ev3._udp",ControlKeyId="control",ExpectedBundleHash=Hex(args[2]),ExpectedBuildProfile=1,TelemetryMaxAgeMs=150,HelloRetryMs=100,HelloMaxAttempts=10,PingIntervalMs=100,PingTimeoutMs=300,MaxMissedPongs=3,ReconnectDelayMs=100},null,recorder))
         {
-            client.Start();discovery.Add(new DiscoveredRobot{ServiceKey="udp-simulator",InstanceName="PHANTOM-phantom01",ServiceType="_phantom-ev3._udp",RobotId="phantom01",ProtocolMajor=1,ControllerBootId=Hex(args[0]),BuildId="257fb3d9c32bbdac0b267b4b1ed15952f134cbd3f56a6cb68f7708ef8757c590",Endpoint=new IPEndPoint(IPAddress.Loopback,int.Parse(args[1]))});
+            client.Start();discovery.Add(new DiscoveredRobot{ServiceKey="udp-simulator",InstanceName="PHANTOM-phantom01",ServiceType="_phantom-ev3._udp",RobotId="phantom01",ProtocolMajor=1,ControllerBootId=Hex(args[0]),BuildId=buildId,Endpoint=new IPEndPoint(IPAddress.Loopback,int.Parse(args[1]))});
             var rejection=scenario=="wrong_bundle_hash"?"configuration_mismatch":scenario=="busy"?"handshake_rejected":scenario=="wrong_robot"||scenario=="wrong_protocol"||scenario=="wrong_schema_hash"?"protocol_mismatch":null;
             var deadline=DateTime.UtcNow.AddSeconds(4);
             if(rejection!=null)

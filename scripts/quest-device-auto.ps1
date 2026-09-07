@@ -6,8 +6,8 @@ param(
 )
 $ErrorActionPreference="Stop"
 $startedAt=(Get-Date).ToUniversalTime().ToString('o')
-$adb="C:\Program Files\Unity\Hub\Editor\6000.3.22f1\Editor\Data\PlaybackEngines\AndroidPlayer\SDK\platform-tools\adb.exe"
-if(!(Test-Path -LiteralPath $adb)){throw "Bundled adb not found: $adb"}
+. "$PSScriptRoot/../tools/toolchain.ps1"
+$adb=Get-PhantomAdb
 $apkPath=[System.IO.Path]::GetFullPath($Apk)
 $manifestPath=$apkPath+".build-manifest.json"
 if(!(Test-Path -LiteralPath $apkPath) -or !(Test-Path -LiteralPath $manifestPath)){throw "APK or build manifest is missing: $apkPath"}

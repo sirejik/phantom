@@ -33,6 +33,8 @@ public:
   Ev3SysfsBackend(std::string motor_class="/sys/class/tacho-motor",std::string sensor_class="/sys/class/lego-sensor",bool brake_during_initialize=true,std::uint8_t actuator_scope_mask=0x0f,bool require_local_stop=true,bool require_gripper_home=true);
   ~Ev3SysfsBackend() override; bool initialize(std::string& error) override; IoSnapshot read() noexcept override;
   bool set_duty(std::size_t axis,std::int16_t duty_permille) noexcept override; void brake_all() noexcept override;
+  // Exposed for regression tests: the platform quantisation must stay explicit.
+  static std::int16_t permille_to_percent(std::int16_t duty_permille) noexcept;
 private:
   struct Impl; Impl* impl_; std::string motor_class_,sensor_class_;bool brake_during_initialize_;std::uint8_t actuator_scope_mask_;bool require_local_stop_,require_gripper_home_;
 };

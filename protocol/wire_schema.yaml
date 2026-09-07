@@ -29,7 +29,8 @@
     "command_motion_flags": {"MOTION_ENABLE": 0, "HOLD_REQUEST": 1, "TRACKING_VALID": 2, "GRASP_VALID": 3},
     "reference_flags": {"JOINT_REFERENCE_VALID": 0, "GRIPPER_REFERENCE_VALID": 1},
     "telemetry_status_flags": {"JOINT_REFERENCE_VALID": 0, "GRIPPER_REFERENCE_VALID": 1, "COMMISSIONING_BUNDLE_VALID": 2, "LOCAL_STOP_ACTIVE": 3, "SAFETY_SUPERVISOR_ALIVE": 4, "GRASP_CONTACT": 5, "BATTERY_DERATED": 6, "PAYLOAD_PROFILE_VALID": 7, "ACTIVE_JOINT_SAFE_SET_VALID": 8, "COMMISSIONING_ACTUATOR_QUALIFICATION_ACTIVE": 9},
-    "loop_health_flags": {"JITTER_OVER_25MS": 0, "SERIOUS_OVERRUN_OVER_40MS": 1, "SAFE_HOLD_OVERRUN_SEEN": 2, "LOGGER_BACKPRESSURE_SEEN": 3, "NETWORK_BACKPRESSURE_SEEN": 4}
+    "loop_health_flags": {"JITTER_OVER_25MS": 0, "SERIOUS_OVERRUN_OVER_40MS": 1, "SAFE_HOLD_OVERRUN_SEEN": 2, "LOGGER_BACKPRESSURE_SEEN": 3, "NETWORK_BACKPRESSURE_SEEN": 4},
+    "gripper_capabilities": {"GRIPPER_PRESENT": 0, "GRIPPER_REFERENCE_CAPABLE": 1}
   },
   "messages": [
     {"name":"HELLO","type":1,"length":56,"fields":[["robot_id","id32"],["protocol_minor","u16"],["key_slot","u8"],["session_role","u8"],["client_nonce","u8",16],["capabilities_requested","u32"]]},

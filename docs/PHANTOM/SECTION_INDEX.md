@@ -108,6 +108,8 @@
 | `§5.17.8` | [`QUEST_SPECIFICATION.md`](QUEST_SPECIFICATION.md#sec-5-17-8) | 5.17.8. Виброотклик левого контроллера |
 | `§5.18` | [`QUEST_SPECIFICATION.md`](QUEST_SPECIFICATION.md#sec-5-18) | 5.18. Ошибки Quest и восстановление |
 | `§5.19` | [`QUEST_SPECIFICATION.md`](QUEST_SPECIFICATION.md#sec-5-19) | 5.19. Конфигурация Quest |
+| `§5.19.1` | [`QUEST_SPECIFICATION.md`](QUEST_SPECIFICATION.md#sec-5-19-1) | 5.19.1. Смысл текущих полей |
+| `§5.19.2` | [`QUEST_SPECIFICATION.md`](QUEST_SPECIFICATION.md#sec-5-19-2) | 5.19.2. Поля будущих этапов |
 | `§6` | [`MECHANICAL_SPECIFICATION.md`](MECHANICAL_SPECIFICATION.md#sec-6) | 6. Конструкция манипулятора |
 | `§6.1` | [`MECHANICAL_SPECIFICATION.md`](MECHANICAL_SPECIFICATION.md#sec-6-1) | 6.1. Кинематическая схема |
 | `§6.2` | [`MECHANICAL_SPECIFICATION.md`](MECHANICAL_SPECIFICATION.md#sec-6-2) | 6.2. Геометрические требования |
@@ -200,11 +202,14 @@
 | `§7.20.6` | [`EV3_SPECIFICATION.md`](EV3_SPECIFICATION.md#sec-7-20-6) | 7.20.6. Diagnostic |
 | `§7.20.7` | [`EV3_SPECIFICATION.md`](EV3_SPECIFICATION.md#sec-7-20-7) | 7.20.7. Реализация очередей и файлов |
 | `§7.21` | [`EV3_SPECIFICATION.md`](EV3_SPECIFICATION.md#sec-7-21) | 7.21. Конфигурация EV3 |
+| `§7.21.1` | [`EV3_SPECIFICATION.md`](EV3_SPECIFICATION.md#sec-7-21-1) | 7.21.1. Поля, которые обязан загружать runtime |
+| `§7.21.2` | [`EV3_SPECIFICATION.md`](EV3_SPECIFICATION.md#sec-7-21-2) | 7.21.2. Поля будущих этапов |
 | `§7.22` | [`EV3_SPECIFICATION.md`](EV3_SPECIFICATION.md#sec-7-22) | 7.22. Обнаружение EV3 и установление соединения |
 | `§7.23` | [`EV3_SPECIFICATION.md`](EV3_SPECIFICATION.md#sec-7-23) | 7.23. Ограничение частоты пакетов и защита парсера |
 | `§7.24` | [`EV3_SPECIFICATION.md`](EV3_SPECIFICATION.md#sec-7-24) | 7.24. Сетевые, моторные и процессные сценарии отказа |
 | `§8` | [`ENGINEERING.md`](ENGINEERING.md#sec-8) | 8. Разработка, сборка и развёртывание |
 | `§8.1` | [`ENGINEERING.md`](ENGINEERING.md#sec-8-1) | 8.1. Структура репозитория |
+| `§8.1.1` | [`ENGINEERING.md`](ENGINEERING.md#sec-8-1-1) | 8.1.1. Среда разработчика |
 | `§8.2` | [`ENGINEERING.md`](ENGINEERING.md#sec-8-2) | 8.2. Общие правила исходного кода |
 | `§8.3` | [`ENGINEERING.md`](ENGINEERING.md#sec-8-3) | 8.3. Симулятор EV3 |
 | `§8.4` | [`ENGINEERING.md`](ENGINEERING.md#sec-8-4) | 8.4. Повторное воспроизведение отслеживания |
@@ -217,6 +222,7 @@
 | `§8.9` | [`ENGINEERING.md`](ENGINEERING.md#sec-8-9) | 8.9. Совместимость конфигурации |
 | `§8.10` | [`ENGINEERING.md`](ENGINEERING.md#sec-8-10) | 8.10. Откат программного обеспечения |
 | `§8.11` | [`ENGINEERING.md`](ENGINEERING.md#sec-8-11) | 8.11. Первичное сопряжение Quest и EV3 |
+| `§8.11.1` | [`ENGINEERING.md`](ENGINEERING.md#sec-8-11-1) | 8.11.1. Реализованный путь provisioning CONTROL PSK на Quest |
 | `§8.12` | [`ENGINEERING.md`](ENGINEERING.md#sec-8-12) | 8.12. Сетевая изоляция |
 | `§8.13` | [`ENGINEERING.md`](ENGINEERING.md#sec-8-13) | 8.13. Хранение логов и инцидентов |
 | `§8.13.1` | [`ENGINEERING.md`](ENGINEERING.md#sec-8-13-1) | 8.13.1. Release |

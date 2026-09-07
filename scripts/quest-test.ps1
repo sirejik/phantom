@@ -3,7 +3,8 @@ param(
     [string]$Filter="Phantom.Tests"
 )
 $ErrorActionPreference="Stop"
-$unity="C:\Program Files\Unity\Hub\Editor\6000.3.22f1\Editor\Unity.exe"
+. "$PSScriptRoot/../tools/toolchain.ps1"
+$unity=Get-PhantomUnityExe
 $arguments=@(
     "-batchmode","-nographics",
     "-projectPath",[System.IO.Path]::GetFullPath("PhantomQuest"),

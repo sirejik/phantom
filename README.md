@@ -5,11 +5,26 @@ contains the Stage 1/2 software foundation: generated protocol/config
 contracts, Quest observation runtime and pure logic, fail-closed EV3 runtime,
 PC simulator, tracking replay and build/test/deployment gates.
 
+Host tooling is declared in `toolchains/host-tools.json` and resolved by
+`tools/toolchain.ps1`. Override any of it without editing scripts:
+`PHANTOM_UNITY_ROOT`, `PHANTOM_ADB`, `PHANTOM_WSL_DISTRO`, `PHANTOM_GIT_BASH`.
+The Unity version itself is pinned by `PhantomQuest/ProjectSettings/ProjectVersion.txt`.
+See `docs/PHANTOM/ENGINEERING.md` §8.1.1.
+
 Quick checks on Windows:
 
 ```powershell
+python tools/specgen.py --check
+python tools/docindex.py --check
+python tools/doclint.py
 python tools/protocolgen.py --check
 python tools/configgen.py --check
+python tools/implementation_map_check.py
+python tools/skills_sync.py --check
+python tools/test_jcs.py
+python tools/test_ipc_contract.py
+python tools/test_configgen.py
+python tools/security_scan.py
 powershell -File tools/quest_validation/compile_and_smoke.ps1
 powershell -File tools/quest_validation/run_udp_integration.ps1
 powershell -File scripts/quest-test.ps1
@@ -20,6 +35,13 @@ powershell -File scripts/ev3-armel-docker.ps1
 powershell -File scripts/pre-install-auto.ps1
 powershell -File scripts/quest-device-auto.ps1
 powershell -File scripts/ev3-package.ps1
+```
+
+Before a Quest can open an authenticated CONTROL session it needs its control PSK
+provisioned out of band (`docs/PHANTOM/ENGINEERING.md` §8.11.1):
+
+```powershell
+powershell -File scripts/quest-provision-credential.ps1 -KeyFile <path outside the repository>
 ```
 
 The armel build uses the pinned

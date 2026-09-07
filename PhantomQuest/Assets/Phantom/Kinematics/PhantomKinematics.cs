@@ -27,13 +27,21 @@ namespace Phantom.Kinematics
     public sealed class PhantomInverseKinematics
     {
         readonly int _elbowBranch;
-        readonly double _nearAxis;
+        readonly double _yawSingularityHoldRadiusM;
 
-        public PhantomInverseKinematics(int elbowBranch = 1, double nearAxis = 0.05)
+        /// <param name="yawSingularityHoldRadiusM">
+        /// RobotGeometry.yaw_singularity_hold_radius_m. It is a commissioned
+        /// measurement, so there is deliberately no default: inside this radius the
+        /// Base yaw is not conditioned and the target must be rejected rather than
+        /// resolved from an arbitrary or historical yaw (SAFETY S27).
+        /// </param>
+        public PhantomInverseKinematics(double yawSingularityHoldRadiusM, int elbowBranch = 1)
         {
             if (elbowBranch != -1 && elbowBranch != 1) throw new ArgumentOutOfRangeException(nameof(elbowBranch));
+            if (double.IsNaN(yawSingularityHoldRadiusM) || double.IsInfinity(yawSingularityHoldRadiusM) || yawSingularityHoldRadiusM <= 0)
+                throw new ArgumentOutOfRangeException(nameof(yawSingularityHoldRadiusM));
             _elbowBranch = elbowBranch;
-            _nearAxis = nearAxis;
+            _yawSingularityHoldRadiusM = yawSingularityHoldRadiusM;
         }
 
         public IkResult Solve(Vec3 target, double l1, double l2, bool allowBoundaryProjection = false)
@@ -41,7 +49,7 @@ namespace Phantom.Kinematics
             if (!target.IsFinite || !Vec3.IsFiniteNumber(l1) || !Vec3.IsFiniteNumber(l2) || l1 <= 0 || l2 <= 0)
                 return new IkResult { Status = IkStatus.Invalid };
             var r = Math.Sqrt(target.X * target.X + target.Y * target.Y);
-            if (r < _nearAxis) return new IkResult { Status = IkStatus.NearAxis, SolvedTarget = target };
+            if (r < _yawSingularityHoldRadiusM) return new IkResult { Status = IkStatus.NearAxis, SolvedTarget = target };
             var d = (r * r + target.Z * target.Z - l1 * l1 - l2 * l2) / (2 * l1 * l2);
             var status = IkStatus.Success;
             const double numericTolerance = 1e-12;

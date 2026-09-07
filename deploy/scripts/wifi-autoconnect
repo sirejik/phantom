@@ -16,18 +16,29 @@ wifi_ready()
     return 1
 }
 
+# The whole loop must finish inside phantom-wifi-autoconnect.service's
+# TimeoutStartSec (90 s) with margin, otherwise systemd kills the unit mid-retry
+# and install-release rolls the release back for a transient Wi-Fi delay. Worst
+# case here: 4 x (5 s scan + 12 s connect + 3 s sleep) = 80 s.
+ATTEMPTS=${PHANTOM_WIFI_ATTEMPTS:-4}
+SCAN_TIMEOUT=${PHANTOM_WIFI_SCAN_TIMEOUT:-5}
+CONNECT_TIMEOUT=${PHANTOM_WIFI_CONNECT_TIMEOUT:-12}
+RETRY_SLEEP=${PHANTOM_WIFI_RETRY_SLEEP:-3}
+
 attempt=1
 if ! wifi_ready; then
     echo '{"event":"WIFI_LOST","source":"boot_autoconnect"}'
 fi
-while [ "$attempt" -le 12 ]; do
+while [ "$attempt" -le "$ATTEMPTS" ]; do
     if wifi_ready; then
         echo '{"event":"WIFI_AVAILABLE","source":"boot_autoconnect"}'
         exit 0
     fi
 
     connmanctl enable wifi >/dev/null 2>&1 || true
-    connmanctl scan wifi >/dev/null 2>&1 || true
+    # `connmanctl scan` can block indefinitely if connmand is wedged, so it is
+    # bounded like every other step rather than relying on the unit timeout.
+    timeout "$SCAN_TIMEOUT" connmanctl scan wifi >/dev/null 2>&1 || true
 
     for settings in /var/lib/connman/wifi_*/settings; do
         [ -f "$settings" ] || continue
@@ -35,7 +46,7 @@ while [ "$attempt" -le 12 ]; do
         grep -qx 'AutoConnect=true' "$settings" || continue
         service=${settings%/settings}
         service=${service##*/}
-        timeout 25 connmanctl connect "$service" >/dev/null 2>&1 || true
+        timeout "$CONNECT_TIMEOUT" connmanctl connect "$service" >/dev/null 2>&1 || true
         if wifi_ready; then
             echo '{"event":"WIFI_RECOVERED","source":"boot_autoconnect"}'
             exit 0
@@ -43,7 +54,7 @@ while [ "$attempt" -le 12 ]; do
     done
 
     attempt=$((attempt + 1))
-    sleep 5
+    if [ "$attempt" -le "$ATTEMPTS" ]; then sleep "$RETRY_SLEEP"; fi
 done
 
 echo '{"event":"WIFI_RECOVERY_FAILED","source":"boot_autoconnect"}' >&2

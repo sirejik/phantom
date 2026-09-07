@@ -18,6 +18,8 @@
 | физическая конструкция | `MECHANICAL_SPECIFICATION.md` |
 | семантика протокола | `PROTOCOL_SPECIFICATION.md` |
 | точный wire layout | `protocol/wire_schema.yaml` + generated `protocol/protocol.md` |
+| контракт EV3-local IPC | `protocol/ipc_schema.yaml` + generated `protocol/protocol.md` |
+| что реализовано, а что относится к будущему этапу | `implementation-map.json` |
 | сквозная безопасность | `SAFETY.md` |
 | build / CI / deploy / release | `ENGINEERING.md` |
 | tests / evidence / acceptance | `TEST_PLAN.md` |

@@ -99,7 +99,7 @@ flowchart LR
 
 Граница `phantom-network ↔ phantom-controller` является отдельным safety boundary. Обмен идёт только через nonblocking `AF_UNIX/SOCK_DGRAM` endpoints в заранее созданных `tmpfiles.d` runtime-каталогах. Процесс-владелец создаёт socket endpoint до объявления readiness, устанавливает group `phantom-ipc` и mode `0660`, а peer не продолжает handshake до успешного обмена; заранее созданный обычный файл на месте Unix socket запрещён. `phantom-controller` проверяет Linux peer credentials (`SO_PASSCRED`/`SCM_CREDENTIALS` либо эквивалентный connected-peer credential check, квалифицированный на pinned kernel). `phantom-controller` запускается как `phantom-ctrl`, `phantom-network` — как `phantom-net`; оба могут входить в `phantom-ipc`, но только `phantom-ctrl` входит в motor-I/O group. `phantom-net` не входит в motor-I/O group и не должен иметь DAC-доступ на запись к motor sysfs/lease. Все IPC structures имеют фиксированный `ipc_version`, exact fixed/bounded length и canonical zero reserved bytes; динамически растущие IPC payload/очереди запрещены. Queue/socket overflow, malformed IPC, peer restart или потеря event не блокируют 50-Hz loop и трактуются fail-safe.
 
-Для Stage-3 network-only slice общий `ControllerRequestV1` имеет exact length `120` bytes и little-endian scalar fields: `magic="PHIP":u8[4]`, `ipc_version:u16=1`, `request_type:u16` (`SESSION_OPEN=1`, `COMMAND_SNAPSHOT=3`, `SESSION_INVALIDATE=4`), `reserved0:u32=0`, `controller_boot_id:u8[16]`, `session_generation:u64`, `session_id:u8[16]`, `role:u8`, `key_slot:u8`, `remote_family:u8=4`, `reserved1:u8=0`, `remote_ipv4_network_order:u8[4]`, `remote_port_network_order:u8[2]`, `reserved2:u16=0`, `client_nonce:u8[16]`, `wire_sequence:u64`, `rx_monotonic_us:u64`, `command_payload:u8[24]`. Для `SESSION_OPEN` `wire_sequence=0`, `command_payload=0`; для `COMMAND_SNAPSHOT` `client_nonce=0`, а последние 24 bytes являются exact decoded `COMMAND` payload и повторно валидируются controller-ом; для `SESSION_INVALIDATE` nonce/sequence/command payload равны zero. `ControllerReplyV1` имеет exact length `64` bytes: те же magic/version, `reply_type=2`, canonical reserved, boot/generation/session, `request_wire_sequence:u64`, `result_code:u16`, `reserved_tail:u16=0`. Controller обрабатывает не более 16 queued IPC datagrams за один 50-Hz tick, принимает только ожидаемый `phantom-net` uid из `SCM_CREDENTIALS` и freshness `rx_monotonic_us<=500 ms`; любой timeout/loss/malformed/stale reply означает отсутствие новой authority/target.
+Для Stage-3 network-only slice общий `ControllerRequestV1` имеет exact length `120` bytes и little-endian scalar fields: `magic="PHIP":u8[4]`, `ipc_version:u16=1`, `request_type:u16` (`SESSION_OPEN=1`, `COMMAND_SNAPSHOT=3`, `SESSION_INVALIDATE=4`), `reserved0:u32=0`, `controller_boot_id:u8[16]`, `session_generation:u64`, `session_id:u8[16]`, `role:u8`, `key_slot:u8`, `remote_family:u8=4`, `reserved1:u8=0`, `remote_ipv4_network_order:u8[4]`, `remote_port_network_order:u8[2]`, `reserved2:u16=0`, `client_nonce:u8[16]`, `wire_sequence:u64`, `rx_monotonic_us:u64`, `command_payload:u8[24]`. Для `SESSION_OPEN` `wire_sequence=0`, `command_payload=0`; для `COMMAND_SNAPSHOT` `client_nonce=0`, а последние 24 bytes являются exact decoded `COMMAND` payload и повторно валидируются controller-ом; для `SESSION_INVALIDATE` nonce/sequence/command payload равны zero. `ControllerReplyV1` имеет exact length `64` bytes: те же magic/version, `reply_type=2`, canonical reserved, boot/generation/session, `request_wire_sequence:u64`, `result_code:u16`, `reserved_tail:u16=0`. Controller обрабатывает не более 16 queued IPC datagrams за один 50-Hz tick, принимает только ожидаемый `phantom-net` uid из `SCM_CREDENTIALS` и freshness `rx_monotonic_us<=500 ms`; любой timeout/loss/malformed/stale reply означает отсутствие новой authority/target. Canonical-zero контекстные поля проверяются для каждого типа: `SESSION_OPEN` требует `wire_sequence=0` и нулевой `command_payload`, `COMMAND_SNAPSHOT` — нулевой `client_nonce`, `SESSION_INVALIDATE` — нулевые nonce/sequence/payload, а `remote_family=4` и все reserved bytes нулевые всегда. Открытая session дополнительно истекает по собственному watchdog после `session_stale_ms`, поэтому потерянный `SESSION_INVALIDATE` не может оставить controller с вечно активной session. Одновременно существует не более одной CONTROL session: другой peer получает `ERR_CONTROL_SESSION_BUSY`, пока прежний владелец жив, и может занять её место только после того, как его процесс фактически исчез.
 
 **Установление session.** После криптографически валидного `HELLO` network worker может только предложить CSPRNG `session_id` через bounded `SessionOpenRequestV1{ipc_version,controller_boot_id,session_generation_candidate,session_id,role,key_slot,client_nonce,remote_endpoint,wire_sequence,rx_monotonic_us}`. `phantom-controller` независимо проверяет текущий state, отсутствие несовместимого свежего owner, active bundle/scope, build/profile compatibility, role и применимые recovery predicates. Runtime `active_payload_profile_id` при startup может быть `UNSELECTED` и **не является prerequisite открытия CONTROL session**: эта session нужна для последующих `SET_PAYLOAD_PROFILE/SET_PAYLOAD_STATE`; actuator authority всё равно остаётся заблокированной их отдельными gates. Для role=`COMMISSIONING` только controller проверяет и атомарно consume-ит текущий `LOCAL_COMMISSION_ARM`; network process не может синтезировать этот факт. Только после `SESSION_OPEN_ACCEPT` session generation/id становятся authoritative, и network отправляет успешный `HELLO_ACK(result_code=OK, session_id!=0)`. После `SESSION_OPEN_REJECT` wire-session/owner side effect не создаётся, но если исходный `HELLO` уже прошёл HMAC и selector validation, network **может и должен** вернуть authenticated rejected `HELLO_ACK(session_id=0,result_code=<error>)` по §4.7.3 и current wire schema/generated contract (§11.8); bad HMAC/unknown slot остаются silent drop. Restart любого peer инвалидирует pending/open handshake; старая `session_generation` никогда не наследуется новым `phantom-network`.
 
@@ -111,7 +111,14 @@ Controller отвечает `ControllerProtocolReplyV1{ipc_version,controller_bo
 
 `SESSION_INVALIDATE` event немедленно сбрасывает controller-side latest target/re-arm/session authority. Даже если invalidate IPC потерян, controller command-freshness/session watchdog обязан прекратить motion; новый network peer не может продолжить старую generation. `CALIBRATION_QUERY`/atomic encoder snapshot и иные read operations, состояние которых принадлежит controller, также проходят этот IPC, а не читают motor sysfs из network process.
 
-Обратный `ControllerTelemetrySnapshotV1` передаёт network worker только bounded snapshot состояния controller/battery/reference/gripper/incident; network worker сериализует wire `TELEMETRY` вне 50-Hz loop. Потеря обратного IPC может сделать telemetry stale, но не изменяет actuator state. IPC schema/version, peer-credential/permission, session-open authorization, stale-generation, queue-overflow и restart tests входят в PRE-INSTALL/DEVICE/HIL regression.
+Обратный `ControllerTelemetrySnapshotV1` передаёт network worker только bounded snapshot состояния controller/battery/reference/gripper/incident; network worker сериализует wire `TELEMETRY` вне 50-Hz loop. Snapshot запрашивается отдельным `TELEMETRY_QUERY` по тому же boundary и с теми же credential/freshness проверками. **Отсутствие свежего snapshot запрещает отправку telemetry и запрещает отвечать на `HELLO`**: worker никогда не подставляет собственное представление о состоянии, поэтому неподтверждаемый controller выглядит на Quest как `TelemetryStale`, а не как исправный робот. Battery, `local_stop_active` и `safety_supervisor_alive` приходят только из snapshot; чтение motor/power sysfs из network process запрещено. Потеря обратного IPC может сделать telemetry stale, но не изменяет actuator state.
+
+Точная структура всех IPC-сообщений принадлежит `protocol/ipc_schema.yaml`; из неё
+генерируются `protocol/generated/ipc_constants.hpp`, `protocol/generated/ipc_layout.py` и
+общие `protocol/golden_vectors/ipc_v1.json`, которыми обе реализации доказывают одинаковое
+понимание offsets/размеров. Рукописные копии layout запрещены. IPC schema/version,
+peer-credential/permission, session-open authorization, stale-generation, session watchdog,
+queue-overflow и restart tests входят в PRE-INSTALL/DEVICE/HIL regression.
 
 <a id="sec-7-2-3"></a>
 ### 7.2.3. `phantom-mdns`
@@ -244,7 +251,7 @@ axis
 sign
 max_encoder_delta
 max_duration_ms
-max_duty_pct
+max_duty_permille
 max_speed_counts_s
 expected_geometry_revision
 ```
@@ -590,24 +597,24 @@ Production config использует измеренные `user_max_vel/user_m
 
 ```text
 e = q_ref - q_actual
-u_pd_pct = Kp_duty_pct_per_rad * e
-           + Kd_duty_pct_per_rad_s * (qdot_ref - qdot_filtered)
+u_pd_permille = Kp_duty_permille_per_rad * e
+           + Kd_duty_permille_per_rad_s * (qdot_ref - qdot_filtered)
 
-u_model_pct = FeedForwardMap(axis, tau_model_Nm, battery_mv, PayloadProfile, PayloadState)
-u_friction_pct = friction_gain_duty_pct
+u_model_permille = FeedForwardMap(axis, tau_model_Nm, battery_mv, PayloadProfile, PayloadState)
+u_friction_permille = friction_gain_duty_permille
                  * tanh(qdot_ref / friction_transition_speed_rad_s)
                  только при запрошенном движении
 
-u_pct = clamp(
-    u_pd_pct + u_model_pct + u_friction_pct,
-    -duty_limit_pct,
-    +duty_limit_pct
+u_permille = clamp(
+    u_pd_permille + u_model_permille + u_friction_permille,
+    -duty_limit_permille,
+    +duty_limit_permille
 )
 ```
 
-`Ki=0` в основной реализации. `Kd` действует по ошибке скорости `qdot_ref-qdot_actual_filtered`; это важно при движущейся `q_ref`, иначе derivative-on-measurement создаёт систематический velocity lag. Для каждой оси config явно хранит `kp_duty_pct_per_rad`, `kd_duty_pct_per_rad_s`, параметры bounded velocity filter, friction parameters и identity/hash feed-forward model. Любая таблица/аппроксимация feed-forward является versioned semantic component/controller-tuning data внутри `CommissioningBundle`; изменение коэффициентов требует повторных применимых HIL-тестов.
+`Ki=0` в основной реализации. `Kd` действует по ошибке скорости `qdot_ref-qdot_actual_filtered`; это важно при движущейся `q_ref`, иначе derivative-on-measurement создаёт систематический velocity lag. Для каждой оси config явно хранит `kp_duty_permille_per_rad`, `kd_duty_permille_per_rad_s`, параметры bounded velocity filter, friction parameters и identity/hash feed-forward model. Любая таблица/аппроксимация feed-forward является versioned semantic component/controller-tuning data внутри `CommissioningBundle`; изменение коэффициентов требует повторных применимых HIL-тестов.
 
-Для неподвижного Shoulder/Elbow `u_model_pct` может оставаться ненулевым, если это требуется для компенсации остаточного момента собственного веса. Base может использовать нулевой gravity term, но всё равно проходит тот же dimensional/config validation.
+Для неподвижного Shoulder/Elbow `u_model_permille` может оставаться ненулевым, если это требуется для компенсации остаточного момента собственного веса. Base может использовать нулевой gravity term, но всё равно проходит тот же dimensional/config validation.
 
 <a id="sec-7-12"></a>
 ## 7.12. Модель гравитации и преобразование момента в duty
@@ -633,7 +640,7 @@ g * [
 
 Значения масс, центров масс и counterbalance относятся к конкретной assembly revision. Консервативные motion limits активного `PayloadProfile` применяются сразу после выбора профиля; дополнительный payload gravity term добавляется в `tau_model_Nm` только при подтверждённом `PayloadState=LOADED`. При `UNKNOWN` масса не угадывается и A/B/C `TRACKING` запрещён. Поля `PayloadProfile.feedforward_params` содержат только физические параметры/поправки torque model (например, квалифицированные масса/CoG/tool term) и **не являются direct duty gains**; преобразование момента в `% duty` принадлежит отдельному versioned `feedforward_models.<axis>` и его hash/domain.
 
-Физический `tau_model_Nm` преобразуется в motor command **только** через HIL-измеренную bounded функцию `FeedForwardMap(axis, tau_model_Nm, battery_mv, ...) -> duty_pct`. Ее domain/range, interpolation/extrapolation policy, saturation, battery bins/normalization и hash фиксируются в config/evidence. Экстраполяция за квалифицированный torque/battery domain запрещена; применяется safe derating/inhibit. Альтернативно допускается напрямую измеренная duty-table по `(q, payload, battery)` без промежуточной torque model, если она имеет те же bounded/versioned свойства и проходит те же HIL. В обоих вариантах сложение `N·m + % duty` запрещено по schema/code review/property test.
+Физический `tau_model_Nm` преобразуется в motor command **только** через HIL-измеренную bounded функцию `FeedForwardMap(axis, tau_model_Nm, battery_mv, ...) -> duty_permille`. Ее domain/range, interpolation/extrapolation policy, saturation, battery bins/normalization и hash фиксируются в config/evidence. Экстраполяция за квалифицированный torque/battery domain запрещена; применяется safe derating/inhibit. Альтернативно допускается напрямую измеренная duty-table по `(q, payload, battery)` без промежуточной torque model, если она имеет те же bounded/versioned свойства и проходит те же HIL. В обоих вариантах сложение `N·m + % duty` запрещено по schema/code review/property test.
 
 <a id="sec-7-13"></a>
 ## 7.13. HOLD, SAFE_HOLD и qualification inhibit
@@ -678,7 +685,7 @@ e_track = q_ref - q_actual
 
 Stall означает, что было запрошено заметное движение, управляющее воздействие `duty` уже значимо, но абсолютный encoder практически не менялся. Защита не должна сама маскировать доказательство stall после того, как начала торможение.
 
-Нормативный предикат A/B/C параметризуется per-axis измеренными `stall_requested_speed_min_deg_s`, `stall_actual_speed_max_deg_s`, `stall_duty_min_pct`, `obstruction_candidate_ms` и `main_joint_stall_ms` из safety config. Фиксированные универсальные 15°/s, 5°/s, 70% и 400 ms не используются как production defaults; значения определяются controlled obstruction/stall HIL и обязаны сохранять достаточный detection margin относительно backlash, nominal load и encoder noise.
+Нормативный предикат A/B/C параметризуется per-axis измеренными `stall_requested_speed_min_deg_s`, `stall_actual_speed_max_deg_s`, `stall_duty_min_permille`, `obstruction_candidate_ms` и `main_joint_stall_ms` из safety config. Фиксированные универсальные 15°/s, 5°/s, 700‰ и 400 ms не используются как production defaults; значения определяются controlled obstruction/stall HIL и обязаны сохранять достаточный detection margin относительно backlash, nominal load и encoder noise.
 
 Защита двухступенчатая:
 
@@ -709,16 +716,16 @@ predicate stable >= obstruction_candidate_ms
 Для каждой оси config задаёт:
 
 ```text
-duty_limit_pct
-hold_duty_limit_pct
-backlash_takeup_duty_limit_pct
+duty_limit_permille
+hold_duty_limit_permille
+backlash_takeup_duty_limit_permille
 max_high_duty_ms
-max_duty_slew_pct_s
+max_duty_slew_permille_s
 ```
 
 Правила:
 
-- регулятор всегда clamp-ится до `duty_limit_pct`;
+- регулятор всегда clamp-ится до `duty_limit_permille`;
 - duty не меняет знак скачком через высокий модуль;
 - reversal проходит через controlled zero crossing;
 - во время выбора backlash действует пониженный duty limit;
@@ -731,7 +738,7 @@ max_duty_slew_pct_s
 EV3 motor не предоставляет PHANTOM достоверную температуру обмоток. Поэтому применяется консервативная **оценка накопленной нагрузки**, а не утверждение о фактической температуре:
 
 ```text
-load = abs(duty_pct) / 100
+load = abs(duty_permille) / 100
 stress = stress * exp(-dt / cool_tau_s)
          + load² * dt
 ```
@@ -765,7 +772,7 @@ Shoulder/Elbow должны быть механически сбалансиро
 Если:
 
 ```text
-|hold_duty| > hold_duty_limit_pct
+|hold_duty| > hold_duty_limit_permille
 for > hold_overload_ms
 ```
 
@@ -849,7 +856,7 @@ gripTarget = grip_intent = humanGrip
 ```text
 closing requested
 requested travel since direction change >= contact_min_travel_ratio * D_open_counts
-duty >= contact_duty_min_pct
+duty >= contact_duty_min_permille
 abs(motor_speed_counts_s) <= contact_speed_max_counts_s
 position_error_counts >= contact_position_error_min_counts
 condition stable >= contact_confirm_ms
@@ -1041,7 +1048,7 @@ build_profile
 raw_encoder_count[4]
 q_target[3]
 q_ref[3]
-duty_pct[4]
+duty_permille[4]
 grip_target
 contact_position
 loop_dt_us
@@ -1053,7 +1060,7 @@ calibration residuals / sample ids
 
 Diagnostic telemetry никогда не должна блокировать цикл управления моторами. Все сообщения имеют sequence и HMAC.
 
-Семантика полей подчиняется двум независимым маскам active `CommissioningBundle`: `raw_encoder_count` и фактические `q_actual/q_speed` считаются измерениями для всех осей из `safety_observation_mask`, даже если соответствующая ось не имеет motor authority; вне `safety_observation_mask` observation-поля имеют canonical zero/`N_A`. `q_target/q_ref/duty_pct` имеют actuator semantics только для осей из `actuator_scope_mask`; для motor-disabled осей target/output не должны интерпретироваться как команда и duty обязан быть zero. В partial A/B/C qualification diagnostic packet поэтому может содержать реальные raw/q фактические значения A/B/C при motor authority только C или B+C. Отсутствие отдельного wire-поля масок не создаёт неоднозначности: обе стороны уже обязаны доказать один `commissioning_bundle_hash`.
+Семантика полей подчиняется двум независимым маскам active `CommissioningBundle`: `raw_encoder_count` и фактические `q_actual/q_speed` считаются измерениями для всех осей из `safety_observation_mask`, даже если соответствующая ось не имеет motor authority; вне `safety_observation_mask` observation-поля имеют canonical zero/`N_A`. `q_target/q_ref/duty_permille` имеют actuator semantics только для осей из `actuator_scope_mask`; для motor-disabled осей target/output не должны интерпретироваться как команда и duty обязан быть zero. В partial A/B/C qualification diagnostic packet поэтому может содержать реальные raw/q фактические значения A/B/C при motor authority только C или B+C. Отсутствие отдельного wire-поля масок не создаёт неоднозначности: обе стороны уже обязаны доказать один `commissioning_bundle_hash`.
 
 <a id="sec-7-20"></a>
 ## 7.20. Логирование, FlightRecorder и профили сборки
@@ -1184,268 +1191,89 @@ Diagnostic может дополнительно постоянно/сеансо
 
 Production state и журналы располагаются соответственно в `/var/lib/phantom` и `/var/log/phantom`; runtime sockets/lease — в `/run/phantom`. Каталог `/home/robot/phantom-bench/results/ev3/raw` принадлежит только инженерному bench harness и не является production log storage. Bench logs имеют отдельную bounded rotation/cleanup policy; перед ручной очисткой нужные evidence-файлы копируются на host, точный canonical target path проверяется, а удаление никогда не затрагивает release/config/state каталоги.
 
-Stage-3 network worker раз в секунду atomically заменяет bounded snapshot `/run/phantom/network-status.json`. Он содержит только public profile/identity, текущий boot id, session-active flag и счётчики `rx`, `rx_drop`, `hmac_fail`, `parser_reject`, `hello_accept`, `hello_reject`, `replay_reject`, `pong`, `telemetry`, `command_scope_zero`, `nonzero_motor_writes`; PSK, HMAC tags, nonce, session id и payload в файл не попадают.
+Stage-3 network worker раз в секунду atomically заменяет bounded snapshot `/run/phantom/network-status.json`. Он содержит только public profile/identity, текущий boot id, session-active flag и счётчики `rx`, `rx_drop`, `hmac_fail`, `parser_reject`, `hello_accept`, `hello_reject`, `replay_reject`, `pong`, `telemetry`, `command_scope_zero`, `motor_write_attempts_rejected`, `controller_snapshot_stale`; PSK, HMAC tags, nonce, session id и payload в файл не попадают.
 
 <a id="sec-7-21"></a>
 ## 7.21. Конфигурация EV3
 
-YAML является authoring-форматом. Нормативная machine-readable schema — `/config/schema/commissioning_bundle.schema.json`; parser/build gate обязан отклонять duplicate mapping keys, unknown fields, неверные units/types и незаполненные `MEASURED`, достигшие своего `required_before`. Last-key-wins/first-key-wins поведение YAML parser как способ разрешить дубликат запрещено. Build/commissioning pipeline валидирует schema и формирует **два логически раздельных артефакта**: canonical semantic JSON и необязательный provenance sidecar. Compatibility `content_hash`/`commissioning_bundle_hash` считается по RFC 8785 JCS UTF-8 bytes именно semantic artifact. Нормативный `qualification_evidence_manifest_hash` является **semantic gate field** и входит в production compatibility identity; при этом человеческие/временные provenance-детали самого evidence (`created_at`, workstation/operator, raw report paths/comments) находятся только в provenance sidecar и не входят в compatibility hash. Runtime ничего не пересериализует ради actuator-совместимости — он хэширует установленные canonical semantic artifact bytes и сравнивает их с ожидаемым hash до real-time режима. Provenance может иметь собственный file hash, но не влияет на `READY`/qualification. Derived `commissioning_bundle_hash`, `bundle_id` и component hashes хранятся в manifest/envelope и не входят в собственные hashed component bytes; поле с собственным hash внутри semantic payload schema запрещено.
+EV3 runtime configuration is carried by **two separate machine-readable artifacts**, and
+this section describes their semantics rather than restating their structure:
 
-```yaml
-schema_version: 1
-robot_id: phantom01
-build_profile: Release
-qualification_only: false       # production only after PASS QualificationEvidenceManifest
-qualification_evidence_manifest_hash: SHA256_OR_ZERO_FOR_QUALIFICATION_ONLY
-actuator_scope_mask: 0x0F       # motor-write authority: A=1, B=2, C=4, D=8; Release 0x0F
-safety_observation_mask: 0x0F  # encoder/reference observations required for safety; never grants motor authority
-# commissioning_bundle_hash является derived envelope identity и НЕ входит в bytes, которые он хэширует
-protocol_schema_hash: SHA256
-specification_sha256: SHA256
+| артефакт | canonical schema | canonical source | что в нём живёт |
+|---|---|---|---|
+| EV3 runtime config | `config/schema/ev3.schema.json` | `config/source/ev3.json`, `config/source/ev3-network-only.json` | identity, scope masks, port assignment, network/session bounds, safety timings, logging retention |
+| `CommissioningBundle` | `config/schema/commissioning_bundle.schema.json` | `config/source/commissioning_bundle.json`, `config/source/commissioning_bundle-network-only.json` | `RobotGeometry`, `DriveCalibration`, collision model, `JointSafeSet`, payload profiles, `SafetyEnvelope` |
 
-drive_calibration:
-  revision: 1
-  hash: SHA256
-  base:
-    encoder_scale_rad_per_count: MEASURED
-    backlash_half_angle_rad: MEASURED
-    calibrated_encoder_min: MEASURED
-    calibrated_encoder_max: MEASURED
-  shoulder:
-    encoder_scale_rad_per_count: MEASURED
-    backlash_half_angle_rad: MEASURED
-    calibrated_encoder_min: MEASURED
-    calibrated_encoder_max: MEASURED
-  elbow:
-    encoder_scale_rad_per_count: MEASURED
-    backlash_half_angle_rad: MEASURED
-    calibrated_encoder_min: MEASURED
-    calibrated_encoder_max: MEASURED
-  gripper:
-    closed_endpoint_method: GRIPPER_HOME
-    opening_curve:
-      - [delta_encoder_0, opening_mm_0]
-      - [delta_encoder_1, opening_mm_1]
-      - [...]
-    closing_curve:
-      - [delta_encoder_0, opening_mm_0]
-      - [delta_encoder_1, opening_mm_1]
-      - [...]
-    opening_open_mm: MEASURED_AT_SAFE_OPEN_LIMIT
-    opening_closed_mm: MEASURED_AT_CLOSED_ENDPOINT
-    curve_domain_counts: MEASURED_0_TO_D_OPEN_COUNTS  # endpoint MUST equal authoritative SafetyEnvelope D_open_counts
-    backlash_encoder_counts: MEASURED
+The schema is the single owner of **structure**: field names, nesting, types, ranges and
+which fields are required. This prose owns **meaning** and cross-field safety rules. Where the
+two ever disagree the schema wins and the prose is a defect, because the schema is what the
+generator, the runtime loader and the tests all read.
 
-axes:
-  base:
-    motor_port: outA
-    motor_type: ev3-large
-    min_deg: MEASURED_WITH_MARGIN
-    max_deg: MEASURED_WITH_MARGIN
-    user_max_vel_deg_s: MEASURED_LE_90
-    user_max_accel_deg_s2: MEASURED_LE_180
-    kp_duty_pct_per_rad: MEASURED
-    kd_duty_pct_per_rad_s: MEASURED
-    velocity_filter_params: MEASURED_BOUNDED
-    friction_gain_duty_pct: MEASURED
-    friction_transition_speed_rad_s: MEASURED
-    feedforward_model_hash: SHA256_OR_ZERO_IF_DISABLED
-    duty_limit_pct: MEASURED
-    hold_duty_limit_pct: MEASURED
-    backlash_takeup_duty_limit_pct: MEASURED
-    max_duty_slew_pct_s: MEASURED
-    max_high_duty_ms: MEASURED
-    tracking_error_limit_deg: MEASURED
-    tracking_error_timeout_ms: MEASURED
-    obstruction_candidate_ms: MEASURED
-    main_joint_stall_ms: MEASURED
-    stall_requested_speed_min_deg_s: MEASURED
-    stall_actual_speed_max_deg_s: MEASURED
-    stall_duty_min_pct: MEASURED
-  shoulder:
-    motor_port: outB
-    motor_type: ev3-large
-    neutral_deg: MEASURED
-    flexion_max_deg: 90
-    user_max_vel_deg_s: MEASURED_LE_60
-    user_max_accel_deg_s2: MEASURED_LE_120
-    kp_duty_pct_per_rad: MEASURED
-    kd_duty_pct_per_rad_s: MEASURED
-    velocity_filter_params: MEASURED_BOUNDED
-    friction_gain_duty_pct: MEASURED
-    friction_transition_speed_rad_s: MEASURED
-    feedforward_model_hash: SHA256
-    duty_limit_pct: MEASURED
-    hold_duty_limit_pct: MEASURED
-    backlash_takeup_duty_limit_pct: MEASURED
-    max_duty_slew_pct_s: MEASURED
-    max_high_duty_ms: MEASURED
-    tracking_error_limit_deg: MEASURED
-    tracking_error_timeout_ms: MEASURED
-    obstruction_candidate_ms: MEASURED
-    main_joint_stall_ms: MEASURED
-    stall_requested_speed_min_deg_s: MEASURED
-    stall_actual_speed_max_deg_s: MEASURED
-    stall_duty_min_pct: MEASURED
-  elbow:
-    motor_port: outC
-    motor_type: ev3-large
-    extended_deg: MEASURED
-    flexion_max_deg: 90
-    user_max_vel_deg_s: MEASURED_LE_90
-    user_max_accel_deg_s2: MEASURED_LE_180
-    kp_duty_pct_per_rad: MEASURED
-    kd_duty_pct_per_rad_s: MEASURED
-    velocity_filter_params: MEASURED_BOUNDED
-    friction_gain_duty_pct: MEASURED
-    friction_transition_speed_rad_s: MEASURED
-    feedforward_model_hash: SHA256
-    duty_limit_pct: MEASURED
-    hold_duty_limit_pct: MEASURED
-    backlash_takeup_duty_limit_pct: MEASURED
-    max_duty_slew_pct_s: MEASURED
-    max_high_duty_ms: MEASURED
-    tracking_error_limit_deg: MEASURED
-    tracking_error_timeout_ms: MEASURED
-    obstruction_candidate_ms: MEASURED
-    main_joint_stall_ms: MEASURED
-    stall_requested_speed_min_deg_s: MEASURED
-    stall_actual_speed_max_deg_s: MEASURED
-    stall_duty_min_pct: MEASURED
+`tools/configgen.py` validates both artifacts and emits the canonical generated JSON plus
+`config/generated/config-manifest.json`. It rejects duplicate mapping keys (никогда не
+last-key-wins), unknown fields, out-of-range values, an actuator scope that is not
+safety-observed, and a `loop_safe_hold_ms` that does not fire strictly before `loop_fault_ms`.
+Compatibility `content_hash`/`commissioning_bundle_hash` считается по RFC 8785 JCS UTF-8 bytes
+именно semantic artifact; `protocol/jcs.py` is the single canonicalizer used by every
+component so Quest and EV3 derive identical bytes. Нормативный
+`qualification_evidence_manifest_hash` является **semantic gate field** и входит в production
+compatibility identity; человеческие/временные provenance-детали самого evidence
+(`created_at`, workstation/operator, raw report paths/comments) находятся только в provenance
+sidecar и не входят в compatibility hash. Runtime ничего не пересериализует ради
+actuator-совместимости — он хэширует установленные canonical semantic artifact bytes и
+сравнивает их с ожидаемым hash до real-time режима. Derived `commissioning_bundle_hash`,
+`bundle_id` и component hashes хранятся в manifest/envelope и не входят в собственные hashed
+component bytes; поле с собственным hash внутри semantic payload schema запрещено (S50).
 
-  gripper:
-    motor_port: outD
-    motor_type: ev3-medium
-    max_speed_counts_s: MEASURED
-    duty_limit_pct: MEASURED
-    contact_duty_limit_pct: MEASURED
-    max_high_duty_ms: MEASURED
-    contact_min_travel_ratio: MEASURED
-    contact_duty_min_pct: MEASURED
-    contact_speed_max_counts_s: MEASURED
-    contact_position_error_min_counts: MEASURED
-    contact_confirm_ms: MEASURED
-    release_intent_hysteresis: MEASURED
+<a id="sec-7-21-1"></a>
+### 7.21.1. Поля, которые обязан загружать runtime
 
-feedforward_models:
-  base:
-    model_type: ZERO_OR_BOUNDED_MAP_V1
-    model_hash: SHA256_OR_ZERO_IF_DISABLED
-    torque_domain_Nm: MEASURED_BOUNDED_OR_ZERO
-    battery_domain_mv: MEASURED_BOUNDED
-    interpolation: LINEAR_BOUNDED
-    extrapolation: FORBID
-    table_or_coefficients_hash: SHA256_OR_ZERO_IF_DISABLED
-  shoulder:
-    model_type: TORQUE_BATTERY_TO_DUTY_V1
-    model_hash: SHA256
-    torque_domain_Nm: MEASURED_BOUNDED
-    battery_domain_mv: MEASURED_BOUNDED
-    interpolation: LINEAR_BOUNDED
-    extrapolation: FORBID
-    table_or_coefficients_hash: SHA256
-  elbow:
-    model_type: TORQUE_BATTERY_TO_DUTY_V1
-    model_hash: SHA256
-    torque_domain_Nm: MEASURED_BOUNDED
-    battery_domain_mv: MEASURED_BOUNDED
-    interpolation: LINEAR_BOUNDED
-    extrapolation: FORBID
-    table_or_coefficients_hash: SHA256
+`phantom-controller` и `phantom-safety` читают эти значения через `load_runtime_profile`
+(`ev3/src/runtime_profile.cpp`) и **не имеют для них компилируемых значений по умолчанию**:
+отсутствующее, нетипизированное или выходящее за диапазон поле — ошибка запуска, а не повод
+взять зашитое значение.
 
-local_stop:
-  sensor_port: in4
+| поле | смысл | fail-closed правило |
+|---|---|---|
+| `network.listen_port_udp` | UDP command port | 1024..65535 |
+| `network.command_timeout_ms` | свежесть принятого `COMMAND`; истечение → `SAFE_HOLD`/`FAULT_TIMEOUT` | 20..2000 |
+| `network.session_stale_ms` | инвалидация CONTROL owner и controller-side IPC session watchdog | 200..300000 |
+| `network.rx_rate_limit_pps`, `network.rx_burst_packets` | HIL-derived token bucket парсера | `MEASURED`; до измерения network-only использует зафиксированный baseline |
+| `network.hello_retry_window_ms` | окно идемпотентного повторного `HELLO` | должно покрывать `hello_retry_ms × hello_max_attempts` Quest |
+| `safety.controller_heartbeat_rate_hz` | минимальная частота heartbeat обоих процессов | ≥ 20 Hz |
+| `safety.controller_heartbeat_timeout_ms` | потеря supervisor → latched `STOPPED` + `FAULT_CONTROLLER_PROCESS` | должен покрывать хотя бы один heartbeat-период |
+| `safety.loop_safe_hold_ms` | первый порог превышения периода: `SAFE_HOLD` без latched fault | строго меньше `loop_fault_ms` |
+| `safety.loop_fault_ms` | второй порог: `SAFE_HOLD` + `FAULT_LOOP_OVERRUN` | строго больше `loop_safe_hold_ms` |
+| `safety.motor_output_default` | безопасное состояние выхода | только `BRAKE_ZERO` |
+| `safety.measured_limits_complete` | часть `READY` admission | `false` пока `MEASURED` не заполнены |
+| `logging.flight_recorder_seconds`, `logging.flight_recorder_rate_hz` | глубина RAM ring buffer (§7.20.2) | произведение задаёт число записей |
+| `logging.release_retention_days`, `logging.release_max_mb` | retention инцидентов и журналов (§8.13) | применяется при старте |
 
-gripper_home:
-  sensor_port: in3
-  debounce_ms: MEASURED
+Commissioning admission (`commissioning_valid`, `external_power_cut_tested`) приходит **только
+из authoritative bundle**, а не из runtime config: `qualification_only` bundle никогда её не
+выдаёт, поэтому `READY` структурно недостижим до установки квалифицированного bundle.
 
-commissioning:
-  require_local_arm: true
-  local_arm_input: EV3_BUTTON_CHORD_ENTER_UP
-  local_arm_hold_ms: 2000
-  local_arm_window_ms: 60000
-  required_session_role: COMMISSIONING
-  commissioning_key_id: phantom01-commissioning
-  initial_jog_max_encoder_delta: MEASURED
-  jog_max_duration_ms: MEASURED
-  jog_max_speed_counts_s: MEASURED
-  jog_max_duty_pct: MEASURED
-  stationary_speed_counts_s: MEASURED
-  stationary_min_ms: MEASURED
-  gripper_calibration_max_duration_ms: MEASURED
-  gripper_calibration_max_speed_counts_s: MEASURED
-  gripper_calibration_max_duty_pct: MEASURED
-  config_commit_ack_grace_ms: MEASURED
+<a id="sec-7-21-2"></a>
+### 7.21.2. Поля будущих этапов
 
-network:
-  discovery_service_type: _phantom-ev3._udp
-  discovery_domain: local.
-  ip_family: IPV4
-  listen_port_udp: 30470
-  command_timeout_ms: 120
-  max_packet_bytes: 1024
-  max_payload_bytes: WIRE_SCHEMA_DERIVED
-  rx_rate_limit_pps: MEASURED
-  rx_burst_packets: MEASURED
-  hello_retry_window_ms: 2000
-  session_stale_ms: 5000
-  max_concurrent_control_sessions: 1
-  state_transaction_policy: ONE_IN_FLIGHT_LAST_ACK
-  transaction_gap_policy: REJECT
-  hold_burst_ms: MEASURED
-  protocol_schema_hash: SHA256
+Следующие параметры уже нормативно требуются соответствующими разделами, но **ещё не
+существуют** в текущей schema и не читаются runtime. Они появятся вместе с этапом, который
+делает их наблюдаемыми, и до этого момента соответствующая функция остаётся
+engineering/disabled:
 
-safety:
-  external_power_cut_required: true
-  power_cut_max_disconnect_ms: MEASURED
-  local_stop_response_limit_ms: MEASURED
-  power_loss_peak_tcp_speed_limit_mps: MEASURED
-  gripper_open_limit_delta_counts: MEASURED_SIGNED_NONZERO   # authoritative SafetyEnvelope; sign=open direction, abs=safe travel from GRIPPER_HOME
-  payload_mass_max_kg: MEASURED
-  payload_cog_offset_max_m: MEASURED
-  tcp_static_moment_max_Nm: MEASURED
-  swept_volume_margin_m: MEASURED
-  pinch_exclusion_margin_m: MEASURED
-  # immutable semantic components, not mutable runtime selections
-  joint_safe_set_format: GRID3D_V1
-  joint_safe_set_max_bytes: MEASURED
-  joint_safe_set_base_step_deg: MEASURED
-  joint_safe_set_shoulder_step_deg: MEASURED
-  joint_safe_set_elbow_step_deg: MEASURED
-  joint_safe_set_cell_inflation_margin_m: MEASURED
-  payload_profiles_hash: SHA256
+- per-axis controller/protection: `kp_duty_permille_per_rad`, `kd_*`, `duty_limit_permille`,
+  `hold_duty_limit_permille`, `max_duty_slew_permille_s`, `tracking_error_limit_deg`,
+  `obstruction_candidate_ms`, `main_joint_stall_ms`, `stall_*` (§7.11, §7.14) — этап 6+;
+- `DriveCalibration` таблицы и gripper curves (§5.16, §7.6) — этап 4+;
+- `SafetyEnvelope` payload/swept-volume/pinch поля и `JointSafeSet` grid параметры
+  (§7.16, §4.7.5) — этап 6+;
+- battery derating и `MotorStressScore` пороги (§7.14.4, §7.14.7) — этап 6+;
+- `post_fault_seconds` для incident tail (§7.20.2) — этап 4+;
+- `state_transaction_policy`, `transaction_gap_policy`, `hold_burst_ms` transaction layer
+  (§4.7.4) — этап 4+.
 
-runtime_defaults:
-  startup_payload_profile_id: UNSELECTED   # reserved runtime sentinel; не является installed PayloadProfile
-  startup_payload_state: UNKNOWN   # runtime-only; startup confirmation EMPTY/LOADED is required before READY
-  # active_joint_safe_set_hash/profile/state живут в runtime state/telemetry и не мутируют CommissioningBundle
-  controller_heartbeat_transport: AF_UNIX_DGRAM
-  controller_heartbeat_rate_hz: 20
-  controller_heartbeat_timeout_ms: MEASURED
-  controller_watchdog_takeover_limit_ms: MEASURED
-  loop_safe_hold_ms: 60
-  loop_fault_ms: 100
-  hold_overload_ms: MEASURED
-  motor_stress_cool_tau_s: MEASURED
-  motor_stress_warn: MEASURED
-  motor_stress_critical: MEASURED
-  motor_stress_restart_floor: MEASURED
-  motor_stress_restart_cooldown_s: MEASURED
-  battery_warn_mv: MEASURED
-  battery_stop_mv: MEASURED
-  battery_stop_debounce_ms: MEASURED
-  battery_fault_ms: MEASURED
-  battery_derate_speed_factor: MEASURED
-  battery_derate_duty_factor: MEASURED
-
-logging:
-  flight_recorder_seconds: 10
-  flight_recorder_rate_hz: 50
-  post_fault_seconds: MEASURED
-  release_retention_days: 7
-  release_max_mb: 250
-```
+Ни одно из них не должно быть добавлено в prose как «уже действующее поле» раньше, чем оно
+появится в schema: именно такое расхождение делает конфигурацию неоднозначной.
 
 Для Stage-3 network-only worker дополнительно фиксированы bounded implementation limits: не более `32` datagrams за один drain, UDP receive buffer request `16384 bytes`, неблокирующий poll не дольше `10 ms`, telemetry `20 Hz`, atomic status snapshot `1 Hz`. Rate limit является общим token bucket процесса, а не отдельным неограниченным bucket для каждого source endpoint. Эти значения входят в regression/DEVICE AUTO baseline; их изменение требует повторных flood и timing tests, но не изменения wire v1.
 
@@ -1541,8 +1369,11 @@ Impact, подозрение на slip/пропуск зуба, encoder disconti
 | IP изменился | discovery/connectivity | новая discovery + установление сессии; старую session локально инвалидировать/прекратить traffic, без несуществующего `SESSION_CLOSE` packet |
 | `phantom-controller` завис | safety heartbeat | takeover + `BRAKE` |
 | `phantom-safety` завис | controller health | `BRAKE` + `STOPPED` + legacy `FAULT_CONTROLLER_PROCESS`; structured subsystem=SAFETY |
-| превышение периода цикла | `dt` | `SAFE_HOLD`/`FAULT_LOOP_OVERRUN` |
-| `LOCAL_STOP` | physical input | `STOPPED` + `BRAKE` |
+| превышение периода цикла свыше `loop_safe_hold_ms` | `dt` | `SAFE_HOLD` без latched fault; `loop_health_flags` фиксирует факт |
+| превышение периода цикла свыше `loop_fault_ms` | `dt` | `SAFE_HOLD` + `FAULT_LOOP_OVERRUN`; не latched, снимается при возврате тайминга |
+| `LOCAL_STOP` | physical input | latched `STOPPED` + `BRAKE`; процесс controller **остаётся живым** и обслуживает `RESET_STOPPED` |
+| штатное завершение `phantom-controller` | boot id retired + отсутствие snapshot | network/mDNS перестают подтверждать несуществующий authority; telemetry не отправляется, Quest уходит в `TelemetryStale` |
+| потеря controller snapshot по IPC | reverse-IPC timeout | `phantom-network` не отправляет telemetry вообще и не выдумывает state; `HELLO` без snapshot отбрасывается |
 | motor stall A/B/C | requested speed + motor encoder speed + duty | `FAULT_JOINT_STALL` |
 | механическое вмешательство / подозрение на пропуск передачи | operator/maintenance state | движение запрещено до новой QR-привязки |
 | gripper contact | closing + duty + speed + error | `CONTACT_HOLD` |

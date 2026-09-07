@@ -5,10 +5,11 @@ param(
   [ValidateRange(1,7)][int]$Stage=3
 )
 $ErrorActionPreference="Stop"
+. "$PSScriptRoot/../tools/toolchain.ps1"
 $started=(Get-Date).ToUniversalTime()
 $checks=@()
-$quotedEv3Source="'"+(Resolve-Path ev3).Path+"'"
-$wslEv3Source=(wsl.exe -d Ubuntu -- wslpath -a $quotedEv3Source).Trim()
+$wslDistro=Get-PhantomWslDistro
+$wslEv3Source=Get-PhantomWslPath ev3
 function Run-Check([string]$Name,[int]$IntroducedAtStage,[scriptblock]$Body){
     try{
         $global:LASTEXITCODE=0
@@ -20,7 +21,15 @@ function Run-Check([string]$Name,[int]$IntroducedAtStage,[scriptblock]$Body){
         Write-Warning "$Name FAIL: $($_.Exception.Message)"
     }
 }
+Run-Check "specification-manifest-generated" 1 {python tools/specgen.py --check}
+Run-Check "section-index-generated" 1 {python tools/docindex.py --check}
+Run-Check "documentation-lint" 1 {python tools/doclint.py}
+Run-Check "implementation-map" 1 {python tools/implementation_map_check.py}
+Run-Check "agent-skills-mirror" 1 {python tools/skills_sync.py --check}
 Run-Check "protocol-schema-generated" 1 {python tools/protocolgen.py --check}
+Run-Check "canonicalization-rfc8785" 1 {python tools/test_jcs.py}
+Run-Check "ipc-contract-cross-implementation" 3 {python tools/test_ipc_contract.py}
+Run-Check "config-validation-boundaries" 1 {python tools/test_configgen.py}
 Run-Check "spec-wire-contract" 1 {python tools/spec_contract_check.py}
 Run-Check "config-json-schema-generated" 1 {python tools/configgen.py --check}
 Run-Check "protocol-exact-hmac-fuzz" 1 {python tools/test_protocol.py}
@@ -30,13 +39,18 @@ Run-Check "ev3-device-auto-regressions" 3 {python tools/test_ev3_device_auto.py}
 Run-Check "tracking-replay-regressions" 1 {python sim/tracking-replay/test_tracking_replay.py}
 Run-Check "artifact-gate-regressions" 1 {python tools/test_artifact_check.py}
 Run-Check "build-identity-golden" 1 {python tools/test_build_identity.py}
-Run-Check "secret-scan" 1 {python tools/security_scan.py}
+Run-Check "secret-scan" 1 {python tools/security_scan.py --include-artifacts}
+Run-Check "secret-scan-regressions" 1 {python tools/test_security_scan.py}
 Run-Check "quest-pure-core" 1 {powershell -NoProfile -ExecutionPolicy Bypass -File tools/quest_validation/compile_and_smoke.ps1}
 Run-Check "quest-simulator-integration" 1 {powershell -NoProfile -ExecutionPolicy Bypass -File tools/quest_validation/run_udp_integration.ps1}
 Run-Check "quest-android-nsd-contract" 3 {python tools/quest_android_nsd_check.py}
+Run-Check "quest-provider-compatibility" 2 {python tools/quest_provider_compatibility_check.py}
+Run-Check "spec-test-duration-contract" 2 {python tools/spec_test_duration_check.py}
+Run-Check "quest-analyzer-regressions" 2 {python tools/quest_validation/test_analyze.py}
+Run-Check "ev3-analyzer-regressions" 2 {python tools/ev3_validation/test_analyze.py}
 Run-Check "ev3-host-release" 1 {powershell -NoProfile -ExecutionPolicy Bypass -File scripts/ev3-host-build.ps1 -Profile Release}
 Run-Check "ev3-host-diagnostic" 1 {powershell -NoProfile -ExecutionPolicy Bypass -File scripts/ev3-host-build.ps1 -Profile Diagnostic}
-Run-Check "ev3-host-asan-ubsan" 1 {wsl.exe -d Ubuntu -- bash -lc "rm -rf /tmp/phantom-ev3-sanitize && cmake -S '$wslEv3Source' -B /tmp/phantom-ev3-sanitize -G Ninja -DCMAKE_BUILD_TYPE=Debug -DCMAKE_CXX_FLAGS='-fsanitize=address,undefined -fno-omit-frame-pointer' && cmake --build /tmp/phantom-ev3-sanitize && ASAN_OPTIONS=detect_leaks=1 ctest --test-dir /tmp/phantom-ev3-sanitize --output-on-failure"}
+Run-Check "ev3-host-asan-ubsan" 1 {wsl.exe -d $wslDistro -- bash -lc "rm -rf /tmp/phantom-ev3-sanitize && cmake -S '$wslEv3Source' -B /tmp/phantom-ev3-sanitize -G Ninja -DCMAKE_BUILD_TYPE=Debug -DCMAKE_CXX_FLAGS='-fsanitize=address,undefined -fno-omit-frame-pointer' && cmake --build /tmp/phantom-ev3-sanitize && ASAN_OPTIONS=detect_leaks=1 ctest --test-dir /tmp/phantom-ev3-sanitize --output-on-failure"}
 if($SkipUnity){$checks+=@{test_id="unity-editmode";introduced_at_stage=2;applicable_to_stage=$Stage;status="NOT_RUN";runner="scripts/quest-test.ps1";detail="explicit -SkipUnity"}}else{Run-Check "unity-editmode" 2 {powershell -NoProfile -ExecutionPolicy Bypass -File scripts/quest-test.ps1}}
 if($SkipArmel){$checks+=@{test_id="ev3-armel-release-diagnostic";introduced_at_stage=1;applicable_to_stage=$Stage;status="NOT_RUN";runner="scripts/ev3-armel-docker.ps1";detail="explicit -SkipArmel"}}else{Run-Check "ev3-armel-release-diagnostic" 1 {powershell -NoProfile -ExecutionPolicy Bypass -File scripts/ev3-armel-docker.ps1}}
 if(!$SkipArmel -and $Stage -ge 3){Run-Check "ev3-stage3-diagnostic-package" 3 {

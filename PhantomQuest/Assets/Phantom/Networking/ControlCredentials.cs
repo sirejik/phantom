@@ -6,6 +6,8 @@ using UnityEngine;
 
 namespace Phantom.Networking
 {
+    public enum CredentialProvisioningResult { NoDropPresent,Imported,Rejected,Unsupported }
+
     public interface IControlCredentialStore:IDisposable
     {
         bool TryLoad(string keyId,out byte[] key);
@@ -58,6 +60,76 @@ namespace Phantom.Networking
             catch(IOException){return false;}catch(UnauthorizedAccessException){return false;}
 #endif
         }
+        /// <summary>
+        /// One-shot engineering import of a CONTROL PSK delivered outside the
+        /// runtime protocol (see ENGINEERING 8.11). The host writes the key into
+        /// the app-specific provisioning directory; this imports it into the
+        /// Keystore-wrapped store and shreds the plaintext drop. The key itself is
+        /// never logged, never returned and never placed in build output.
+        /// </summary>
+        public CredentialProvisioningResult TryImportProvisioningDrop(string keyId)
+        {
+            if(!ValidKeyId(keyId))return CredentialProvisioningResult.Rejected;
+#if UNITY_ANDROID && !UNITY_EDITOR
+            try
+            {
+                using(var store=new AndroidJavaClass("dev.phantom.security.PhantomCredentialStore"))
+                using(var unity=new AndroidJavaClass("com.unity3d.player.UnityPlayer"))
+                using(var activity=unity.GetStatic<AndroidJavaObject>("currentActivity"))
+                {
+                    var outcome=store.CallStatic<int>("importProvisioningDrop",activity,keyId);
+                    return outcome==1?CredentialProvisioningResult.Imported
+                          :outcome==0?CredentialProvisioningResult.NoDropPresent
+                          :CredentialProvisioningResult.Rejected;
+                }
+            }
+            catch(AndroidJavaException){return CredentialProvisioningResult.Rejected;}
+#else
+            return CredentialProvisioningResult.Unsupported;
+#endif
+        }
+
+        /// <summary>True when a credential is stored, without ever loading it.</summary>
+        public bool IsProvisioned(string keyId)
+        {
+            if(!ValidKeyId(keyId))return false;
+#if UNITY_ANDROID && !UNITY_EDITOR
+            try
+            {
+                using(var store=new AndroidJavaClass("dev.phantom.security.PhantomCredentialStore"))
+                using(var unity=new AndroidJavaClass("com.unity3d.player.UnityPlayer"))
+                using(var activity=unity.GetStatic<AndroidJavaObject>("currentActivity"))
+                    return store.CallStatic<bool>("isProvisioned",activity,keyId);
+            }
+            catch(AndroidJavaException){return false;}
+#else
+            byte[] key;
+            if(!TryLoad(keyId,out key))return false;
+            Array.Clear(key,0,key.Length);return true;
+#endif
+        }
+
+        /// <summary>Decodes 32+ raw bytes or exactly 64 ASCII hex characters.</summary>
+        public static byte[] DecodeKeyMaterial(byte[] raw)
+        {
+            if(raw==null)return null;
+            var end=raw.Length;
+            while(end>0&&(raw[end-1]=='\n'||raw[end-1]=='\r'||raw[end-1]==' '||raw[end-1]=='\t'))end--;
+            if(end==64)
+            {
+                var decoded=new byte[32];var valid=true;
+                for(var i=0;i<32&&valid;i++)
+                {
+                    var hi=Nibble(raw[i*2]);var lo=Nibble(raw[i*2+1]);
+                    if(hi<0||lo<0)valid=false;else decoded[i]=(byte)((hi<<4)|lo);
+                }
+                if(valid)return decoded;
+                Array.Clear(decoded,0,decoded.Length);
+            }
+            if(end<32)return null;
+            var copy=new byte[end];Buffer.BlockCopy(raw,0,copy,0,end);return copy;
+        }
+
         public bool Provision(string keyId,byte[] key)
         {
             if(!ValidKeyId(keyId)||key==null||key.Length<32)return false;

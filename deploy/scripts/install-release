@@ -33,6 +33,22 @@ adduser phantom-ctrl phantom-safety-ipc >/dev/null 2>&1||true
 adduser phantom-net phantom-ipc >/dev/null 2>&1||true
 getent group ev3dev >/dev/null 2>&1&&adduser phantom-ctrl ev3dev >/dev/null 2>&1||true
 if test -d /var/lib/phantom/secrets;then chown root:phantom-net /var/lib/phantom/secrets;chmod 0750 /var/lib/phantom/secrets;find /var/lib/phantom/secrets -type f -exec chown root:phantom-net {} + -exec chmod 0640 {} +;fi
+# The bench characterization harness provisions NOPASSWD root for a binary in a
+# robot-writable path. That is acceptable for an isolated measurement rig, but on
+# a brick that then runs production it is a trivial bypass of the phantom-ctrl /
+# phantom-net privilege separation the safety argument depends on. Remove it, and
+# refuse to install if it cannot be removed.
+bench_sudoers=/etc/sudoers.d/phantom-ev3-bench
+if test -e "$bench_sudoers"; then
+  echo "removing bench sudo rule before a production install: $bench_sudoers" >&2
+  rm -f "$bench_sudoers"
+  test ! -e "$bench_sudoers" || { echo "refusing to install while the bench sudo rule is present" >&2;exit 1; }
+fi
+for stray in /etc/sudoers.d/phantom-*; do
+  case "$stray" in *'phantom-*') continue;; esac
+  echo "refusing to install: unexpected phantom sudoers fragment $stray" >&2
+  exit 1
+done
 install -m 0644 "$dest/tmpfiles/phantom.conf" /etc/tmpfiles.d/phantom.conf
 systemd-tmpfiles --create /etc/tmpfiles.d/phantom.conf
 previous=$(readlink -f "$root/current" 2>/dev/null||true)

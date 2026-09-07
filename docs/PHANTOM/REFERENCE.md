@@ -344,7 +344,7 @@ tau ≈ m * g * r
 | нейтраль Shoulder и максимальное безопасное сгибание | механическая и QR-калибровка |
 | разогнутое направление Elbow и максимальное безопасное сгибание | механическая и QR-калибровка |
 | пределы `duty`, удержания, выбора люфта и скорости изменения `duty` | нагрузочные тесты осей и реверса |
-| `kp_duty_pct_per_rad`, `kd_duty_pct_per_rad_s`, velocity-filter/friction parameters и `FeedForwardMap` torque→duty/battery domain+hash | нагрузочные HIL осей в диапазоне поз/скоростей/напряжений; property test запрещает смешение N·m и duty% |
+| `kp_duty_permille_per_rad`, `kd_duty_permille_per_rad_s`, velocity-filter/friction parameters и `FeedForwardMap` torque→duty/battery domain+hash | нагрузочные HIL осей в диапазоне поз/скоростей/напряжений; property test запрещает смешение N·m и duty permille |
 | production `user_max_vel/user_max_accel` каждой оси (не выше design ceilings §7.10) | динамические HIL tracking/braking/stop tests для EMPTY и применимых PayloadProfile |
 | `tracking_error_limit/timeout`, `obstruction_candidate_ms`, `main_joint_stall_ms`, stall speed/duty predicates | controlled obstruction/stall HIL по каждой оси с nominal/backlash/noise cases; универсальные hard-coded defaults запрещены |
 | Gripper `max_speed_counts_s`, contact predicates (`contact_min_travel_ratio`, duty/speed/error thresholds, `contact_confirm_ms`) и `release_intent_hysteresis` | §9.16.6 open/close/contact/jam/release dataset; false contact <=1/100 и opening jam never contact |

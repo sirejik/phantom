@@ -29,6 +29,8 @@ foreach($profile in @("Release","Diagnostic")){
   Copy-Item ev3/network/phantom_network.py "$binOut/phantom-network" -Force
   Copy-Item ev3/network/phantom_mdns.py "$binOut/phantom-mdns" -Force
   Copy-Item protocol/phantom_protocol.py "$binOut/phantom_protocol.py" -Force
+  Copy-Item protocol/jcs.py "$binOut/jcs.py" -Force
+  Copy-Item protocol/generated/ipc_layout.py "$binOut/ipc_layout.py" -Force
   Copy-Item protocol/wire_schema.yaml "$binOut/wire_schema.yaml" -Force
   Copy-Item deploy/scripts/device-auto.py "$binOut/phantom-device-auto" -Force
   Copy-Item deploy/scripts/wifi-autoconnect "$binOut/phantom-wifi-autoconnect" -Force

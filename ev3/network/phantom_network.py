@@ -18,7 +18,11 @@ import time
 HERE = pathlib.Path(__file__).resolve().parent
 WIRE_DIR = HERE if (HERE / "wire_schema.yaml").is_file() else HERE.parents[1] / "protocol"
 sys.path.insert(0, str(WIRE_DIR))
+GENERATED_DIR = HERE if (HERE / "ipc_layout.py").is_file() else HERE.parents[1] / "protocol" / "generated"
+sys.path.insert(0, str(GENERATED_DIR))
 import phantom_protocol as wire
+import ipc_layout
+import jcs
 
 DISCOVERY = wire.SCHEMA["enums"]["State"]["DISCOVERY"]
 CONNECTED_UNREFERENCED = wire.SCHEMA["enums"]["State"]["CONNECTED_UNREFERENCED"]
@@ -31,8 +35,12 @@ ERR_SESSION = wire.SCHEMA["enums"]["ResultCode"]["ERR_SESSION"]
 ERR_CONTROL_SESSION_BUSY = wire.SCHEMA["enums"]["ResultCode"]["ERR_CONTROL_SESSION_BUSY"]
 ERR_UNSUPPORTED = wire.SCHEMA["enums"]["ResultCode"]["ERR_UNSUPPORTED"]
 PAYLOAD_UNKNOWN = wire.SCHEMA["enums"]["PayloadState"]["UNKNOWN"]
-IPC_REQUEST = struct.Struct("<4sHHI16sQ16sBBBB4sHH16sQQ24s")
-IPC_REPLY = struct.Struct("<4sHHI16sQ16sQHH")
+# Layout, sizes and message type numbers come from protocol/ipc_schema.yaml via
+# the generated module, so the Python and C++ sides cannot drift apart.
+IPC_REQUEST = ipc_layout.CONTROLLER_REQUEST
+IPC_REPLY = ipc_layout.CONTROLLER_REPLY
+IPC_SNAPSHOT = ipc_layout.CONTROLLER_TELEMETRY_SNAPSHOT
+IPC_TYPES = ipc_layout.MESSAGE_TYPES
 
 
 class LocalControllerAuthority(object):
@@ -62,6 +70,15 @@ class LocalControllerAuthority(object):
             self.session = None
             self.last_sequence = 0
 
+    def snapshot(self, boot_id, rx_us):
+        """Deterministic controller state used only by host unit tests."""
+        return {"state": CONNECTED_UNREFERENCED if self.session is not None else DISCOVERY,
+                "fault_code": FAULT_NONE, "status_flags": STATUS_BUNDLE_VALID,
+                "battery_mv": 7600, "grip_state": 0, "loop_health_flags": 0,
+                "incident_id": b"\0" * 16, "q_actual": (0.0, 0.0, 0.0),
+                "q_speed": (0.0, 0.0, 0.0), "grip_actual": 0.0,
+                "snapshot_monotonic_us": rx_us}
+
     def close(self):
         pass
 
@@ -87,20 +104,26 @@ class ControllerIpcAuthority(object):
         os.chmod(str(self.own_path), 0o660)
         self.sock.setblocking(False)
 
-    def _exchange(self, message_type, boot_id, session_id, role, key_slot, nonce,
-                  endpoint, wire_sequence, rx_us, expect_reply=True, command_payload=b"\0" * 24):
+    def _pack(self, message_type, boot_id, session_id, role, key_slot, nonce, endpoint,
+              wire_sequence, rx_us, command_payload):
         address, port = endpoint
-        packed = IPC_REQUEST.pack(b"PHIP", 1, message_type, 0, boot_id, self.generation,
-                                  session_id, role, key_slot, 4, 0, socket.inet_aton(address),
-                                  socket.htons(port), 0, nonce, wire_sequence, rx_us,
-                                  command_payload)
+        return IPC_REQUEST.pack(ipc_layout.MAGIC, ipc_layout.IPC_VERSION, message_type, 0,
+                                boot_id, self.generation, session_id, role, key_slot, 4, 0,
+                                socket.inet_aton(address), struct.pack(">H", port), 0, nonce,
+                                wire_sequence, rx_us, command_payload)
+
+    def _exchange(self, message_type, boot_id, session_id, role, key_slot, nonce,
+                  endpoint, wire_sequence, rx_us, expect_reply=True,
+                  command_payload=b"\0" * 24, timeout=None):
+        packed = self._pack(message_type, boot_id, session_id, role, key_slot, nonce, endpoint,
+                            wire_sequence, rx_us, command_payload)
         try:
             self.sock.sendto(packed, self.controller_path)
         except OSError:
             return ERR_SESSION
         if not expect_reply:
             return RESULT_OK
-        deadline = time.monotonic() + self.timeout
+        deadline = time.monotonic() + (self.timeout if timeout is None else timeout)
         while True:
             remaining = deadline - time.monotonic()
             if remaining <= 0:
@@ -108,25 +131,64 @@ class ControllerIpcAuthority(object):
             readable, unused_write, unused_error = select.select([self.sock], [], [], remaining)
             if not readable:
                 return ERR_SESSION
-            data = self.sock.recv(65)
+            data = self.sock.recv(IPC_SNAPSHOT.size + 1)
             if len(data) != IPC_REPLY.size:
                 continue
             magic, version, reply_type, reserved, reply_boot, generation, reply_session, request_sequence, result, tail = IPC_REPLY.unpack(data)
             if (magic, version, reply_type, reserved, reply_boot, generation, reply_session,
-                    request_sequence, tail) == (b"PHIP", 1, 2, 0, boot_id, self.generation,
-                                                 session_id, wire_sequence, 0):
+                    request_sequence, tail) == (ipc_layout.MAGIC, ipc_layout.IPC_VERSION,
+                                                IPC_TYPES["REPLY"], 0, boot_id, self.generation,
+                                                session_id, wire_sequence, 0):
                 return result
 
+    def snapshot(self, boot_id, rx_us, timeout=.03):
+        """Pull the authoritative controller state (reverse IPC, EV3 spec 7.2.2).
+
+        Returns None when no fresh snapshot arrives. The caller must then emit no
+        telemetry at all instead of inventing a healthy-looking one.
+        """
+        packed = self._pack(IPC_TYPES["TELEMETRY_QUERY"], boot_id, b"\0" * 16, 0, 0,
+                            b"\0" * 16, ("0.0.0.0", 0), 0, rx_us, b"\0" * 24)
+        try:
+            self.sock.sendto(packed, self.controller_path)
+        except OSError:
+            return None
+        deadline = time.monotonic() + timeout
+        while True:
+            remaining = deadline - time.monotonic()
+            if remaining <= 0:
+                return None
+            readable, unused_write, unused_error = select.select([self.sock], [], [], remaining)
+            if not readable:
+                return None
+            data = self.sock.recv(IPC_SNAPSHOT.size + 1)
+            if len(data) != IPC_SNAPSHOT.size:
+                continue
+            (magic, version, reply_type, reserved, reply_boot, generation, monotonic_us, state,
+             fault_code, status_flags, battery_mv, grip_state, loop_health_flags, incident_id,
+             q0, q1, q2, s0, s1, s2, grip_actual, tail) = IPC_SNAPSHOT.unpack(data)
+            if (magic, version, reply_type, reserved, reply_boot, generation, tail) != (
+                    ipc_layout.MAGIC, ipc_layout.IPC_VERSION, IPC_TYPES["TELEMETRY_SNAPSHOT"],
+                    0, boot_id, self.generation, 0):
+                continue
+            return {"state": state, "fault_code": fault_code, "status_flags": status_flags,
+                    "battery_mv": battery_mv, "grip_state": grip_state,
+                    "loop_health_flags": loop_health_flags, "incident_id": incident_id,
+                    "q_actual": (q0, q1, q2), "q_speed": (s0, s1, s2),
+                    "grip_actual": grip_actual, "snapshot_monotonic_us": monotonic_us}
+
     def open(self, boot_id, session_id, role, key_slot, nonce, endpoint, wire_sequence, rx_us):
-        return self._exchange(1, boot_id, session_id, role, key_slot, nonce, endpoint,
-                              wire_sequence, rx_us)
+        return self._exchange(IPC_TYPES["SESSION_OPEN"], boot_id, session_id, role, key_slot,
+                              nonce, endpoint, wire_sequence, rx_us)
 
     def command(self, boot_id, session_id, endpoint, wire_sequence, rx_us, command_payload):
-        return self._exchange(3, boot_id, session_id, 0, 0, b"\0" * 16, endpoint,
-                              wire_sequence, rx_us, command_payload=command_payload)
+        return self._exchange(IPC_TYPES["COMMAND_SNAPSHOT"], boot_id, session_id, 0, 0,
+                              b"\0" * 16, endpoint, wire_sequence, rx_us,
+                              command_payload=command_payload)
 
     def invalidate(self, boot_id, session_id, endpoint, rx_us):
-        self._exchange(4, boot_id, session_id, 0, 0, b"\0" * 16, endpoint, 0, rx_us, False)
+        self._exchange(IPC_TYPES["SESSION_INVALIDATE"], boot_id, session_id, 0, 0, b"\0" * 16,
+                       endpoint, 0, rx_us, False)
 
     def close(self):
         self.sock.close()
@@ -137,7 +199,8 @@ class ControllerIpcAuthority(object):
 
 
 def canonical(value):
-    return json.dumps(value, ensure_ascii=False, sort_keys=True, separators=(",", ":")).encode("utf-8")
+    """RFC 8785 canonical bytes, shared with every other PHANTOM component."""
+    return jcs.canonicalize(value)
 
 
 def read_json(path):
@@ -162,7 +225,11 @@ def systemd_ready(status):
 def load_key(path):
     key_path = pathlib.Path(path)
     mode = key_path.stat().st_mode & 0o777
-    if mode & 0o027:
+    # The DAC check is the real deployment guard on the ev3dev brick. On a
+    # non-POSIX host (developer workstation running the interop harness) the
+    # mode bits carry no such meaning, so enforcing them there would only be
+    # theatre; production always runs on POSIX.
+    if os.name == "posix" and mode & 0o027:
         raise ValueError("control key permissions must be owner/group read only")
     raw = key_path.read_bytes().strip()
     if len(raw) == 64:
@@ -225,10 +292,18 @@ class Stage3Server(object):
         self.started = self.token_time
         self.next_telemetry = self.started
         self.next_status = self.started
+        # `motor_write_attempts_rejected` counts authenticated COMMANDs that asked
+        # for motion while the active scope grants none. It is the honest
+        # replacement for a counter that could only ever read zero: this worker
+        # has no motor path at all, so proof of zero output comes from the
+        # controller snapshot and from sysfs, not from a gauge it owns.
         self.counters = {"rx": 0, "rx_drop": 0, "hmac_fail": 0, "parser_reject": 0,
                          "hello_accept": 0, "hello_reject": 0, "replay_reject": 0,
                          "pong": 0, "telemetry": 0, "command_scope_zero": 0,
-                         "nonzero_motor_writes": 0}
+                         "motor_write_attempts_rejected": 0,
+                         "controller_snapshot_stale": 0}
+        self.snapshot = None
+        self.snapshot_time = None
         self.bundle_hash = hashlib.sha256(canonical(bundle)).digest()
         if manifest.get("commissioning_bundle_hash") != self.bundle_hash.hex():
             raise ValueError("bundle/manifest hash mismatch")
@@ -286,19 +361,35 @@ class Stage3Server(object):
             raise wire.ProtocolError("exact length")
         return fields, message
 
-    def hello_ack_payload(self, nonce, result=RESULT_OK, key_slot=0, role=0):
+    def hello_ack_payload(self, nonce, state, result=RESULT_OK, key_slot=0, role=0):
+        # `state` always comes from the controller snapshot; this worker never
+        # decides what the robot state is.
         zero = b"\0" * 32
         return struct.pack("<16s32s32sHBB32s32s32s32s32s32s32sHHBBH3f3f3f3f",
                            nonce, wire.id32(self.robot_id), self.build_id_bytes, 0, key_slot, role,
                            self.spec_hash, self.protocol_hash, self.bundle_hash,
-                           zero, zero, zero, zero, CONNECTED_UNREFERENCED, 0, 1, 0, result,
+                           zero, zero, zero, zero, state, 0, 1, 0, result,
                            0.0, 0.0, 0.0, 0.0, 0.0, 0.0,
                            0.0, 0.0, 0.0, 0.0, 0.0, 0.0)
 
-    def reject_hello(self, nonce, result, key_slot, role, now):
+    def refresh_snapshot(self, now):
+        """Pull authoritative controller state; None means "do not speak for it"."""
+        snapshot = self.authority.snapshot(self.boot_id, int(now * 1000000))
+        if snapshot is None:
+            if self.snapshot is not None:
+                self.event("CONTROLLER_SNAPSHOT_STALE")
+            self.counters["controller_snapshot_stale"] += 1
+            self.snapshot = None
+            self.snapshot_time = None
+            return None
+        self.snapshot = snapshot
+        self.snapshot_time = now
+        return snapshot
+
+    def reject_hello(self, nonce, result, key_slot, role, now, state):
         self.counters["hello_reject"] += 1
         self.event("HELLO_REJECTED", result_code=result)
-        payload = self.hello_ack_payload(nonce, result, key_slot, role)
+        payload = self.hello_ack_payload(nonce, state, result, key_slot, role)
         return wire.encode(wire.NAMES["HELLO_ACK"]["type"], payload, self.key,
                            wire.ZERO_ID, self.boot_id, 0, int(now * 1000000))
 
@@ -312,17 +403,25 @@ class Stage3Server(object):
             raise wire.ProtocolError("HELLO binding")
         if key_slot not in (0, 1):
             raise wire.ProtocolError("unknown key slot")
+        # Without a fresh controller snapshot there is no authority to speak for,
+        # so the handshake is dropped rather than answered with invented state.
+        snapshot = self.refresh_snapshot(now)
+        if snapshot is None:
+            self.counters["hello_reject"] += 1
+            self.event("HELLO_REJECTED", category="controller_snapshot_unavailable")
+            return None
+        state = snapshot["state"]
         if key_slot != 0 or role != 0 or key_slot != role:
-            return self.reject_hello(nonce, ERR_AUTH, key_slot, role, now)
+            return self.reject_hello(nonce, ERR_AUTH, key_slot, role, now, state)
         if robot != self.robot_id:
-            return self.reject_hello(nonce, ERR_SESSION, key_slot, role, now)
+            return self.reject_hello(nonce, ERR_SESSION, key_slot, role, now, state)
         if minor != 0 or capabilities != 0:
-            return self.reject_hello(nonce, ERR_UNSUPPORTED, key_slot, role, now)
+            return self.reject_hello(nonce, ERR_UNSUPPORTED, key_slot, role, now, state)
         duplicate = self.session_id is not None and address == self.endpoint and nonce == self.nonce and now - self.hello_time <= self.retry_window
         if duplicate:
             return self.cached_ack
         if self.session_id is not None and now - self.last_rx_time <= self.session_stale:
-            return self.reject_hello(nonce, ERR_CONTROL_SESSION_BUSY, key_slot, role, now)
+            return self.reject_hello(nonce, ERR_CONTROL_SESSION_BUSY, key_slot, role, now, state)
         if self.session_id is not None:
             self.end_session("stale_replaced")
         candidate = os.urandom(16)
@@ -331,7 +430,7 @@ class Stage3Server(object):
         result = self.authority.open(self.boot_id, candidate, role, key_slot, nonce, address,
                                      packet["sequence"], int(now * 1000000))
         if result != RESULT_OK:
-            return self.reject_hello(nonce, result, key_slot, role, now)
+            return self.reject_hello(nonce, result, key_slot, role, now, state)
         self.session_id = candidate
         self.endpoint = address
         self.nonce = nonce
@@ -339,7 +438,13 @@ class Stage3Server(object):
         self.last_rx_sequence = self.tx_sequence = 0
         self.last_command_time = None
         self.last_command_sequence = 0
-        self.cached_ack = wire.encode(wire.NAMES["HELLO_ACK"]["type"], self.hello_ack_payload(nonce), self.key, self.session_id, self.boot_id, 0, int(now * 1000000))
+        accept_state = self.refresh_snapshot(now)
+        if accept_state is None:
+            self.end_session("controller_snapshot_unavailable")
+            return None
+        self.cached_ack = wire.encode(wire.NAMES["HELLO_ACK"]["type"],
+                                      self.hello_ack_payload(nonce, accept_state["state"]),
+                                      self.key, self.session_id, self.boot_id, 0, int(now * 1000000))
         self.counters["hello_accept"] += 1
         self.event("HELLO_ACCEPTED", role="CONTROL")
         self.event("SESSION_CREATED", session="redacted")
@@ -404,35 +509,49 @@ class Stage3Server(object):
         self.last_command_time = now
         self.last_command_sequence = packet["sequence"]
         self.counters["command_scope_zero"] += 1
+        motion_flags = struct.unpack_from("<I", packet["payload"], 0)[0]
+        if motion_flags & 1:
+            # Authenticated request for motion under an empty actuator scope: the
+            # controller hard-inhibits it, and the attempt is recorded as evidence.
+            self.counters["motor_write_attempts_rejected"] += 1
+            self.event("MOTOR_WRITE_ATTEMPT_REJECTED", actuator_scope_mask=0)
         return None
 
     def telemetry(self, now):
+        """Serialise the controller snapshot. No snapshot means no telemetry."""
         if self.session_id is None:
             return None
+        snapshot = self.refresh_snapshot(now)
+        if snapshot is None:
+            # Quest freshness then decays into TelemetryStale, which is exactly
+            # what an unobservable controller must look like.
+            return None
         age = 0xffffffff if self.last_command_time is None else min(0xffffffff, int((now - self.last_command_time) * 1000))
-        battery_mv = 0
-        try:
-            battery_mv = min(65535, int(pathlib.Path("/sys/class/power_supply/lego-ev3-battery/voltage_now").read_text().strip()) // 1000)
-        except (OSError, ValueError):
-            pass
-        status = STATUS_BUNDLE_VALID
-        loop_flags = LOOP_NETWORK_BACKPRESSURE if self.counters["rx_drop"] else 0
+        loop_flags = snapshot["loop_health_flags"]
+        if self.counters["rx_drop"]:
+            loop_flags |= LOOP_NETWORK_BACKPRESSURE
         payload = wire.telemetry_payload(self.robot_id, self.build_id_bytes, self.bundle_hash, b"\0" * 32,
-                                         CONNECTED_UNREFERENCED, FAULT_NONE, status, b"\0" * 16,
-                                         self.last_command_sequence, age, (0.0, 0.0, 0.0),
-                                         (0.0, 0.0, 0.0), 0.0, 0, battery_mv, loop_flags,
+                                         snapshot["state"], snapshot["fault_code"],
+                                         snapshot["status_flags"], snapshot["incident_id"],
+                                         self.last_command_sequence, age, snapshot["q_actual"],
+                                         snapshot["q_speed"], snapshot["grip_actual"],
+                                         snapshot["grip_state"], snapshot["battery_mv"], loop_flags,
                                          "UNSELECTED", PAYLOAD_UNKNOWN, 1)
         self.counters["telemetry"] += 1
         return self.send_session("TELEMETRY", payload, now)
 
     def status(self):
-        payload = {"schema_version": 1, "profile": "stage3-network-only", "robot_id": self.robot_id,
+        payload = {"schema_version": 2, "profile": "stage3-network-only", "robot_id": self.robot_id,
                    "port": self.port, "controller_boot_id": self.boot_id.hex() if self.boot_id else None,
                    "session_active": self.session_id is not None, "actuator_scope_mask": 0,
-                   "qualification_only": True, "counters": self.counters}
+                   "qualification_only": True,
+                   "controller_state": None if self.snapshot is None else self.snapshot["state"],
+                   "controller_fault_code": None if self.snapshot is None else self.snapshot["fault_code"],
+                   "controller_snapshot_fresh": self.snapshot is not None,
+                   "counters": self.counters}
         self.status_path.parent.mkdir(parents=True, exist_ok=True)
         temporary = self.status_path.with_suffix(".tmp")
-        temporary.write_text(json.dumps(payload, sort_keys=True) + "\n", encoding="utf-8")
+        temporary.write_text(jcs.canonicalize(payload).decode("utf-8") + "\n", encoding="utf-8")
         os.replace(str(temporary), str(self.status_path))
 
 
@@ -440,7 +559,13 @@ def run(args):
     config = read_json(args.config)
     bundle = read_json(args.bundle)
     manifest = read_json(args.manifest)
-    authority = ControllerIpcAuthority(args.ipc_own, args.ipc_controller)
+    if args.local_authority:
+        # Host interop harness only: replaces the controller boundary with the
+        # deterministic in-process stub so the real wire server can be exercised
+        # without a brick. Never selected by the installed systemd unit.
+        authority = LocalControllerAuthority()
+    else:
+        authority = ControllerIpcAuthority(args.ipc_own, args.ipc_controller)
     server = Stage3Server(config, bundle, manifest, load_key(args.control_key), args.boot_id,
                           args.status, authority)
     while server.boot_id is None:
@@ -498,6 +623,8 @@ def main():
     parser.add_argument("--ipc-own", default="/run/phantom/network/controller.sock")
     parser.add_argument("--ipc-controller", default="/run/phantom/controller/network.sock")
     parser.add_argument("--bind", default="0.0.0.0")
+    parser.add_argument("--local-authority", action="store_true",
+                        help="host interop harness only; use the in-process controller stub")
     try:
         run(parser.parse_args())
     except ValueError as error:

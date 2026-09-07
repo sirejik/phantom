@@ -50,9 +50,11 @@ cable routing, поведение counterweight, `LOCAL_STOP` и независ�
 
 ## Канонические machine-readable источники
 
-- Wire format: `protocol/wire_schema.yaml`
+- Quest↔EV3 wire format: `protocol/wire_schema.yaml`
+- EV3-local IPC contract: `protocol/ipc_schema.yaml`
+- RFC 8785 canonicalization: `protocol/jcs.py`
 - Generated protocol documentation: `protocol/protocol.md`
-- Cross-language protocol fixtures: `protocol/golden_vectors/`
+- Cross-language fixtures: `protocol/golden_vectors/` (wire, IPC, canonicalization)
 - Configuration schemas: `config/schema/`
 - Generated configuration artifacts: `config/generated/`
 
@@ -73,6 +75,11 @@ Generated files являются результатами, а не конкур�
 - Нормативные этапы и gates: `docs/PHANTOM/IMPLEMENTATION_STAGES.md`
 - Task-specific execution plans: `docs/PHANTOM/exec-plans/`
 - Текущее состояние: `docs/PHANTOM/status/CURRENT_STATUS.md`
+- Карта `требование → этап → статус → verification`: `docs/PHANTOM/implementation-map.json`
+- Evidence реально выполненных gates: `results/**`
+
+`ev3/bench/` — инженерный характеризационный harness вне production и вне safety-периметра;
+его разводка портов, привилегии и результаты не описывают собранного робота.
 
 Навигация находится в `docs/PHANTOM/README.md`. Для разрешения legacy-ссылок вида `§x.y`
 используй `python tools/docindex.py --locate <section>`.

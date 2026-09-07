@@ -9,7 +9,8 @@ PartOf=phantom.target
 Type=oneshot
 ExecStart=/opt/phantom/current/bin/phantom-wifi-autoconnect
 RemainAfterExit=yes
-TimeoutStartSec=120
+# Must exceed the helper's own bounded retry budget (worst case 80 s).
+TimeoutStartSec=90
 NoNewPrivileges=true
 ProtectSystem=strict
 ProtectHome=true

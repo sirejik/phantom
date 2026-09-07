@@ -1299,106 +1299,62 @@ Quest снимает `MOTION_ENABLE` при применимой текущем�
 <a id="sec-5-19"></a>
 ## 5.19. Конфигурация Quest
 
-```yaml
-schema_version: 1
-robot_id: phantom01
+Структура конфигурации Quest принадлежит `config/schema/quest.schema.json`; canonical
+sources — `config/source/quest.json` (Release) и `config/source/quest-network-only.json`
+(Stage-3 Diagnostic). Этот раздел описывает **смысл** полей и межполевые правила, а не
+повторяет их структуру: при расхождении выигрывает schema, потому что именно её читают
+генератор, runtime loader (`Stage3RuntimeConfig.ToOptions`) и тесты.
 
-qualification:
-  qualification_only: false   # разрешено только после PASS QualificationEvidenceManifest
-  qualification_evidence_manifest_hash: SHA256_OR_ZERO_FOR_QUALIFICATION_ONLY
-  actuator_scope_mask: 0x0F   # motor authority: Release 0x0F; network-only 0x00; gripper-only 0x08
-  safety_observation_mask: 0x0F  # Release 0x0F; network-only 0x00; gripper-only 0x08; partial A/B/C qualification >=0x07
-  required_user_inputs: FULL_ARM  # FULL_ARM | GRIPPER_ONLY | NONE
+<a id="sec-5-19-1"></a>
+### 5.19.1. Смысл текущих полей
 
-human_mapping:
-  # robot_nominal_reach_m authoritative value comes from RobotGeometry in CommissioningBundle
-  arm_reach_min_technical_m: MEASURED
-  arm_reach_max_technical_m: MEASURED
-  max_mapping_scale: MEASURED
+| блок | назначение |
+|---|---|
+| `qualification` | **ожидаемый локальный profile**, а не источник authority: `qualification_only`, обе маски, `required_user_inputs` и `qualification_evidence_manifest_hash`. Authoritative значения находятся в установленном `CommissioningBundle` EV3 |
+| `human_mapping` | `arm_reach_min_technical_m`, `arm_reach_max_technical_m`, `max_mapping_scale` — technical sanity bounds и квалифицированный потолок линейного масштаба (§11.1.1, `FR-MAP-08`). Все три `MEASURED` и зарегистрированы в `config/source/measured_parameters.json` |
+| `space` | обязательные XR capability gates; `require_current_room` никогда не может гейтить core actuator path (S37) |
+| `hand_tracking` | Wrist joint, максимальный возраст позы и `MEASURED` dropout grace |
+| `body_tracking` | `Body_RightShoulder` provider, joint set, максимальный возраст позы, `TrackingQualificationProfile` id и требование совпадения runtime-профиля (S28) |
+| `qr` | набор обязательных маркеров и правило «требуются только до `READY`» |
+| `grasp` | `IGripSignalProvider` и fallback; `DISABLED` в network-only |
+| `commissioning_bundle.expected_hash` | локально ожидаемый bundle hash, доказываемый через `HELLO_ACK` |
+| `network` | DNS-SD identity, порт, protocol version, `control_key_id`, а также **фактические тайминги клиента**: `telemetry_max_age_ms`, `hello_retry_ms`, `hello_max_attempts`, `ping_interval_ms`, `ping_timeout_ms`, `max_missed_pongs`, `reconnect_delay_ms` |
 
-hand_tracking:
-  required_for_full_arm: true
-  required_grasp_for_gripper_only: true
-  wrist_joint: Wrist
-  wrist_max_pose_age_ms: 50
-  wrist_dropout_grace_ms: MEASURED
+Межполевые правила, которые проверяет `tools/configgen.py`:
 
-body_tracking:
-  required_for_full_arm: true
-  required_for_gripper_only: false
-  joint_set: UPPER_BODY
-  shoulder_joint: Body_RightShoulder
-  require_iobt: false
-  max_pose_age_ms: 50
-  shoulder_dropout_grace_ms: MEASURED
-  max_tracking_alignment_ms: MEASURED
-  max_tracking_extrapolation_ms: MEASURED
-  control_vector_filter: ONE_EURO
-  filter_params: MEASURED
-  qualification_profile_id: MEASURED_QUALIFIED_PROFILE
-  require_runtime_profile_match: true
-  human_vector_min_m: MEASURED
+- `actuator_scope_mask ⊆ safety_observation_mask` (S53);
+- `telemetry_max_age_ms` не превышает EV3 `session_stale_ms` — иначе Quest считал бы telemetry
+  свежей после того, как EV3 уже инвалидировал session;
+- `ping_timeout_ms` укладывается в собственный liveness-бюджет `ping_interval_ms × max_missed_pongs`;
+- Release требует `qualification_only=false`, обе маски `0x0F` и `required_user_inputs=FULL_ARM`;
+- network-only требует `Diagnostic`, обе маски `0x00` и `required_user_inputs=NONE`.
 
-space:
-  require_local_floor: true
-  require_spatial_data_permission: true
-  require_scene_support_for_qr: true
-  require_anchor_support_for_qr: true
-  require_current_room: false
-  require_scene_floor_anchor: false
-  scene_aware_ux_enabled: false
+`control_key_id` — публичный идентификатор, а не секрет. Сам PSK никогда не находится в
+конфигурации, в `Resources`, в APK или в build manifest; он доставляется отдельно по §8.11 и
+живёт только в app-private Keystore-обёрнутом хранилище.
 
-qr:
-  # В полном Release required_markers = все 10 ниже.
-  # При qualification_only scope=D обязательны только JAW_LEFT/JAW_RIGHT;
-  # остальные marker requirements являются N_A для этого стенда.
-  required_markers:
-    - SHOULDER_LEFT
-    - SHOULDER_RIGHT
-    - TURRET_LEFT
-    - TURRET_RIGHT
-    - ELBOW_LEFT
-    - ELBOW_RIGHT
-    - GRIPPER_LEFT
-    - GRIPPER_RIGHT
-    - JAW_LEFT
-    - JAW_RIGHT
-  required_only_before_ready: true
-  runtime_tracking_required: false
-  stationary_min_updates: MEASURED
-  marker_center_jitter_max_m: MEASURED
-  multi_marker_residual_max_m: MEASURED
-  pair_baseline_min_m: MEASURED
-  joint_angle_uncertainty95_max_deg: MEASURED
-  marker_payload_revision_required: true
-  calibration_jog_max_encoder_delta: MEASURED
-  calibration_jog_max_duty_pct: MEASURED
+<a id="sec-5-19-2"></a>
+### 5.19.2. Поля будущих этапов
 
-grasp:
-  provider: OPENXR_HAND_INTERACTION
-  require_grasp_ready: true
-  default_mapping: IDENTITY
-  optional_remap_enabled: true
-  remap_min_usable_span: 0.20
-  fallback_provider: DISABLED
+Эти параметры нормативно требуются соответствующими разделами, но **ещё не существуют** в
+schema и не читаются runtime; они добавляются вместе с этапом, который делает их
+наблюдаемыми:
 
-commissioning_bundle:
-  path: /data/phantom/commissioning_bundle.json
-  expected_hash: SHA256
-  # RobotGeometry, DriveCalibration, collision model, payload profiles and safe-sets
-  # загружаются только из этого versioned artifact и не дублируются ручными полями Quest config.
+- фильтрация и временное согласование tracking: `shoulder_dropout_grace_ms`,
+  `max_tracking_alignment_ms`, `max_tracking_extrapolation_ms`, `control_vector_filter`,
+  `filter_params` (§5.4.3, §5.8) — этап 8;
+- пороги качества QR: `stationary_min_updates`, `marker_center_jitter_max_m`,
+  `multi_marker_residual_max_m`, `pair_baseline_min_m`,
+  `joint_angle_uncertainty95_max_deg`, `marker_payload_revision_required`,
+  `calibration_jog_max_encoder_delta`, `calibration_jog_max_duty_permille`
+  (§5.15, §5.16) — этап 4+;
+- `grasp.optional_remap_enabled` и `remap_min_usable_span` (§5.9) — этап 5;
+- `commissioning_bundle.path` вместе с загрузкой установленного bundle (§5.12) — этап 4+;
+- `network.commissioning_key_id` как реально используемый slot (§8.11) — этап 4+.
 
-network:
-  discovery_service_type: _phantom-ev3._udp
-  discovery_domain: local.
-  ip_family: IPV4
-  default_port: 30470
-  protocol_version: 1
-  control_key_id: phantom01-control
-  commissioning_key_id: null    # Release=null; Diagnostic actuator qualification uses separately provisioned commissioning key_id
-  telemetry_max_age_ms: 100
-
-build_profile: Release   # Release | Diagnostic
-```
+`tools/configgen.py` дополнительно проверяет обратную сторону этого правила: каждое поле,
+объявленное здесь как `MEASURED`, обязано существовать в canonical config и быть
+зарегистрированным в реестре измеряемых параметров. Иначе safety-relevant `MEASURED` мог бы
+существовать только в prose и не блокировать `READY` вопреки S30.
 
 Поля Quest `qualification.qualification_only`, `qualification.actuator_scope_mask` и `qualification.safety_observation_mask` являются **ожидаемым локальным profile selection**, а не источником actuator authority. Authoritative значения находятся в установленном `CommissioningBundle` EV3; Quest обязан загрузить совпадающий локальный semantic bundle и проверить его `commissioning_bundle_hash` через `HELLO_ACK`. Любое расхождение local expected profile ↔ bundle (`qualification_only`, motor scope, safety-observation scope) блокирует motion и отображается как configuration mismatch; сеть не может расширить scope. `required_user_inputs` остаётся частью Quest config/`quest_config_hash` и проверяется локально по текущему product/commissioning phase и `TrackingQualificationProfile`; EV3 не использует это поле как источник actuator authority.

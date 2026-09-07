@@ -28,6 +28,32 @@ implementation stage definitions вынесены в `IMPLEMENTATION_STAGES.md`;
 
 При разбиении также устранены две stale формулировки внутри самой обновлённой монолитной версии, которые всё ещё говорили о `generated codecs`: `TEST_PLAN` и protocol ownership policy §11.8 теперь согласованы с разрешёнными hand-written production codecs и generated constants/size maps.
 
+## 2026-09-07 — remediation независимого аудита
+
+Закрыты findings из `docs/AUDIT_REPORT.md`. Нормативные изменения:
+
+- §7.21 и §5.19 больше не содержат конкурирующую структуру конфигурации: schema/source
+  объявлены единственным владельцем структуры, prose описывает смысл, поля будущих этапов
+  помечены явно (§7.21.2, §5.19.2).
+- §7.2.2 зафиксировал `TELEMETRY_QUERY`/`ControllerTelemetrySnapshotV1` как единственный
+  источник состояния для wire `TELEMETRY`, canonical-zero правила по типам сообщений,
+  session watchdog и запрет чтения motor/power sysfs из `phantom-network`.
+- §7.24 дополнен двухуровневой политикой превышения периода цикла, latched `STOPPED` без
+  завершения процесса и наблюдаемостью исчезнувшего controller.
+- §4.6 требует нормализации DNS-SD service type до `_service._proto`.
+- §8.1 приведён к фактическому дереву репозитория, добавлены §8.1.1 (среда разработчика) и
+  граница `ev3/bench` как непроизводственной оснастки; §8.5 разделил роли PRE-INSTALL и CI;
+  §8.11.1 описал реализованный путь provisioning CONTROL PSK.
+- Единицы duty приведены к `permille` во всех документах; путь bundle-схемы исправлен.
+- `protocol/protocol.md` стал действительно generated; добавлена нормативная
+  `protocol/ipc_schema.yaml`.
+- `gripper_capabilities` получил определение битов в wire schema
+  (`GRIPPER_PRESENT`, `GRIPPER_REFERENCE_CAPABLE`, `0 = none`).
+
+Изменение wire schema (новый bitfield) дало новый `protocol_schema_hash`; все зависимые
+generated артефакты, config hashes и `specification_sha256` перегенерированы. Предыдущие
+build/PASS identities остаются только provenance.
+
 ## 2026-09-06 — software/build audit Stage 1–3 завершён
 
 На clean commit `eb1339842045548c7224e2a8ae4da7b5158b9508` агент завершил аудит

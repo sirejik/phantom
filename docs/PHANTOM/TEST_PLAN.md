@@ -71,7 +71,10 @@ flowchart TD
 | Протокол | C#↔C++ golden vectors, HMAC, sequence/session/transaction rules, malformed packets и fuzz |
 | Интеграция без устройств | Quest logic ↔ PC EV3 simulator, telemetry, HOLD/SAFE_HOLD, reconnect, injected faults |
 | Replay | записанные Shoulder/Wrist traces, timestamp skew, dropped samples и восстановление |
-| Конфигурации | `/config/commissioning_bundle.schema.json`, обязательные поля/units/ranges, `MEASURED.required_before`, совместимость `RobotGeometry`/`DriveCalibration`/safe-set/protocol; YAML duplicate keys, unknown fields и last-key-wins parsing обязаны давать FAIL до canonical JSON/hash |
+| Конфигурации | `config/schema/ev3.schema.json` и `config/schema/commissioning_bundle.schema.json`, обязательные поля/units/ranges, `MEASURED.required_before`, совместимость `RobotGeometry`/`DriveCalibration`/safe-set/protocol; duplicate mapping keys, unknown fields и last-key-wins parsing обязаны давать FAIL до canonical JSON/hash |
+| Канонизация | RFC 8785 conformance: UTF-16 порядок ключей, ECMAScript представление чисел (`1.0`→`1`, `1e-6`→`0.000001`, negative zero, экспоненты), одинаковые bytes во всех реализациях |
+| EV3-local IPC | общие golden vectors `ControllerRequestV1`/`ControllerReplyV1`/`ControllerTelemetrySnapshotV1`: размеры, offsets, endian, canonical-zero, credential/freshness, session watchdog — проверяются и Python, и C++ |
+| Interop | shipped Quest client против **shipped** `phantom-network`, отдельно от сценариев PC-симулятора; отчёт обязан различать эти два источника |
 | Артефакты | package/application id Quest, требуемые permissions/features, build metadata; архитектура и зависимости EV3 ELF, отсутствие test/debug secret в Release |
 
 Минимальные правила gate:
@@ -134,7 +137,10 @@ EV3 stage-2 DEVICE AUTO выполняется установленным `/opt/
 - живой multicast DNS-SD response с правильными service type, port, `robot_id`, boot id и build id;
 - локальный authenticated `HELLO/HELLO_ACK`, server-generated nonzero session id, `PING/PONG`, `TELEMETRY`, rejection invalid HMAC/replay и authenticated `COMMAND` при scope `0x00`;
 - смену boot id после controller kill/restart и сохранение zero/brake для всех физически присутствующих моторов;
-- `nonzero_motor_writes=0` в `/run/phantom/network-status.json` и фактическое финальное состояние sysfs motors.
+- отсутствие motor authority: фактическое финальное состояние sysfs всех присутствующих motors,
+  `motor_write_attempts_rejected` в `/run/phantom/network-status.json` и подтверждение, что
+  `phantom-net` не имеет write-доступа к motor-I/O. Счётчик, который worker никогда не
+  инкрементирует, не является доказательством и не принимается как evidence.
 
 Отсутствующие motor и motor-safety inputs при scope `0x00` получают `N_A` с `reason=OUT_OF_SCOPE`; battery telemetry остаётся обязательной и должна иметь `PASS`. Итоговый report записывается atomically в `/var/lib/phantom/device-auto.json`; пропуск любой применимой Stage-3 строки не считается PASS.
 
@@ -592,7 +598,7 @@ Security tests:
 | payload operation ACK потерян + session lost | новая session обязана заново выполнить безопасную profile/state selection/confirmation до motion; stale UI confirmation не переносится |
 | «SESSION_CLOSE» как неизвестный message type | cheap reject; v1 voluntary relinquish реализуется прекращением traffic + stale timeout |
 
-EV3 receive path использует общий HIL-квалифицированный token bucket `rx_rate_limit_pps`/`rx_burst_packets`, ограниченный socket receive buffer и не обрабатывает более `32` datagrams за один drain. Тест выполняется ниже, на границе и выше **фактически установленного** threshold; hard-coded `100/20` не является нормативным substitute для `MEASURED`. Oversize/header/length/type/reserved проверки выполняются до HMAC. Ни malformed packet, ни flood не создаёт per-source unbounded state, очередь или thread и не изменяет session/actuator state. Для network-only profile дополнительно проверяется `nonzero_motor_writes=0` после authenticated `COMMAND`, replay и flood.
+EV3 receive path использует общий HIL-квалифицированный token bucket `rx_rate_limit_pps`/`rx_burst_packets`, ограниченный socket receive buffer и не обрабатывает более `32` datagrams за один drain. Тест выполняется ниже, на границе и выше **фактически установленного** threshold; hard-coded `100/20` не является нормативным substitute для `MEASURED`. Oversize/header/length/type/reserved проверки выполняются до HMAC. Ни malformed packet, ни flood не создаёт per-source unbounded state, очередь или thread и не изменяет session/actuator state. Для network-only profile дополнительно проверяется, что после authenticated `COMMAND`, replay и flood motor state остаётся нулевым, а каждая отвергнутая motion request учтена в `motor_write_attempts_rejected`.
 
 На реальном EV3 direct on-device benchmark отдельно доказывает:
 
@@ -991,7 +997,7 @@ hard max_high_duty_ms действует независимо от integral scor
 <a id="sec-9-16-4"></a>
 ### 9.16.4. Перегрузка при удержании
 
-В тяжёлых, но квалифицированных позах проверяется duty удержания Shoulder/Elbow. Если `hold_duty_limit_pct` устойчиво превышается, система должна зафиксировать `FAULT_HOLD_OVERLOAD`, прекратить high-duty HOLD и требовать mechanical/payload inspection согласно §7.14.5.
+В тяжёлых, но квалифицированных позах проверяется duty удержания Shoulder/Elbow. Если `hold_duty_limit_permille` устойчиво превышается, система должна зафиксировать `FAULT_HOLD_OVERLOAD`, прекратить high-duty HOLD и требовать mechanical/payload inspection согласно §7.14.5.
 
 Одновременно механические тесты потери питания должны доказывать, что снятие активного момента не создаёт разрушительного падения.
 
@@ -1039,7 +1045,7 @@ full stroke within commissioned timing range
 stall/contact incident is logged when applicable
 ```
 
-`contact_min_travel_ratio`, `contact_duty_min_pct`, `contact_speed_max_counts_s`, `contact_position_error_min_counts`, `contact_confirm_ms` и `release_intent_hysteresis` подбираются только по этому HIL dataset с разделением nominal closing / backlash take-up / compliant contact / rigid contact / jam / release. Принятые значения обязаны удовлетворять false-contact критерию и не маскировать opening jam; изменение любого из них требует повторного §9.16.6.
+`contact_min_travel_ratio`, `contact_duty_min_permille`, `contact_speed_max_counts_s`, `contact_position_error_min_counts`, `contact_confirm_ms` и `release_intent_hysteresis` подбираются только по этому HIL dataset с разделением nominal closing / backlash take-up / compliant contact / rigid contact / jam / release. Принятые значения обязаны удовлетворять false-contact критерию и не маскировать opening jam; изменение любого из них требует повторного §9.16.6.
 
 Дополнительно payload-state HIL обязан проверить **оба state-domain**: production и full `0x0F` qualification-only. В production cold boot/controller restart даёт `active_payload_profile_id=UNSELECTED`, safe-set hash=0 и `PayloadState=UNKNOWN`; `ROBOT_CALIBRATION→READY` до startup `SET_PAYLOAD_PROFILE` и последующего `SET_PAYLOAD_STATE=EMPTY/LOADED` отклоняется; startup profile selection после reference загружает совместимый safe-set без motor motion, затем state confirmation также проходит без motor motion; выбор non-empty `PayloadProfile` без предмета (limits уже conservative, feed-forward payload=off), startup-подтверждение `EMPTY/LOADED` допускается в `ROBOT_CALIBRATION` после full reference+profile selection; последующие runtime-подтверждения — только в `READY/HOLD` при stationary motors, включение payload feed-forward после `LOADED` ACK, запрет `TRACKING` при неизвестном/несогласованном state; при release из `GRIP_CONTACT_HOLD + LOADED/UNKNOWN` A/B/C должны замереть до начала D-opening, D открывается bounded, после снятия контакта система остаётся `HOLD + UNKNOWN`, а переход `UNKNOWN→EMPTY` возможен только явной confirmation transaction при stationary motors; до ACK/new re-arm продолжение `TRACKING` запрещено.
 
@@ -1154,7 +1160,7 @@ unexpected routed/Internet-side source (lab-isolated test path)
 - **только EV3→Quest `TELEMETRY` потеряна**, Quest→EV3 `COMMAND` ещё проходит: при telemetry age `>100 ms` Quest очищает `MOTION_ENABLE`, выдаёт OFF/HOLD и не re-arm-ится автоматически после восстановления; отдельный bidirectional-loss case подтверждает EV3 command-watchdog;
 - LAN permission Quest отозван уже после established session: network subsystem становится unavailable, старая endpoint/session не используются для actuator authority, восстановление идёт через fresh discovery/session;
 - CONTROL/COMMISSIONING datagrams с запрещённого interface/subnet, wildcard listener regression и ошибочная firewall policy не достигают actuator parser/motion path;
-- release provisioning audit подтверждает отсутствие Wi-Fi credential/control PSK/commissioning PSK в Git, APK/resources, build manifest, `CommissioningBundle`, DNS-SD TXT, telemetry и обычных логах; credential files имеют ожидаемые минимальные ownership/permissions;
+- release provisioning audit подтверждает отсутствие Wi-Fi credential/control PSK/commissioning PSK в Git, APK/resources, build manifest, `CommissioningBundle`, DNS-SD TXT, telemetry и обычных логах; credential files имеют ожидаемые минимальные ownership/permissions. Автоматическая часть — `tools/security_scan.py` (`--include-artifacts` для APK и build manifests). Он не освобождает от проверки целые каталоги: исключения задаются поимённым allowlist синтетических фикстур с указанием причины, и сам сканер покрыт `tools/test_security_scan.py`, включая требование никогда не печатать найденный секрет;
 - control credential не авторизует commissioning role/operations; Release build не имеет доступного commissioning secret.
 
 <a id="sec-9-19"></a>

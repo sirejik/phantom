@@ -106,32 +106,76 @@ namespace Phantom.Diagnostics
             snapshot.Rotations.Remove(RobotMarkerId.JawLeft);
             Add(results,"synthetic-partial-qr-rejected",!snapshot.HasAllTenPoses,"partial marker set rejected");
 
+            // Re-arm follows SAFETY S9 in full: after every arm-invalidating event
+            // the client releases, sends the canonical OFF/HOLD, and only arms once
+            // fresh telemetry of the same session shows EV3 accepted that sequence.
+            // A local rising edge alone must never reach TRACKING.
             var sm=new PhantomStateMachine();
             var predicates=ReadyPredicates();
+            ulong offSequence=0;
             var ready=sm.Update(predicates)==PhantomState.Ready&&sm.Update(predicates)==PhantomState.Hold;
-            predicates.EnableHeld=true;var tracking=sm.Update(predicates)==PhantomState.Tracking;
+            var readyNotArmed=!sm.Armed;
+            var tracking=ConfirmedRearm(sm,ref predicates,ref offSequence);
+
             predicates.WristValid=false;var lost=sm.Update(predicates)==PhantomState.SafeHold;
-            predicates.WristValid=true;var heldRecoveryBlocked=sm.Update(predicates)==PhantomState.SafeHold;
+            predicates.WristValid=true;predicates.EnableHeld=true;
+            var heldRecoveryBlocked=sm.Update(predicates)==PhantomState.SafeHold;
             predicates.EnableHeld=false;var released=sm.Update(predicates)==PhantomState.Hold;
-            predicates.EnableHeld=true;var deliberateRearm=sm.Update(predicates)==PhantomState.Tracking;
-            Add(results,"synthetic-tracking-loss-recovery",ready&&tracking&&lost&&heldRecoveryBlocked&&released&&deliberateRearm,"loss is fail-closed and recovery requires release/new rising edge");
+            var unconfirmedBlocked=!sm.Armed;
+            predicates.EnableHeld=true;var edgeWithoutConfirmation=sm.Update(predicates)!=PhantomState.Tracking;
+            predicates.EnableHeld=false;sm.Update(predicates);
+            var deliberateRearm=ConfirmedRearm(sm,ref predicates,ref offSequence);
+            Add(results,"synthetic-tracking-loss-recovery",
+                ready&&readyNotArmed&&tracking&&lost&&heldRecoveryBlocked&&released&&unconfirmedBlocked&&edgeWithoutConfirmation&&deliberateRearm,
+                "loss is fail-closed; recovery requires release plus EV3-confirmed OFF/HOLD before a new rising edge");
 
             predicates.AppFocused=false;var focusLost=sm.Update(predicates)==PhantomState.SafeHold;
-            predicates.AppFocused=true;var focusResumeHeld=sm.Update(predicates)==PhantomState.SafeHold;
+            predicates.AppFocused=true;predicates.EnableHeld=true;
+            var focusResumeHeld=sm.Update(predicates)==PhantomState.SafeHold;
             predicates.EnableHeld=false;var focusResumeReleased=sm.Update(predicates)==PhantomState.Hold;
-            predicates.EnableHeld=true;var focusResumeRearmed=sm.Update(predicates)==PhantomState.Tracking;
-            Add(results,"synthetic-focus-loss-recovery",focusLost&&focusResumeHeld&&focusResumeReleased&&focusResumeRearmed,"focus loss is fail-closed; resume requires release/new rising edge");
+            var focusResumeNotArmed=!sm.Armed;
+            var focusResumeRearmed=ConfirmedRearm(sm,ref predicates,ref offSequence);
+            Add(results,"synthetic-focus-loss-recovery",
+                focusLost&&focusResumeHeld&&focusResumeReleased&&focusResumeNotArmed&&focusResumeRearmed,
+                "focus loss is fail-closed; resume requires release plus EV3-confirmed OFF/HOLD");
 
             sm.OnReferenceSpaceChange();
-            var pauseSafe=sm.State==PhantomState.SafeHold;
-            var pauseResumeHeld=sm.Update(predicates)==PhantomState.SafeHold;
+            var pauseSafe=sm.State==PhantomState.SafeHold&&!sm.Armed;
+            predicates.EnableHeld=true;var pauseResumeHeld=sm.Update(predicates)==PhantomState.SafeHold;
             predicates.EnableHeld=false;var pauseResumeReleased=sm.Update(predicates)==PhantomState.Hold;
-            predicates.EnableHeld=true;var pauseResumeRearmed=sm.Update(predicates)==PhantomState.Tracking;
-            Add(results,"synthetic-pause-resume",pauseSafe&&pauseResumeHeld&&pauseResumeReleased&&pauseResumeRearmed,"pause/reference invalidation is fail-closed; resume requires deliberate re-arm");
+            var pauseResumeNotArmed=!sm.Armed;
+            var pauseResumeRearmed=ConfirmedRearm(sm,ref predicates,ref offSequence);
+            Add(results,"synthetic-pause-resume",
+                pauseSafe&&pauseResumeHeld&&pauseResumeReleased&&pauseResumeNotArmed&&pauseResumeRearmed,
+                "pause/reference invalidation is fail-closed; resume requires deliberate EV3-confirmed re-arm");
+
+            var staleTelemetry=predicates;staleTelemetry.TelemetryFresh=false;staleTelemetry.EnableHeld=false;
+            sm.Update(staleTelemetry);
+            staleTelemetry.EnableHeld=true;
+            Add(results,"synthetic-stale-telemetry-blocks-rearm",sm.Update(staleTelemetry)!=PhantomState.Tracking,
+                "telemetry that is no longer fresh cannot keep a release confirmation alive");
             predicates.AppFocused=false;
             Add(results,"synthetic-fail-closed",!predicates.TrackingValid,"inactive focus invalidates tracking readiness before any output");
             Add(results,"stage2-no-physical-command-path",!robotTransportConstructed&&!motorAuthority,"RobotTransport absent and motor authority false");
             return results.ToArray();
+        }
+
+        /// <summary>
+        /// Performs the full deliberate re-arm: release the grip, send the canonical
+        /// OFF/HOLD, observe EV3 acceptance in fresh telemetry, then a new rising
+        /// edge. Returns true when TRACKING was reached this way.
+        /// </summary>
+        static bool ConfirmedRearm(PhantomStateMachine sm,ref SafetyPredicates predicates,ref ulong offSequence)
+        {
+            predicates.EnableHeld=false;
+            sm.Update(predicates);
+            offSequence++;
+            sm.NoteReleaseCommandSent(offSequence);
+            predicates.TelemetryFresh=true;
+            predicates.LastAcceptedCommandSequence=offSequence;
+            if(sm.Update(predicates)!=PhantomState.Hold||!sm.Armed)return false;
+            predicates.EnableHeld=true;
+            return sm.Update(predicates)==PhantomState.Tracking;
         }
 
         static SafetyPredicates ReadyPredicates()=>new SafetyPredicates

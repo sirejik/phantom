@@ -17,7 +17,7 @@ bool write_fd(int fd,const std::string& value){if(fd<0||::lseek(fd,0,SEEK_SET)<0
 std::string port_name(std::string address){const auto separator=address.rfind(':');if(separator!=std::string::npos)address=address.substr(separator+1);std::transform(address.begin(),address.end(),address.begin(),::tolower);return address;}
 }
 struct Ev3SysfsBackend::Impl {
-  struct Motor {int position=-1,speed=-1,duty=-1,stop_action=-1,command=-1;};
+  struct Motor {int position=-1,speed=-1,duty=-1,stop_action=-1,command=-1;bool run_direct=false;};
   std::array<Motor,4> motors{};int local_stop=-1,gripper_home=-1,battery_uv=-1;bool ok=false;
 };
 Ev3SysfsBackend::Ev3SysfsBackend(std::string motor_class,std::string sensor_class,bool brake_init,std::uint8_t scope,bool require_stop,bool require_home):impl_(new Impl),motor_class_(std::move(motor_class)),sensor_class_(std::move(sensor_class)),brake_during_initialize_(brake_init),actuator_scope_mask_(scope&0x0f),require_local_stop_(require_stop),require_gripper_home_(require_home){}
@@ -56,6 +56,25 @@ IoSnapshot Ev3SysfsBackend::read()noexcept{
   for(std::size_t index=0;index<4;++index){int position=0,speed=0;const bool position_ok=read_int_fd(impl_->motors[index].position,position);const bool speed_ok=read_int_fd(impl_->motors[index].speed,speed);io.motors[index].connected=position_ok&&speed_ok;io.motors[index].encoder_count=position;io.motors[index].speed_counts_s=(float)speed;}
   int stop=1,home=0,battery_uv=0;if(impl_->local_stop>=0){const bool stop_ok=read_int_fd(impl_->local_stop,stop);io.local_stop_pressed=!stop_ok||stop!=0;}else io.local_stop_pressed=false;io.gripper_home_pressed=read_int_fd(impl_->gripper_home,home)&&home!=0;if(read_int_fd(impl_->battery_uv,battery_uv)&&battery_uv>0)io.battery_mv=(std::uint16_t)std::min(battery_uv/1000,65535);return io;
 }
-bool Ev3SysfsBackend::set_duty(std::size_t axis,std::int16_t duty)noexcept{if(!impl_->ok||axis>=4||!(actuator_scope_mask_&(1u<<axis))||impl_->motors[axis].duty<0)return false;duty=std::max<std::int16_t>(-1000,std::min<std::int16_t>(1000,duty));return write_fd(impl_->motors[axis].duty,std::to_string(duty/10))&&write_fd(impl_->motors[axis].command,"run-direct");}
-void Ev3SysfsBackend::brake_all()noexcept{for(auto& motor:impl_->motors){if(motor.duty>=0)write_fd(motor.duty,"0");if(motor.stop_action>=0)write_fd(motor.stop_action,"brake");if(motor.command>=0)write_fd(motor.command,"stop");}}
+// ev3dev `duty_cycle_sp` is signed integer percent, so the protocol's permille
+// resolution cannot be expressed on this hardware. The conversion is explicit,
+// symmetric around zero and rounds to nearest so a small commanded duty is not
+// silently truncated to standstill; the residual quantisation is a documented
+// property of the pinned platform, not an accident of integer division.
+std::int16_t Ev3SysfsBackend::permille_to_percent(std::int16_t duty_permille)noexcept{
+  const std::int16_t clamped=std::max<std::int16_t>(-1000,std::min<std::int16_t>(1000,duty_permille));
+  const int magnitude=(std::abs((int)clamped)+5)/10;
+  return (std::int16_t)(clamped<0?-magnitude:magnitude);
+}
+bool Ev3SysfsBackend::set_duty(std::size_t axis,std::int16_t duty)noexcept{
+  if(!impl_->ok||axis>=4||!(actuator_scope_mask_&(1u<<axis))||impl_->motors[axis].duty<0)return false;
+  auto& motor=impl_->motors[axis];
+  if(!write_fd(motor.duty,std::to_string(permille_to_percent(duty))))return false;
+  // `run-direct` only has to be issued when entering the mode; re-issuing it on
+  // every 50 Hz sample is a pointless sysfs write on a 300 MHz brick.
+  if(motor.run_direct)return true;
+  if(!write_fd(motor.command,"run-direct"))return false;
+  motor.run_direct=true;return true;
+}
+void Ev3SysfsBackend::brake_all()noexcept{for(auto& motor:impl_->motors){if(motor.duty>=0)write_fd(motor.duty,"0");if(motor.stop_action>=0)write_fd(motor.stop_action,"brake");if(motor.command>=0)write_fd(motor.command,"stop");motor.run_direct=false;}}
 }

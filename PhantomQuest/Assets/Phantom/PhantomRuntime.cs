@@ -14,8 +14,13 @@ namespace Phantom
     public sealed class PhantomRuntime:MonoBehaviour
     {
         PhantomWristHud _hud;QuestJsonlLogger _logger;Stage3NetworkClient _network;BoundedNetworkFlightRecorder _flight;double _nextHud;string _startupError;
+        string _credentialState="unknown";bool _credentialProvisioned;
         public NetworkSnapshot NetworkSnapshot=>_network?.Snapshot;
         public int FlightRecorderCount=>_flight?.Count??0;
+        /// <summary>DEVICE AUTO evidence: a credential exists, never its value.</summary>
+        public bool ControlCredentialProvisioned=>_credentialProvisioned;
+        public string ControlCredentialState=>_credentialState;
+        public bool LoggingDegraded=>_logger!=null&&_logger.Degraded;
         void Awake()
         {
             _hud=GetComponent<PhantomWristHud>()??gameObject.AddComponent<PhantomWristHud>();_logger=new QuestJsonlLogger();_flight=new BoundedNetworkFlightRecorder(256);
@@ -23,8 +28,22 @@ namespace Phantom
             {
                 var config=LoadStage3Config();var options=config.ToOptions();var build=Resources.Load<TextAsset>("phantom-build");if(build){var identity=JsonUtility.FromJson<QuestBuildIdentity>(build.text);if(identity!=null&&!string.IsNullOrEmpty(identity.specification_sha256))options.ExpectedSpecificationHash=Stage3RuntimeConfig.Hex32(identity.specification_sha256);}
                 var discovery=new AndroidNsdDiscoveryBackend();var transport=new UdpRobotTransport();var credentials=new AndroidPrivateControlCredentialStore(Application.persistentDataPath);
+                // Engineering CONTROL PSK provisioning (ENGINEERING 8.11): the host
+                // drops the key into the app-specific provisioning directory outside
+                // the runtime protocol; it is imported once into the Keystore-wrapped
+                // store and the plaintext drop is shredded. Diagnostic profile only,
+                // and only the outcome is ever logged.
+                _credentialState="absent";
+                if(string.Equals(config.build_profile,"Diagnostic",StringComparison.Ordinal))
+                {
+                    var imported=credentials.TryImportProvisioningDrop(options.ControlKeyId);
+                    if(imported==CredentialProvisioningResult.Imported)_logger.Log("runtime","control_credential_provisioned","Discovering","","{\"key_id_present\":true}");
+                    else if(imported==CredentialProvisioningResult.Rejected)_logger.Log("runtime","control_credential_rejected","Discovering","","{\"key_id_present\":false}");
+                }
+                _credentialProvisioned=credentials.IsProvisioned(options.ControlKeyId);
+                _credentialState=_credentialProvisioned?"present":"absent";
                 _network=new Stage3NetworkClient(discovery,transport,credentials,options,null,new QuestNetworkEventSink(_logger,_flight));_network.Start();
-                _logger.Log("runtime","stage3_network_only_start","Discovering","","{\"actuator_scope_mask\":0,\"motor_authority\":false}");
+                _logger.Log("runtime","stage3_network_only_start","Discovering","","{\"actuator_scope_mask\":0,\"motor_authority\":false,\"control_credential\":\""+_credentialState+"\"}");
             }
             catch(Exception error){_startupError=error.Message;_logger.Log("runtime","configuration_mismatch","ConfigurationMismatch","","{\"category\":\"stage3_startup\"}");}
         }

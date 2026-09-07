@@ -1,0 +1,70 @@
+{
+  "schema_version": 1,
+  "ipc_version": 1,
+  "endianness": "little",
+  "float_format": "IEEE-754-binary32",
+  "magic_ascii": "PHIP",
+  "note": "JSON syntax (and therefore valid YAML) so generation stays dependency-free on the pinned ev3dev image.",
+  "message_types": {
+    "SESSION_OPEN": 1,
+    "REPLY": 2,
+    "COMMAND_SNAPSHOT": 3,
+    "SESSION_INVALIDATE": 4,
+    "TELEMETRY_QUERY": 5,
+    "TELEMETRY_SNAPSHOT": 6
+  },
+  "messages": [
+    {"name":"ControllerRequestV1","length":120,"direction":"network_to_controller","fields":[
+      ["magic","u8",4],
+      ["ipc_version","u16"],
+      ["request_type","u16"],
+      ["reserved0","u32"],
+      ["controller_boot_id","u8",16],
+      ["session_generation","u64"],
+      ["session_id","u8",16],
+      ["role","u8"],
+      ["key_slot","u8"],
+      ["remote_family","u8"],
+      ["reserved1","u8"],
+      ["remote_ipv4_network_order","u8",4],
+      ["remote_port_network_order","u8",2],
+      ["reserved2","u16"],
+      ["client_nonce","u8",16],
+      ["wire_sequence","u64"],
+      ["rx_monotonic_us","u64"],
+      ["command_payload","u8",24]
+    ]},
+    {"name":"ControllerReplyV1","length":64,"direction":"controller_to_network","fields":[
+      ["magic","u8",4],
+      ["ipc_version","u16"],
+      ["reply_type","u16"],
+      ["reserved0","u32"],
+      ["controller_boot_id","u8",16],
+      ["session_generation","u64"],
+      ["session_id","u8",16],
+      ["request_wire_sequence","u64"],
+      ["result_code","u16"],
+      ["reserved_tail","u16"]
+    ]},
+    {"name":"ControllerTelemetrySnapshotV1","length":108,"direction":"controller_to_network","fields":[
+      ["magic","u8",4],
+      ["ipc_version","u16"],
+      ["reply_type","u16"],
+      ["reserved0","u32"],
+      ["controller_boot_id","u8",16],
+      ["session_generation","u64"],
+      ["snapshot_monotonic_us","u64"],
+      ["state","u16"],
+      ["fault_code","u16"],
+      ["status_flags","u32"],
+      ["battery_mv","u16"],
+      ["grip_state","u16"],
+      ["loop_health_flags","u32"],
+      ["incident_id","u8",16],
+      ["q_actual_rad","f32",3],
+      ["q_speed_rad_s","f32",3],
+      ["grip_actual","f32"],
+      ["reserved_tail","u32"]
+    ]}
+  ]
+}

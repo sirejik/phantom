@@ -2,68 +2,187 @@
 #define _GNU_SOURCE
 #endif
 #include "phantom/network_ipc.hpp"
+#include "ipc_constants.hpp"
 #include "protocol_constants.hpp"
 #include <cerrno>
 #include <cmath>
 #include <cstring>
 #include <fcntl.h>
+#include <signal.h>
 #include <sys/socket.h>
 #include <sys/stat.h>
 #include <sys/un.h>
 #include <unistd.h>
 
 namespace phantom { namespace {
-constexpr std::uint32_t Magic=0x50494850u; // "PHIP" on little-endian Linux
-constexpr std::uint16_t Version=1,Open=1,OpenReply=2,Command=3,Invalidate=4;
-constexpr std::uint16_t Ok=(std::uint16_t)wire::ResultCode::OK,ErrAuth=(std::uint16_t)wire::ResultCode::ERR_AUTH,ErrSession=(std::uint16_t)wire::ResultCode::ERR_SESSION,ErrBusy=(std::uint16_t)wire::ResultCode::ERR_CONTROL_SESSION_BUSY,ErrUnsupported=(std::uint16_t)wire::ResultCode::ERR_UNSUPPORTED;
-constexpr std::size_t RequestBytes=120,ReplyBytes=64;
+namespace layout = ipc;
+constexpr std::uint16_t Ok=(std::uint16_t)wire::ResultCode::OK,
+                        ErrAuth=(std::uint16_t)wire::ResultCode::ERR_AUTH,
+                        ErrSession=(std::uint16_t)wire::ResultCode::ERR_SESSION,
+                        ErrBusy=(std::uint16_t)wire::ResultCode::ERR_CONTROL_SESSION_BUSY,
+                        ErrUnsupported=(std::uint16_t)wire::ResultCode::ERR_UNSUPPORTED,
+                        ErrFormat=(std::uint16_t)wire::ResultCode::ERR_FORMAT;
+constexpr std::uint64_t kFreshnessUs=500000;
+
 std::uint16_t u16(const unsigned char*p){return std::uint16_t(p[0])|std::uint16_t(p[1])<<8;}
 std::uint32_t u32(const unsigned char*p){return std::uint32_t(p[0])|std::uint32_t(p[1])<<8|std::uint32_t(p[2])<<16|std::uint32_t(p[3])<<24;}
 std::uint64_t u64(const unsigned char*p){std::uint64_t v=0;for(int i=7;i>=0;--i)v=(v<<8)|p[i];return v;}
 void put16(unsigned char*p,std::uint16_t v){p[0]=v&255;p[1]=(v>>8)&255;}
 void put32(unsigned char*p,std::uint32_t v){for(int i=0;i<4;++i)p[i]=(v>>(8*i))&255;}
 void put64(unsigned char*p,std::uint64_t v){for(int i=0;i<8;++i)p[i]=(v>>(8*i))&255;}
+void putf(unsigned char*p,float v){std::uint32_t bits=0;std::memcpy(&bits,&v,4);put32(p,bits);}
 bool unix_address(sockaddr_un&out,const std::string&path){if(path.size()>=sizeof(out.sun_path))return false;std::memset(&out,0,sizeof(out));out.sun_family=AF_UNIX;std::memcpy(out.sun_path,path.c_str(),path.size()+1);return true;}
 bool all_zero(const unsigned char*p,std::size_t n){for(std::size_t i=0;i<n;++i)if(p[i])return false;return true;}
 }
 
 bool read_controller_boot_id(const std::string&path,std::array<std::uint8_t,16>&value) noexcept{
-  int fd=::open(path.c_str(),O_RDONLY|O_CLOEXEC);if(fd<0)return false;char text[33];std::size_t n=0;while(n<sizeof(text)){const auto got=::read(fd,text+n,sizeof(text)-n);if(got<0&&errno==EINTR)continue;if(got<=0)break;n+=(std::size_t)got;}::close(fd);if(n!=33||text[32]!='\n')return false;
+  int fd=::open(path.c_str(),O_RDONLY|O_CLOEXEC);if(fd<0)return false;char text[33];std::size_t n=0;
+  while(n<sizeof(text)){const auto got=::read(fd,text+n,sizeof(text)-n);if(got<0&&errno==EINTR)continue;if(got<=0)break;n+=(std::size_t)got;}
+  ::close(fd);if(n!=33||text[32]!='\n')return false;
   auto digit=[](char c)->int{if(c>='0'&&c<='9')return c-'0';if(c>='a'&&c<='f')return c-'a'+10;return -1;};
-  for(std::size_t i=0;i<16;++i){const int hi=digit(text[2*i]),lo=digit(text[2*i+1]);if(hi<0||lo<0)return false;value[i]=(std::uint8_t)((hi<<4)|lo);}return !all_zero(value.data(),value.size());
+  for(std::size_t i=0;i<16;++i){const int hi=digit(text[2*i]),lo=digit(text[2*i+1]);if(hi<0||lo<0)return false;value[i]=(std::uint8_t)((hi<<4)|lo);}
+  return !all_zero(value.data(),value.size());
 }
 
-NetworkIpcBoundary::NetworkIpcBoundary(const std::string&path,const std::array<std::uint8_t,16>&boot_id,unsigned expected_uid,unsigned socket_gid,bool network_only) noexcept:path_(path),boot_id_(boot_id),expected_uid_(expected_uid),network_only_(network_only){
-  sockaddr_un address{};if(!unix_address(address,path_))return;fd_=::socket(AF_UNIX,SOCK_DGRAM|SOCK_NONBLOCK|SOCK_CLOEXEC,0);if(fd_<0)return;int enabled=1;if(::setsockopt(fd_,SOL_SOCKET,SO_PASSCRED,&enabled,sizeof(enabled))!=0){::close(fd_);fd_=-1;return;}::unlink(path_.c_str());if(::bind(fd_,reinterpret_cast<sockaddr*>(&address),sizeof(address))||::chown(path_.c_str(),(uid_t)-1,(gid_t)socket_gid)||::chmod(path_.c_str(),0660)){::close(fd_);fd_=-1;::unlink(path_.c_str());}
+NetworkIpcBoundary::NetworkIpcBoundary(const std::string&path,const std::array<std::uint8_t,16>&boot_id,
+                                       unsigned expected_uid,unsigned socket_gid,bool network_only,
+                                       std::uint32_t session_timeout_ms) noexcept
+  :path_(path),boot_id_(boot_id),expected_uid_(expected_uid),network_only_(network_only),
+   session_timeout_ms_(session_timeout_ms?session_timeout_ms:5000){
+  sockaddr_un address{};if(!unix_address(address,path_))return;
+  fd_=::socket(AF_UNIX,SOCK_DGRAM|SOCK_NONBLOCK|SOCK_CLOEXEC,0);if(fd_<0)return;
+  int enabled=1;if(::setsockopt(fd_,SOL_SOCKET,SO_PASSCRED,&enabled,sizeof(enabled))!=0){::close(fd_);fd_=-1;return;}
+  ::unlink(path_.c_str());
+  if(::bind(fd_,reinterpret_cast<sockaddr*>(&address),sizeof(address))||::chown(path_.c_str(),(uid_t)-1,(gid_t)socket_gid)||::chmod(path_.c_str(),0660)){::close(fd_);fd_=-1;::unlink(path_.c_str());}
 }
+
 NetworkIpcBoundary::~NetworkIpcBoundary(){if(fd_>=0)::close(fd_);if(!path_.empty())::unlink(path_.c_str());}
+
+void NetworkIpcBoundary::end_session() noexcept {
+  session_active_=false;last_wire_sequence_=0;session_id_.fill(0);peer_pid_=-1;generation_=0;
+}
+
+void NetworkIpcBoundary::expire_stale_session(std::uint64_t now_us) noexcept {
+  if(!session_active_)return;
+  const std::uint64_t timeout_us=(std::uint64_t)session_timeout_ms_*1000;
+  if(last_ipc_us_&&now_us>=last_ipc_us_&&now_us-last_ipc_us_<=timeout_us)return;
+  // A lost SESSION_INVALIDATE must never leave a permanently "open" session.
+  end_session();
+  ++session_expiries_;
+}
 
 void NetworkIpcBoundary::drain(std::uint64_t now_us) noexcept{
   if(fd_<0)return;
   for(int count=0;count<16;++count){
-    unsigned char request[RequestBytes];sockaddr_un peer{};iovec io{request,sizeof(request)};unsigned char control[CMSG_SPACE(sizeof(ucred))];std::memset(control,0,sizeof(control));msghdr msg{};msg.msg_name=&peer;msg.msg_namelen=sizeof(peer);msg.msg_iov=&io;msg.msg_iovlen=1;msg.msg_control=control;msg.msg_controllen=sizeof(control);
-    const auto received=::recvmsg(fd_,&msg,MSG_DONTWAIT);if(received<0){if(errno==EINTR){--count;continue;}break;}
-    ucred*cred=nullptr;for(cmsghdr*c=CMSG_FIRSTHDR(&msg);c;c=CMSG_NXTHDR(&msg,c))if(c->cmsg_level==SOL_SOCKET&&c->cmsg_type==SCM_CREDENTIALS&&c->cmsg_len>=CMSG_LEN(sizeof(ucred))){cred=reinterpret_cast<ucred*>(CMSG_DATA(c));break;}
-    if(received!=(ssize_t)RequestBytes||!cred||(unsigned)cred->uid!=expected_uid_)continue;
-    const bool envelope=u32(request)==Magic&&u16(request+4)==Version&&u32(request+8)==0&&std::memcmp(request+12,boot_id_.data(),16)==0&&request[53]==0&&request[55]==0&&u16(request+62)==0;
-    const std::uint16_t type=u16(request+6);const std::uint64_t generation=u64(request+28),wire_sequence=u64(request+80),rx_us=u64(request+88);std::uint16_t result=ErrSession;
-    if(envelope&&generation&&rx_us<=now_us&&now_us-rx_us<=500000){
-      if(type==Open){
-        const bool selector=request[52]==0&&request[53]==0&&request[54]==4&&!all_zero(request+36,16)&&wire_sequence==0;
+    unsigned char request[layout::kControllerRequestBytes];
+    sockaddr_un peer{};iovec io{request,sizeof(request)};
+    unsigned char control[CMSG_SPACE(sizeof(ucred))];std::memset(control,0,sizeof(control));
+    msghdr msg{};msg.msg_name=&peer;msg.msg_namelen=sizeof(peer);msg.msg_iov=&io;msg.msg_iovlen=1;msg.msg_control=control;msg.msg_controllen=sizeof(control);
+    const auto received=::recvmsg(fd_,&msg,MSG_DONTWAIT);
+    if(received<0){if(errno==EINTR){--count;continue;}break;}
+    ucred*cred=nullptr;
+    for(cmsghdr*c=CMSG_FIRSTHDR(&msg);c;c=CMSG_NXTHDR(&msg,c))
+      if(c->cmsg_level==SOL_SOCKET&&c->cmsg_type==SCM_CREDENTIALS&&c->cmsg_len>=CMSG_LEN(sizeof(ucred))){cred=reinterpret_cast<ucred*>(CMSG_DATA(c));break;}
+    if(received!=(ssize_t)layout::kControllerRequestBytes||!cred||(unsigned)cred->uid!=expected_uid_){++rejected_requests_;continue;}
+
+    const std::uint16_t type=u16(request+layout::kControllerRequestOffsetRequestType);
+    const std::uint64_t generation=u64(request+layout::kControllerRequestOffsetSessionGeneration);
+    const std::uint64_t wire_sequence=u64(request+layout::kControllerRequestOffsetWireSequence);
+    const std::uint64_t rx_us=u64(request+layout::kControllerRequestOffsetRxMonotonicUs);
+    const unsigned char* session=request+layout::kControllerRequestOffsetSessionId;
+    const unsigned char* nonce=request+layout::kControllerRequestOffsetClientNonce;
+    const unsigned char* command=request+layout::kControllerRequestOffsetCommandPayload;
+
+    // Envelope: magic/version/reserved/boot identity and the canonical-zero
+    // reserved bytes the contract mandates for every request type.
+    const bool envelope=
+      std::memcmp(request+layout::kControllerRequestOffsetMagic,"PHIP",4)==0&&
+      u16(request+layout::kControllerRequestOffsetIpcVersion)==layout::kIpcVersion&&
+      u32(request+layout::kControllerRequestOffsetReserved0)==0&&
+      std::memcmp(request+layout::kControllerRequestOffsetControllerBootId,boot_id_.data(),16)==0&&
+      request[layout::kControllerRequestOffsetKeySlot]==0&&
+      request[layout::kControllerRequestOffsetRemoteFamily]==4&&
+      request[layout::kControllerRequestOffsetReserved1]==0&&
+      u16(request+layout::kControllerRequestOffsetReserved2)==0;
+
+    std::uint16_t result=ErrSession;
+    bool telemetry_reply=false;
+    if(!envelope){result=ErrFormat;}
+    else if(!(generation&&rx_us<=now_us&&now_us-rx_us<=kFreshnessUs)){result=ErrSession;}
+    else{
+      last_ipc_us_=now_us;
+      if(type==(std::uint16_t)layout::MessageType::SESSION_OPEN){
+        const bool selector=request[layout::kControllerRequestOffsetRole]==0&&
+                            !all_zero(session,16)&&wire_sequence==0&&
+                            all_zero(command,layout::kControllerRequestSizeCommandPayload);
         if(!network_only_)result=ErrUnsupported;
         else if(!selector)result=ErrAuth;
-        else if(session_active_&&peer_pid_==cred->pid&&generation==generation_&&std::memcmp(request+36,session_id_.data(),16)==0)result=Ok;
-        else if(session_active_&&peer_pid_==cred->pid)result=ErrBusy;
-        else{session_active_=true;peer_pid_=cred->pid;generation_=generation;last_wire_sequence_=0;std::memcpy(session_id_.data(),request+36,16);result=Ok;}
-      }else if(type==Command){
-        const std::uint32_t motion=u32(request+96),tail=u32(request+116);float values[4];std::memcpy(values,request+100,sizeof(values));bool finite=true;for(float value:values)finite=finite&&std::isfinite(value);const bool bounded=values[0]>=-6.4f&&values[0]<=6.4f&&values[1]>=-6.4f&&values[1]<=6.4f&&values[2]>=-6.4f&&values[2]<=6.4f&&values[3]>=0.0f&&values[3]<=1.0f;
-        constexpr std::uint32_t mask=wire::kCommandMotionFlagsMotionEnable|wire::kCommandMotionFlagsHoldRequest|wire::kCommandMotionFlagsTrackingValid|wire::kCommandMotionFlagsGraspValid;if(session_active_&&peer_pid_==cred->pid&&generation==generation_&&std::memcmp(request+36,session_id_.data(),16)==0&&wire_sequence>last_wire_sequence_&&(motion&~mask)==0&&tail==0&&finite&&bounded){last_wire_sequence_=wire_sequence;++accepted_commands_;result=Ok;}
-      }else if(type==Invalidate){
-        if(session_active_&&peer_pid_==cred->pid&&generation==generation_&&std::memcmp(request+36,session_id_.data(),16)==0){session_active_=false;last_wire_sequence_=0;session_id_.fill(0);result=Ok;}
+        else if(session_active_&&peer_pid_==cred->pid&&generation==generation_&&std::memcmp(session,session_id_.data(),16)==0)result=Ok;
+        // One CONTROL session at a time. A different peer may only take over
+        // when the previous owner process is provably gone; a live owner always
+        // wins, so takeover can never be a silent race between two workers.
+        else if(session_active_&&(peer_pid_==cred->pid||::kill((pid_t)peer_pid_,0)==0))result=ErrBusy;
+        else{session_active_=true;peer_pid_=cred->pid;generation_=generation;last_wire_sequence_=0;std::memcpy(session_id_.data(),session,16);result=Ok;}
+      }else if(type==(std::uint16_t)layout::MessageType::COMMAND_SNAPSHOT){
+        const std::uint32_t motion=u32(command),tail=u32(command+20);
+        float values[4];std::memcpy(values,command+4,sizeof(values));
+        bool finite=true;for(float value:values)finite=finite&&std::isfinite(value);
+        const bool bounded=values[0]>=-6.4f&&values[0]<=6.4f&&values[1]>=-6.4f&&values[1]<=6.4f&&
+                           values[2]>=-6.4f&&values[2]<=6.4f&&values[3]>=0.0f&&values[3]<=1.0f;
+        constexpr std::uint32_t mask=wire::kCommandMotionFlagsMotionEnable|wire::kCommandMotionFlagsHoldRequest|wire::kCommandMotionFlagsTrackingValid|wire::kCommandMotionFlagsGraspValid;
+        if(!all_zero(nonce,layout::kControllerRequestSizeClientNonce))result=ErrFormat;
+        else if(session_active_&&peer_pid_==cred->pid&&generation==generation_&&
+                std::memcmp(session,session_id_.data(),16)==0&&wire_sequence>last_wire_sequence_&&
+                (motion&~mask)==0&&tail==0&&finite&&bounded){last_wire_sequence_=wire_sequence;++accepted_commands_;result=Ok;}
+      }else if(type==(std::uint16_t)layout::MessageType::SESSION_INVALIDATE){
+        if(!all_zero(nonce,layout::kControllerRequestSizeClientNonce)||wire_sequence!=0||
+           !all_zero(command,layout::kControllerRequestSizeCommandPayload))result=ErrFormat;
+        else if(session_active_&&peer_pid_==cred->pid&&generation==generation_&&std::memcmp(session,session_id_.data(),16)==0){end_session();result=Ok;}
+      }else if(type==(std::uint16_t)layout::MessageType::TELEMETRY_QUERY){
+        if(!all_zero(nonce,layout::kControllerRequestSizeClientNonce)||
+           !all_zero(command,layout::kControllerRequestSizeCommandPayload))result=ErrFormat;
+        else telemetry_reply=true;
+      }else{
+        result=ErrUnsupported;
       }
     }
-    unsigned char reply[ReplyBytes]{};put32(reply,Magic);put16(reply+4,Version);put16(reply+6,OpenReply);std::memcpy(reply+12,boot_id_.data(),16);put64(reply+28,generation);std::memcpy(reply+36,request+36,16);put64(reply+52,wire_sequence);put16(reply+60,result);
+    if(result!=Ok&&!telemetry_reply)++rejected_requests_;
+
+    if(telemetry_reply){
+      unsigned char reply[layout::kControllerTelemetrySnapshotBytes]{};
+      std::memcpy(reply+layout::kControllerTelemetrySnapshotOffsetMagic,"PHIP",4);
+      put16(reply+layout::kControllerTelemetrySnapshotOffsetIpcVersion,layout::kIpcVersion);
+      put16(reply+layout::kControllerTelemetrySnapshotOffsetReplyType,(std::uint16_t)layout::MessageType::TELEMETRY_SNAPSHOT);
+      std::memcpy(reply+layout::kControllerTelemetrySnapshotOffsetControllerBootId,boot_id_.data(),16);
+      put64(reply+layout::kControllerTelemetrySnapshotOffsetSessionGeneration,generation);
+      put64(reply+layout::kControllerTelemetrySnapshotOffsetSnapshotMonotonicUs,snapshot_.monotonic_us);
+      put16(reply+layout::kControllerTelemetrySnapshotOffsetState,snapshot_.state);
+      put16(reply+layout::kControllerTelemetrySnapshotOffsetFaultCode,snapshot_.fault_code);
+      put32(reply+layout::kControllerTelemetrySnapshotOffsetStatusFlags,snapshot_.status_flags);
+      put16(reply+layout::kControllerTelemetrySnapshotOffsetBatteryMv,snapshot_.battery_mv);
+      put16(reply+layout::kControllerTelemetrySnapshotOffsetGripState,snapshot_.grip_state);
+      put32(reply+layout::kControllerTelemetrySnapshotOffsetLoopHealthFlags,snapshot_.loop_health_flags);
+      std::memcpy(reply+layout::kControllerTelemetrySnapshotOffsetIncidentId,snapshot_.incident_id.data(),16);
+      for(std::size_t i=0;i<3;++i){
+        putf(reply+layout::kControllerTelemetrySnapshotOffsetQActualRad+4*i,snapshot_.q_actual[i]);
+        putf(reply+layout::kControllerTelemetrySnapshotOffsetQSpeedRadS+4*i,snapshot_.q_speed[i]);
+      }
+      putf(reply+layout::kControllerTelemetrySnapshotOffsetGripActual,snapshot_.grip_actual);
+      ::sendto(fd_,reply,sizeof(reply),MSG_DONTWAIT,reinterpret_cast<sockaddr*>(&peer),msg.msg_namelen);
+      continue;
+    }
+
+    unsigned char reply[layout::kControllerReplyBytes]{};
+    std::memcpy(reply+layout::kControllerReplyOffsetMagic,"PHIP",4);
+    put16(reply+layout::kControllerReplyOffsetIpcVersion,layout::kIpcVersion);
+    put16(reply+layout::kControllerReplyOffsetReplyType,(std::uint16_t)layout::MessageType::REPLY);
+    std::memcpy(reply+layout::kControllerReplyOffsetControllerBootId,boot_id_.data(),16);
+    put64(reply+layout::kControllerReplyOffsetSessionGeneration,generation);
+    std::memcpy(reply+layout::kControllerReplyOffsetSessionId,session,16);
+    put64(reply+layout::kControllerReplyOffsetRequestWireSequence,wire_sequence);
+    put16(reply+layout::kControllerReplyOffsetResultCode,result);
     ::sendto(fd_,reply,sizeof(reply),MSG_DONTWAIT,reinterpret_cast<sockaddr*>(&peer),msg.msg_namelen);
   }
 }
+
 } // namespace phantom

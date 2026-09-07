@@ -1,17 +1,44 @@
 name: phantom-pre-install
+# Deterministic subset of `scripts/pre-install-auto.ps1`. Everything that runs
+# without Unity, Docker-on-Windows or a device belongs here, so a regression in
+# the shipped EV3 worker, the IPC contract, canonicalization or the config gate
+# cannot reach main by only being covered on a developer workstation.
 on: [push, pull_request]
 jobs:
   schemas-python-ev3-host:
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v4
-      - run: python3 tools/specgen.py --check && python3 tools/docindex.py --check && python3 tools/doclint.py
-      - run: python3 tools/protocolgen.py --check && python3 tools/spec_contract_check.py && python3 tools/configgen.py --check
-      - run: python3 tools/test_protocol.py && python3 tools/test_build_identity.py && python3 sim/ev3-simulator/test_simulator.py && python3 sim/tracking-replay/test_tracking_replay.py
-      - run: python3 tools/security_scan.py
-      - run: python3 tools/quest_android_nsd_check.py
-      - run: cmake -S ev3 -B build/ev3-host -G Ninja -DCMAKE_BUILD_TYPE=Debug && cmake --build build/ev3-host && ctest --test-dir build/ev3-host --output-on-failure
-      - run: cmake -S ev3 -B build/ev3-sanitize -G Ninja -DCMAKE_BUILD_TYPE=Debug -DCMAKE_CXX_FLAGS='-fsanitize=address,undefined -fno-omit-frame-pointer' && cmake --build build/ev3-sanitize && ASAN_OPTIONS=detect_leaks=1 ctest --test-dir build/ev3-sanitize --output-on-failure
+      - name: Specification identity and documentation lint
+        run: python3 tools/specgen.py --check && python3 tools/docindex.py --check && python3 tools/doclint.py && python3 tools/implementation_map_check.py && python3 tools/skills_sync.py --check
+      - name: Generated protocol, IPC and configuration artifacts
+        run: python3 tools/protocolgen.py --check && python3 tools/spec_contract_check.py && python3 tools/configgen.py --check
+      - name: Canonicalization, protocol and identity regressions
+        run: |
+          python3 tools/test_jcs.py
+          python3 tools/test_protocol.py
+          python3 tools/test_ipc_contract.py
+          python3 tools/test_build_identity.py
+          python3 tools/test_configgen.py
+      - name: EV3 worker, device-auto and simulation regressions
+        run: |
+          python3 ev3/network/test_phantom_network.py
+          python3 tools/test_ev3_device_auto.py
+          python3 tools/test_artifact_check.py
+          python3 sim/ev3-simulator/test_simulator.py
+          python3 sim/tracking-replay/test_tracking_replay.py
+      - name: Report analyzers
+        run: python3 tools/quest_validation/test_analyze.py && python3 tools/ev3_validation/test_analyze.py
+      - name: Quest static contracts
+        run: python3 tools/quest_android_nsd_check.py && python3 tools/quest_provider_compatibility_check.py && python3 tools/spec_test_duration_check.py
+      - name: Secret and provisioning scan
+        run: python3 tools/security_scan.py && python3 tools/test_security_scan.py
+      - name: EV3 host build and tests
+        run: cmake -S ev3 -B build/ev3-host -G Ninja -DCMAKE_BUILD_TYPE=Debug && cmake --build build/ev3-host && ctest --test-dir build/ev3-host --output-on-failure
+      - name: EV3 host sanitizers
+        run: cmake -S ev3 -B build/ev3-sanitize -G Ninja -DCMAKE_BUILD_TYPE=Debug -DCMAKE_CXX_FLAGS='-fsanitize=address,undefined -fno-omit-frame-pointer' && cmake --build build/ev3-sanitize && ASAN_OPTIONS=detect_leaks=1 ctest --test-dir build/ev3-sanitize --output-on-failure
+      - name: EV3 on-host self-tests
+        run: ./build/ev3-host/phantom-controller --self-test && ./build/ev3-host/phantom-safety --self-test
   armel-cross:
     runs-on: ubuntu-24.04
     steps:

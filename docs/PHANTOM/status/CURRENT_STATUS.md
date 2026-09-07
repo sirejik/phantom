@@ -19,9 +19,40 @@ deterministic build manifest (`built_at` отсутствует по контр�
 > reports в repository `results/**`; этот файл никогда не заменяет PRE-INSTALL/DEVICE/HIL/manual
 > evidence.
 
+## Remediation независимого аудита, 2026-09-07
+
+Выполнена remediation `docs/AUDIT_REPORT.md`; пофайловая трассировка каждого finding —
+`AUDIT_REMEDIATION_2026-09-06.md`. Работа затронула нормативную документацию, wire schema,
+config schema/source и runtime обеих сторон, поэтому **изменились identity**:
+
+```text
+specification_sha256: c665c4c4... -> ab5745c6a67bfe98dce7194e655664ccd71dd67a375e6edee7869db6f02f4bcf
+protocol_schema_hash: 48d85291... -> 960d64e335cd891ca16186c997a813e0121b44c0518bd75f255906d0f8c50818
+ipc_schema_hash:      (новый)    -> 34918932cb81c6305e276e4410d0d44d0ca30aaaf52291669fe42358f4706455
+```
+
+По правилу переносимости PASS из `AGENTS.md` весь предыдущий software/build PASS и все
+artifact identities ниже становятся **только provenance** и не относятся к текущему candidate.
+До установки требуется clean rebuild и повторный `scripts/pre-install-auto.ps1 -Stage 3`.
+
+Существенные изменения поведения, которые обязана учитывать физическая приёмка:
+
+- `LOCAL_STOP` и потеря `phantom-safety` больше не завершают `phantom-controller`: состояние
+  латчится в `STOPPED`, процесс продолжает тормозить и остаётся наблюдаемым, снятие возможно
+  только через `RESET_STOPPED`/`FAULT_ACK`;
+- wire `TELEMETRY` теперь целиком происходит из `ControllerTelemetrySnapshotV1`;
+  при устаревшем snapshot `phantom-network` не отправляет TELEMETRY и не открывает сессию;
+- Stage-3 доказательство отсутствия motor authority больше не опирается на тавтологичный
+  счётчик `nonzero_motor_writes` (см. пункт 7 ниже);
+- Quest получил реальный путь provisioning CONTROL PSK, поэтому DEVICE AUTO включает
+  новые строки `quest-control-credential-present` и `quest-log-storage-healthy`.
+
 ## Текущий подтверждённый split-spec software/build baseline
 
-Для clean source candidate выполнен полный Stage-3 PRE-INSTALL:
+> **Provenance.** Блок ниже описывает предыдущий candidate `565da0a`. Он сохранён как
+> история и **не** является подтверждением текущего дерева.
+
+Для clean source candidate `565da0a` был выполнен полный Stage-3 PRE-INSTALL:
 
 ```text
 source candidate commit: 565da0ac0e022b8c931fcdb24a986d931b602025
@@ -99,8 +130,12 @@ candidate прошёл собственную генерацию, сборку �
 
 ## Текущие split-spec artifacts
 
-Artifacts ниже относятся к clean candidate `565da0a`, split
-`specification_sha256=c665c4c4...` и текущему `protocol_schema_hash=48d85291...`:
+> **Provenance.** Артефакты ниже собраны под прежними
+> `specification_sha256=c665c4c4...` и `protocol_schema_hash=48d85291...`. После
+> remediation обе identity изменились, поэтому ни один из этих artifact не является
+> текущим installable candidate.
+
+Artifacts относятся к candidate `565da0a`:
 
 | Artifact | Profile | SHA-256 | Build ID |
 |---|---|---|---|
@@ -122,7 +157,9 @@ EV3 Release ARMEL binaries также собраны (`build_id=57cda0afb8213639
 5. проверить real CONTROL HELLO/HELLO_ACK, PING/PONG и live TELEMETRY/freshness;
 6. проверить reconnect, controller restart/session invalidation, EV3 reboot, IP change,
    service remove/re-add;
-7. доказать `nonzero_motor_writes=0` во всём Stage-3 network-only сценарии;
+7. доказать отсутствие motor authority: `motor_write_attempts_rejected` учитывает
+   каждую отклонённую попытку, наблюдаемые duty/speed всех motor nodes остаются
+   нулевыми, а `phantom-net` не входит в motor-I/O DAC group;
 8. зафиксировать Stage-3 physical acceptance.
 
 До фактического выполнения этих случаев:

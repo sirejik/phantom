@@ -245,6 +245,13 @@ namespace Phantom.Diagnostics
             Observe(checks,"stage3-telemetry-fresh",snapshot?.Freshness==TelemetryFreshness.Fresh,snapshot==null?"runtime snapshot unavailable":$"freshness={snapshot.Freshness}; age_ms={snapshot.TelemetryAgeMilliseconds}; rtt_ms={snapshot.RttMilliseconds}");
             Add(checks,"motor-authority-disabled",true,"Stage-3 runtime exposes no COMMAND/motor-target API; actuator scope is zero");
             Add(checks,"network-flight-recorder-bounded",runtime!=null&&runtime.FlightRecorderCount<=256,$"entries={runtime?.FlightRecorderCount??0}; capacity=256");
+            // Stage-3 exit criterion: an authenticated CONTROL session is
+            // impossible without a provisioned credential. Only presence is
+            // reported; the key itself never reaches a report or a log.
+            Add(checks,"quest-control-credential-present",runtime!=null&&runtime.ControlCredentialProvisioned,
+                $"control_credential={runtime?.ControlCredentialState??"unknown"}; provisioned out of band per ENGINEERING 8.11");
+            Add(checks,"quest-log-storage-healthy",runtime!=null&&!runtime.LoggingDegraded,
+                $"log_storage_degraded={(runtime!=null&&runtime.LoggingDegraded)}");
             Add(checks,"runtime-error-log",_errorLogs==0,$"error_exception_assert_count={_errorLogs}");
             var incomplete=checks.Exists(value=>value.status=="NOT_RUN");var failed=checks.Exists(value=>value.status=="FAIL");var now=DateTime.UtcNow;
             var report=new QuestDeviceAutoReport{status=failed?"FAIL":incomplete?"INCOMPLETE":"PASS",build_id=_identity?.build_id??"UNKNOWN",build_profile=_identity?.build_profile??"UNKNOWN",git_commit=_identity?.git_commit??"UNKNOWN",specification_sha256=_identity?.specification_sha256??"UNKNOWN",protocol_schema_hash=_identity?.protocol_schema_hash??"UNKNOWN",config_hash=_identity?.config_hash??"UNKNOWN",unity_version=Application.unityVersion,device_model=SystemInfo.deviceModel,operating_system=SystemInfo.operatingSystem,started_utc=_startedUtc.ToString("o"),finished_utc=now.ToString("o"),duration_ms=(long)((Time.realtimeSinceStartup-_startedMonotonic)*1000),motor_authority=false,xr_session_active=false,xr_focus_active=Application.isFocused,live_observation_available=false,body_provider_state="N_A_NETWORK_ONLY",body_provider_reason="required_user_inputs=NONE",error_log_count=_errorLogs,checks=checks.ToArray()};
