@@ -47,7 +47,55 @@ artifact identities ниже становятся **только provenance** и
 - Quest получил реальный путь provisioning CONTROL PSK, поэтому DEVICE AUTO включает
   новые строки `quest-control-credential-present` и `quest-log-storage-healthy`.
 
-## Текущий подтверждённый split-spec software/build baseline
+## Текущий подтверждённый software/build baseline
+
+Для clean source candidate после remediation выполнен полный Stage-3 PRE-INSTALL:
+
+```text
+source candidate commit: 4b6d24430c79de16d0556003a6f544e8906cacea
+source_tree_hash:
+a8800d1c3e2135117c11cbb8c23bb07293f171cdee7ca29cebf57621065167cb
+specification_sha256:
+9520ba4fbe3a8e3d42b95e4ccf039827953e98333d04369a8685bdbf636f1539
+protocol_schema_hash:
+960d64e335cd891ca16186c997a813e0121b44c0518bd75f255906d0f8c50818
+ipc_schema_hash:
+34918932cb81c6305e276e4410d0d44d0ca30aaaf52291669fe42358f4706455
+PRE-INSTALL report: results/pre-install/report.json
+report SHA-256:
+f5a5aa8595144669212caa57ff58be18ed80684fa6f7405cd4d4b9b6122d9260
+worktree_dirty: false
+install_authorized: true
+```
+
+`powershell scripts/pre-install-auto.ps1 -Stage 3` завершился `PASS`: 35/35 обязательных
+software/build checks, ни одного non-PASS. В набор добавлены новые gates: RFC 8785
+canonicalization, cross-implementation IPC contract, границы валидации конфигурации,
+regressions device-auto runner, regressions самого secret scanner, компиляция androidlib и
+проверки implementation map/skills mirror.
+
+Golden wire vectors — `21/21 PASS`; Quest exact decode/re-encode — `21/21 PASS`;
+Quest pure core — `81` checks; localhost UDP — `10` сценариев, включая один против
+**shipped** `phantom_network.py`, а не только против симулятора; Unity EditMode `30/30`;
+EV3 host Release/Diagnostic, ASan/UBSan и ARMEL Release/Diagnostic — PASS;
+provisioning audit — PASS.
+
+### Artifacts текущего candidate `4b6d2443`
+
+| Artifact | Profile | SHA-256 | Build ID |
+|---|---|---|---|
+| `PhantomQuest-diagnostic.apk` | Diagnostic network-only | `ed3d5b805395aab1a447f1b25d44d01369b6ac532bcb8c067e02c29553aab5a3` | `15b078cdb9ce48f0b1f29d337bfd91c0b681b100a92961ca9b66493e7ba47bf3` |
+| `PhantomQuest-release.apk` | Release compile artifact | `5e6e4a2d66247acc074cc9717b557034ac24722de56475f26a895a4c5a768413` | `afb86e8754582a100f6eaa9bbc35bee117aab20a4fa8388e285e1cc251574737` |
+| EV3 Stage-3 Diagnostic package | ARMEL network-only | `67e0aa24a6f602dc2ee6e2087dd78d2483a29a78ebedb1987e61569254e01e03` | `9ae236ae1a2f0a14e32632de1d247ba50a5761d61f3f8264923a4edb9c33aca8` |
+
+EV3 Release ARMEL binaries также собраны
+(`build_id=595f89eeda29ab1eaebae76ca59ee72117f40d6a7ea44681780fe41784227a18`), но installable
+Release tar намеренно не выпускался: qualification evidence отсутствует.
+
+Software/build gate относится к candidate `4b6d2443`. Записи ниже — история предыдущих
+candidate, сохранённая как provenance.
+
+## Предыдущий split-spec baseline (provenance)
 
 > **Provenance.** Блок ниже описывает предыдущий candidate `565da0a`. Он сохранён как
 > история и **не** является подтверждением текущего дерева.
@@ -78,7 +126,7 @@ ARMEL Release/Diagnostic build PASS; secret scan PASS.
 
 ## Stage status
 
-| Область | Состояние на split candidate `565da0a` |
+| Область | Состояние на candidate `4b6d2443` |
 |---|---|
 | Stage 1 specification consistency | `PASS` |
 | Stage 1 implementation/regression | `PASS` |
@@ -128,7 +176,7 @@ candidate прошёл собственную генерацию, сборку �
 - Release package/install остаётся заблокированным без valid qualification evidence; compile
   или APK/ELF build сам по себе не является production qualification.
 
-## Текущие split-spec artifacts
+## Artifacts предыдущего candidate (provenance)
 
 > **Provenance.** Артефакты ниже собраны под прежними
 > `specification_sha256=c665c4c4...` и `protocol_schema_hash=48d85291...`. После
