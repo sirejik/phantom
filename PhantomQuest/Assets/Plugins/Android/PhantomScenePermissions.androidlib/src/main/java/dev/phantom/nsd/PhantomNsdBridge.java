@@ -79,7 +79,7 @@ public final class PhantomNsdBridge {
             lock.setReferenceCounted(false);
             lock.acquire();
             multicastLock = lock;
-        } catch (RuntimeException | SecurityException error) {
+        } catch (RuntimeException error) {  // SecurityException is one of these.
             // Discovery may still work without the lock on newer platforms; the
             // absence is reported, never silently assumed to be fine.
             listener.onError("multicast_lock_unavailable");

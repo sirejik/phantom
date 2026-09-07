@@ -44,6 +44,7 @@ Run-Check "secret-scan-regressions" 1 {python tools/test_security_scan.py}
 Run-Check "quest-pure-core" 1 {powershell -NoProfile -ExecutionPolicy Bypass -File tools/quest_validation/compile_and_smoke.ps1}
 Run-Check "quest-simulator-integration" 1 {powershell -NoProfile -ExecutionPolicy Bypass -File tools/quest_validation/run_udp_integration.ps1}
 Run-Check "quest-android-nsd-contract" 3 {python tools/quest_android_nsd_check.py}
+Run-Check "quest-androidlib-compile" 3 {& "$PSScriptRoot/../tools/quest_validation/compile_androidlib.ps1"}
 Run-Check "quest-provider-compatibility" 2 {python tools/quest_provider_compatibility_check.py}
 Run-Check "spec-test-duration-contract" 2 {python tools/spec_test_duration_check.py}
 Run-Check "quest-analyzer-regressions" 2 {python tools/quest_validation/test_analyze.py}
