@@ -79,7 +79,9 @@ void NetworkIpcBoundary::drain(std::uint64_t now_us) noexcept{
     unsigned char control[CMSG_SPACE(sizeof(ucred))];std::memset(control,0,sizeof(control));
     msghdr msg{};msg.msg_name=&peer;msg.msg_namelen=sizeof(peer);msg.msg_iov=&io;msg.msg_iovlen=1;msg.msg_control=control;msg.msg_controllen=sizeof(control);
     const auto received=::recvmsg(fd_,&msg,MSG_DONTWAIT);
-    if(received<0){if(errno==EINTR){--count;continue;}break;}
+    // EINTR consumes budget like any other iteration: the bound is a ceiling on
+    // work per 50 Hz tick, and a retry that refunds its slot is not bounded.
+    if(received<0){if(errno==EINTR)continue;break;}
     ucred*cred=nullptr;
     for(cmsghdr*c=CMSG_FIRSTHDR(&msg);c;c=CMSG_NXTHDR(&msg,c))
       if(c->cmsg_level==SOL_SOCKET&&c->cmsg_type==SCM_CREDENTIALS&&c->cmsg_len>=CMSG_LEN(sizeof(ucred))){cred=reinterpret_cast<ucred*>(CMSG_DATA(c));break;}

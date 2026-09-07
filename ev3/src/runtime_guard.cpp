@@ -34,7 +34,7 @@ void HeartbeatChannel::drain(std::uint64_t now)noexcept{
   Heartbeat h{};
   for(int count=0;count<kMaxDrainPerCall;++count){
     auto n=::recv(fd_,&h,sizeof(h),MSG_DONTWAIT);
-    if(n<0){if(errno==EINTR){--count;continue;}return;}
+    if(n<0){if(errno==EINTR)continue;return;}  // EINTR consumes budget: see network_ipc drain.
     if(n==(ssize_t)sizeof(h)&&h.magic==Magic&&h.version==1&&h.role!=role_&&h.reserved==0)last_peer_us_=now;
     else ++dropped_;
   }
