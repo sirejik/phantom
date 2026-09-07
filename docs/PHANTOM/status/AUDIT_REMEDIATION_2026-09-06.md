@@ -21,11 +21,14 @@
 
 ## Сводка
 
+Аудит содержал 44 findings (C-01…C-02, H-01…H-07, M-01…M-17, L-01…L-12, I-01…I-06).
+L-11 и L-12 закрыты одной правкой `AGENTS.md` и показаны одной строкой таблицы.
+
 | статус | количество |
 |---|---|
-| CLOSED | 34 |
-| CLOSED (код готов, device evidence отдельно) | 2 |
-| PRESERVED | 2 |
+| CLOSED | 39 |
+| CLOSED по коду, device evidence остаётся NOT_RUN | 2 (C-01, M-02) |
+| PRESERVED | 3 (I-01, I-02, I-04) |
 | NOT_APPLICABLE | 0 |
 
 ## Findings
@@ -75,6 +78,19 @@
 | **I-04** Unity template/sample ассеты | — | не удалялись вслепую; поведение сборки описано, зависимость проекта не нарушена | — | PRESERVED (см. вопрос ниже) |
 | **I-05** `results/**` вне инженерной навигации | — | §8.1 описывает состав и роль `results/**`; ссылки добавлены в `ARCHITECTURE.md` | `doclint` | CLOSED |
 | **I-06** нет карты «требование → этап» | — | `docs/PHANTOM/implementation-map.json` (27 записей) + `tools/implementation_map_check.py` | `implementation_map_check` в CI и PRE-INSTALL | CLOSED |
+
+## Дефекты, внесённые самой remediation и исправленные до завершения
+
+Эти проблемы не были findings аудита: их создала текущая работа, и они найдены и закрыты
+внутри неё. Записаны потому, что два из трёх были невидимы для детерминированных gates и это
+само по себе было дефектом покрытия.
+
+| дефект | как обнаружен | исправление |
+|---|---|---|
+| `tools/toolchain.ps1` вызывал `Set-StrictMode -Version Latest`; будучи dot-sourced, он менял language semantics всех вызывающих скриптов и ломал обработку `$LASTEXITCODE` | сломавшийся вызывающий скрипт | strict mode убран; в файле записано, что dot-sourced модуль не имеет права менять семантику вызывающего |
+| `QuestAutoQualification.cs` утверждал прежний контракт re-arm и падал необработанным исключением | зависший `compile_and_smoke.ps1` | синтетические случаи переписаны под полную последовательность S9; добавлен случай `synthetic-stale-telemetry-blocks-rearm`. Тест исправлен под реальный контракт, а не удалён |
+| `StartupWizardModel.cs` ссылался на удалённое `PhantomState.Fault`; runtime-сборка Unity не компилировалась | Unity EditMode gate | файл приведён к текущей модели состояний; **и устранён сам разрыв покрытия**: `compile_and_smoke.ps1` больше не использует рукописный список каталогов, а выводит набор из репозитория, поэтому каждый Unity-независимый runtime-файл компилируется детерминированным gate, а не только Unity |
+| `deploy/scripts/device-auto.py` продолжал читать удалённый счётчик `nonzero_motor_writes`, из-за чего `ev3-stage3-zero-output-audit` всегда давал бы FAIL на реальном устройстве | самопроверка после remediation | проверка переведена на реальные доказательства (sysfs, DAC, `motor_write_attempts_rejected`); добавлены три regression-теста в `tools/test_ev3_device_auto.py` |
 
 ## Изменение identity
 
