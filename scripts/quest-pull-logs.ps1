@@ -1,6 +1,7 @@
 param([string]$Destination="results/quest/runs",[string]$Package="dev.phantom.questprototype")
 $ErrorActionPreference="Stop"
-$adb="C:\Program Files\Unity\Hub\Editor\6000.3.22f1\Editor\Data\PlaybackEngines\AndroidPlayer\SDK\platform-tools\adb.exe"
+. "$PSScriptRoot/../tools/toolchain.ps1"
+$adb=Get-PhantomAdb
 if(!(Test-Path -LiteralPath $adb)){throw "Bundled adb not found: $adb"}
 New-Item -ItemType Directory -Force -Path $Destination | Out-Null
 $remote="/sdcard/Android/data/$Package/files/phantom-runs/."

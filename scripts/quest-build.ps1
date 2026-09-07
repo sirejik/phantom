@@ -4,7 +4,8 @@ param(
     [ValidateSet("Release","Diagnostic")][string]$Profile="Release"
 )
 $ErrorActionPreference="Stop"
-$unity="C:\Program Files\Unity\Hub\Editor\6000.3.22f1\Editor\Unity.exe"
+. "$PSScriptRoot/../tools/toolchain.ps1"
+$unity=Get-PhantomUnityExe
 $signingRoot=[System.IO.Path]::GetFullPath($SigningDirectory)
 $keystore=Join-Path $signingRoot "phantom-quest-release.keystore"
 $passwordFile=Join-Path $signingRoot "keystore.pass"
