@@ -25,6 +25,8 @@
 → сборка артефактов
 → автоматические тесты до установки
 → разрешение установки
+→ transfer и установка без запуска tests
+→ bounded запуск exact installed build
 → автоматические проверки на устройстве
 → HIL/сценарные проверки
 → ручная системная и пользовательская приёмка
@@ -41,9 +43,11 @@ flowchart TD
   C[Изменение кода] --> B[Сборка Quest APK<br/>и EV3 binaries]
   B --> A[PRE-INSTALL AUTO<br/>тесты до установки]
   A -->|FAIL| X[Артефакт заблокирован<br/>не устанавливать]
-  A -->|PASS| P[Подписать / опубликовать<br/>build_id + hashes]
-  P --> D[Установка на Quest / EV3]
-  D --> S[DEVICE AUTO<br/>автоматический smoke и self-test]
+  A -->|PASS| P[Опубликовать без изменения bytes<br/>build_id + hashes]
+  P --> T[TRANSFER<br/>копирование + hash]
+  T --> D[INSTALL<br/>размещение без запуска тестов]
+  D --> ST[START<br/>bounded activation]
+  ST --> S[DEVICE AUTO<br/>отдельный smoke/self-test]
   S -->|FAIL| X2[Build непригоден<br/>собрать логи]
   S -->|PASS| H[HIL AUTO<br/>сценарии с реальным оборудованием]
   H -->|FAIL| X3[Дефект + regression test]
@@ -52,12 +56,18 @@ flowchart TD
   M -->|PASS| R[Release candidate]
 ```
 
-Быстрые статические проверки и часть модульных тестов могут выполняться до или параллельно компиляции, но **после успешной сборки существует отдельный обязательный `PRE-INSTALL` gate**. Он привязан к конкретным `commit`, `build_id` и хэшам артефактов. Нельзя считать достаточным ситуацию, когда тесты прошли для исходников, а устанавливается другой APK или другой EV3 binary.
+Быстрые статические проверки и часть модульных тестов могут выполняться до или параллельно компиляции, но **после успешной сборки существует отдельный обязательный `PRE-INSTALL` gate**. Он привязан к конкретным `commit`, `build_id` и хэшам артефактов. Нельзя считать достаточным ситуацию, когда тесты прошли для исходников, а устанавливается другой APK или другой EV3 binary. Границы `TRANSFER`/`INSTALL`/`START` нормативно определены в §8.5.1 и §8.7; успешная установка файлов сама по себе не является DEVICE PASS.
 
 <a id="sec-9-1-2"></a>
 ### 9.1.2. Автоматические тесты до установки (`PRE-INSTALL AUTO`)
 
 Эти тесты выполняются на PC/CI непосредственно после получения сборочных артефактов и **до** `adb install` на Quest и до копирования бинарных файлов на EV3.
+
+`PRE-INSTALL AUTO` принимает уже существующие финальные artifact bytes как input. Runner не
+вызывает production build, не переподписывает/переупаковывает артефакт и не обращается к
+физическим устройствам. Unity tests выполняются Unity Editor’ом на PC; их наличие в этом gate
+не означает установку Unity на Quest или EV3. Если для теста нужна отдельная disposable test
+сборка, она хранится вне candidate paths и не может заменить либо изменить проверяемые bytes.
 
 Обязательный набор:
 
@@ -97,7 +107,11 @@ artifact SHA-256 recorded
 <a id="sec-9-1-3"></a>
 ### 9.1.3. Автоматические тесты после установки (`DEVICE AUTO`)
 
-Установка разрешена только после успешного `PRE-INSTALL AUTO`. После установки выполняется короткий автоматизированный smoke/self-test конкретного артефакта.
+Установка разрешена только после успешного `PRE-INSTALL AUTO`. `DEVICE AUTO` является
+отдельной явно запускаемой фазой над уже установленным и успешно активированным exact build.
+Его runner не выполняет build, transfer, package installation, смену active release или
+rollback. Он может перезапускать процессы только внутри явно перечисленных test cases и после
+каждого такого case обязан восстановить документированное безопасное terminal state.
 
 **Quest:**
 
@@ -109,7 +123,26 @@ artifact SHA-256 recorded
 - отсутствует crash/exception при входе/выходе из приложения и повторном запуске;
 - Release не содержит включённых инженерных механизмов, которые должны быть Diagnostic-only.
 
-Штатный Quest stage-2 runner — `scripts/quest-device-auto.ps1`. Он принимает только APK со смежным build manifest и существующим `results/quest/pre-install/report.json` со статусом `PASS`, содержащим тот же `quest_build_id`; проверяет единственный авторизованный ADB target `Quest 3/eureka`, SHA-256 APK, выполняет `adb install -r -g`, первый запуск, `force-stop` и повторный запуск. Запуск через ADB не использует неограниченный `am start -W`: runner автоматически посылает bounded wake event, отдельно и с конечным timeout проверяет PID и появление app report; ручное пробуждение/разблокирование не требуется и не запрашивается. Неактивные XR session/focus и отсутствие live observations на лежащем шлеме записываются как `NOT_RUN` environment evidence без software FAIL. Встроенный zero-output self-test проверяет build/config identity, `LOCAL_FLOOR`, permissions, passthrough/MRUK/Multimodal configuration и все adapters, но stage PASS определяется active profile: full-arm profile требует выбранный Body provider/Wrist path, gripper-only profile требует Hand/grasp + left Controller, а Body/Wrist live/provider qualification помечается `N_A` для этого stage gate и остаётся blocker будущего этапа 8/9. При pause сохраняется тот же классифицированный snapshot, а Diagnostic выполняет полный synthetic suite без `RobotTransport`. Raw logcat обоих запусков и объединённый host/app report сохраняются под `results/quest/device-auto/<quest_build_id>/`; серийный номер в отчёт не попадает, используется только сокращённый SHA-256 идентификатор.
+Штатный Quest stage-2 DEVICE runner — `scripts/quest-device-auto.ps1`. Он принимает только
+уже установленный APK со смежным build manifest и существующим
+`results/pre-install/report.json` со статусом `PASS`, содержащим тот же
+`quest_build_id`; проверяет единственный авторизованный ADB target `Quest 3/eureka` и identity
+установленного package. `adb install -r -g` относится к отдельному Quest INSTALL runner и не
+выполняется DEVICE runner’ом. DEVICE runner выполняет первый bounded запуск, `force-stop` и
+повторный bounded запуск. Запуск через ADB не использует неограниченный `am start -W`: runner
+автоматически посылает bounded wake event, отдельно и с конечным timeout проверяет PID и
+появление app report; ручное пробуждение/разблокирование не требуется и не запрашивается.
+Неактивные XR session/focus и отсутствие live observations на лежащем шлеме записываются как
+`NOT_RUN` environment evidence без software FAIL. Встроенный zero-output self-test проверяет
+build/config identity, `LOCAL_FLOOR`, permissions, passthrough/MRUK/Multimodal configuration
+и все adapters, но stage PASS определяется active profile: full-arm profile требует выбранный
+Body provider/Wrist path, gripper-only profile требует Hand/grasp + left Controller, а
+Body/Wrist live/provider qualification помечается `N_A` для этого stage gate и остаётся
+blocker будущего этапа 8/9. При pause сохраняется тот же классифицированный snapshot, а
+Diagnostic выполняет полный synthetic suite без `RobotTransport`. Raw logcat обоих запусков
+и объединённый host/app report сохраняются под
+`results/quest/device-auto/<quest_build_id>/`; серийный номер в отчёт не попадает,
+используется только сокращённый SHA-256 идентификатор.
 
 Quest `DEVICE AUTO PASS` доказывает запуск конкретного установленного APK и software/platform compatibility, но не доказывает качество реальных Wrist/Shoulder/grasp/Touch/QR observations. Он не заменяет bounded live-observation cases §9.6, camera/QR measurement §9.10 и ручные pause/resume/HMD/haptics сценарии. Provider классифицируется раздельно: API отсутствует — `FAIL`; provider явно отключён или несовместим — `FAIL`; provider сконфигурирован, но XR/focus неактивен и live samples отсутствуют — compatibility `PASS`, live evidence `NOT_RUN`; provider инициализирован — `PASS`, а live sample является дополнительным evidence.
 
@@ -128,6 +161,13 @@ Quest `DEVICE AUTO PASS` доказывает запуск конкретног�
 
 EV3 stage-2 DEVICE AUTO выполняется установленным `/opt/phantom/current/bin/phantom-device-auto` с root privilege и атомарно сохраняет `/var/lib/phantom/device-auto.json`. Отчёт содержит `git_commit`, один установленный **`ev3_build_id`** текущего profile, hashes controller/safety/config, platform fingerprint, monotonic timestamp и отдельные строки минимум для artifact integrity, config, motor/sensor/battery discovery, обоих on-device self-tests, systemd startup, zero-output startup, supervisor takeover и safe restart. Stage-3 network строки присутствуют как `N_A` с `introduced_at_stage=3`.
 
+EV3 DEVICE runner требует успешный отдельный `START` result того же installed `ev3_build_id`.
+Он не вызывается installer’ом и сам не распаковывает package, не переключает
+`/opt/phantom/current`, не обновляет systemd units/tmpfiles и не выполняет rollback. Если
+case обнаружил runtime failure, runner сначала сохраняет первый непосредственный service
+failure и cascade relationships, затем приводит систему в заявленное safe terminal state;
+исправление/rollback выполняется последующей отдельной операцией.
+
 Начиная с EV3-side этапа 3 тот же installed runner формирует report `schema_version=2`, `gate="DEVICE AUTO"`, `stage=3` и проверяет дополнительно:
 
 - согласованный network-only profile одновременно в runtime config и authoritative bundle, а также их manifest hashes;
@@ -138,7 +178,7 @@ EV3 stage-2 DEVICE AUTO выполняется установленным `/opt/
 - локальный authenticated `HELLO/HELLO_ACK`, server-generated nonzero session id, `PING/PONG`, `TELEMETRY`, rejection invalid HMAC/replay и authenticated `COMMAND` при scope `0x00`;
 - смену boot id после controller kill/restart и сохранение zero/brake для всех физически присутствующих моторов;
 - отсутствие motor authority: фактическое финальное состояние sysfs всех присутствующих motors,
-  `motor_write_attempts_rejected` в `/run/phantom/network-status.json` и подтверждение, что
+  `motor_write_attempts_rejected` в `/run/phantom/network/status.json` и подтверждение, что
   `phantom-net` не имеет write-доступа к motor-I/O. Счётчик, который worker никогда не
   инкрементирует, не является доказательством и не принимается как evidence.
 

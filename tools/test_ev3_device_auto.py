@@ -149,18 +149,111 @@ class DeploymentRegressionTests(unittest.TestCase):
         writable = next(line for line in unit.splitlines() if line.startswith("ReadWritePaths="))
         self.assertIn("/run/phantom/motor-control.lock", writable.split("=", 1)[1].split())
 
-    def test_installer_checks_each_required_service_and_restores_metadata(self):
+    def test_network_status_atomic_replace_stays_inside_owned_runtime_directory(self):
+        worker = (ROOT / "ev3" / "network" / "phantom_network.py").read_text(encoding="utf-8")
+        unit = (ROOT / "deploy" / "systemd" / "phantom-network.service").read_text(encoding="utf-8")
+        tmpfiles = (ROOT / "deploy" / "tmpfiles" / "phantom.conf").read_text(encoding="utf-8")
+        self.assertIn('default="/run/phantom/network/status.json"', worker)
+        self.assertIn("ReadWritePaths=/run/phantom/network", unit)
+        self.assertNotIn("/run/phantom/network-status.json", unit)
+        self.assertIn("f /run/phantom/network/status.json 0640 phantom-net phantom-net -", tmpfiles)
+
+    def test_core_startup_is_not_blocked_on_wifi_and_network_owns_wifi_dependency(self):
+        controller = (ROOT / "deploy" / "systemd" / "phantom-controller.service").read_text(encoding="utf-8")
+        network = (ROOT / "deploy" / "systemd" / "phantom-network.service").read_text(encoding="utf-8")
+        target = (ROOT / "deploy" / "systemd" / "phantom.target").read_text(encoding="utf-8")
+        controller_after = next(line for line in controller.splitlines() if line.startswith("After="))
+        self.assertNotIn("phantom-wifi-autoconnect.service", controller_after)
+        self.assertIn("Wants=phantom-wifi-autoconnect.service", network)
+        self.assertIn("After=phantom-controller.service phantom-wifi-autoconnect.service", network)
+        self.assertNotIn("After=phantom-wifi-autoconnect.service", target)
+
+    def test_installer_only_installs_and_leaves_runtime_stopped(self):
         installer = (ROOT / "deploy" / "scripts" / "install-release").read_text(encoding="utf-8")
-        self.assertIn("for unit in $runtime_services", installer)
-        self.assertIn('systemctl is-active --quiet "$unit"', installer)
-        self.assertNotIn("systemctl is-active --quiet phantom-safety.service phantom-wifi-autoconnect.service", installer)
-        self.assertIn('install_runtime_metadata "$previous"', installer)
-        self.assertIn('runtime_metadata_matches "$previous"', installer)
+        self.assertNotIn("--self-test", installer)
+        self.assertNotIn("compileall", installer)
+        self.assertNotIn("systemctl start", installer)
+        self.assertNotIn("phantom-device-auto", installer)
+        self.assertIn('stop_runtime || fail', installer)
+        self.assertIn('force_and_verify_zero_output || fail', installer)
+        self.assertLess(installer.index('install_runtime_metadata "$dest"'),
+                        installer.index('ln -sfn "$dest" "$root/current"'))
+        self.assertNotIn("restore_metadata || true", installer)
+        self.assertIn('test "$symlink_restored" = 1', installer)
+        self.assertIn('"phase": "INSTALL"', installer)
         self.assertIn("network_group=$(sed -n 's/^Group=//p'", installer)
         self.assertIn('chown "root:$network_group"', installer)
         self.assertIn("! -name motor-control.lock", installer)
-        rollback = installer[installer.index("rollback(){"):installer.index("fail_with_rollback(){")]
-        self.assertIn("all_services_active", rollback)
+
+    def test_start_stops_at_first_failure_and_captures_systemd_cause(self):
+        starter = (ROOT / "deploy" / "scripts" / "start-release").read_text(encoding="utf-8")
+        self.assertIn("phantom-safety.service phantom-controller.service phantom-wifi-autoconnect.service phantom-network.service phantom-mdns.service", starter)
+        self.assertIn("ExecMainCode", starter)
+        self.assertIn("ExecMainStatus", starter)
+        self.assertIn("systemctl list-dependencies --all", starter)
+        self.assertIn("fail_start \"$unit\"", starter)
+        self.assertNotIn("phantom-device-auto", starter)
+        self.assertNotIn("install -m 0644", starter)
+
+    def test_recovery_restores_without_hidden_restart_or_candidate_delete(self):
+        recovery = (ROOT / "deploy" / "scripts" / "rollback-release").read_text(encoding="utf-8")
+        self.assertNotIn("systemctl start", recovery)
+        self.assertNotIn("phantom-device-auto", recovery)
+        self.assertNotIn('rm -rf -- "$previous"', recovery)
+        self.assertIn('ln -sfn "$previous" "$root/current"', recovery)
+
+    def test_preinstall_does_not_rebuild_or_repackage_production_artifacts(self):
+        source = (ROOT / "scripts" / "pre-install-auto.ps1").read_text(encoding="utf-8")
+        self.assertNotIn("ev3-armel-docker.ps1", source)
+        self.assertNotIn("ev3-package.ps1", source)
+        self.assertIn('Run-Check "post-build-artifacts"', source)
+        self.assertIn('Run-Check "ev3-deployment-shell-syntax"', source)
+        self.assertIn('Run-Check "deployment-powershell-syntax"', source)
+        for tool in ("install-release", "start-release", "run-device-auto", "rollback-release"):
+            self.assertIn(tool, source)
+
+    def test_device_launcher_is_bounded_and_has_no_install_or_rollback(self):
+        source = (ROOT / "deploy" / "scripts" / "run-device-auto").read_text(encoding="utf-8")
+        self.assertIn('timeout "$deadline" /opt/phantom/current/bin/phantom-device-auto', source)
+        self.assertIn('if test "$code" != 0', source)
+        self.assertIn('systemctl stop "$unit"', source)
+        self.assertIn('launcher_terminal_state', source)
+        self.assertIn('SAFE_STATE_VERIFICATION_FAILED', source)
+        self.assertIn('runner exited or timed out before producing a valid report', source)
+        self.assertNotIn("install-release", source)
+        self.assertNotIn("rollback-release", source)
+
+    def test_ev3_transfer_is_idempotent_and_admits_deployment_tool_hashes(self):
+        source = (ROOT / "scripts" / "ev3-transfer.ps1").read_text(encoding="utf-8")
+        self.assertIn("phantom-upload-", source)
+        self.assertIn("mv '$remoteUpload' '$remote'", source)
+        self.assertIn("Deployment tool $name is absent or ambiguous", source)
+        self.assertIn("WaitForExit($TimeoutSeconds*1000)", source)
+        self.assertIn("$process.WaitForExit()", source)
+        self.assertIn("$process.Refresh()", source)
+
+    def test_quest_install_start_and_device_runners_are_separate(self):
+        installer = (ROOT / "scripts" / "quest-install.ps1").read_text(encoding="utf-8")
+        starter = (ROOT / "scripts" / "quest-start.ps1").read_text(encoding="utf-8")
+        device = (ROOT / "scripts" / "quest-device-auto.ps1").read_text(encoding="utf-8")
+        self.assertIn("'install','-r','-g'", installer)
+        self.assertNotIn("am start", installer)
+        self.assertIn("am start", starter)
+        self.assertNotIn("install -r -g", starter)
+        self.assertNotIn("install -r -g", device)
+        self.assertIn("Matching Quest INSTALL and START PASS", device)
+        self.assertFalse((ROOT / "scripts" / "quest-pre-install-auto.ps1").exists())
+        self.assertIn("results/pre-install/report.json", installer)
+        self.assertIn("results/pre-install/report.json", device)
+        self.assertIn("install_authorized-eq$true", installer)
+        self.assertIn("worktree_dirty-eq$false", installer)
+        self.assertIn("artifactMatches.Count-eq 1", installer)
+        self.assertIn("APK_INSTALL_STARTED_RESULT_UNKNOWN", installer)
+        self.assertIn("$installProcess.WaitForExit()", installer)
+        self.assertIn("$installProcess.Refresh()", installer)
+        self.assertLess(starter.index("APP_LAUNCH_REQUESTED_READINESS_UNVERIFIED"),
+                        starter.index("shell am start"))
+        self.assertIn('$p0PrerequisiteFailed=$status-ne"PASS"', device)
 
     def test_runner_does_not_probe_network_after_systemd_prerequisite_failure(self):
         source = (ROOT / "deploy" / "scripts" / "device-auto.py").read_text(encoding="utf-8")
@@ -173,6 +266,15 @@ class DeploymentRegressionTests(unittest.TestCase):
         source = (ROOT / "deploy" / "scripts" / "device-auto.py").read_text(encoding="utf-8")
         self.assertIn("report_manifest = manifest", source)
         self.assertIn("write_report(report_manifest)", source)
+
+    def test_runner_initialises_network_evidence_before_prerequisite_branches(self):
+        source = (ROOT / "deploy" / "scripts" / "device-auto.py").read_text(encoding="utf-8")
+        initialisation = source.index("network_status = {}")
+        branch = source.index("if services_ok and profile_ok and safe:")
+        audit = source.index('add("ev3-stage3-zero-output-audit"')
+        self.assertLess(initialisation, branch)
+        self.assertLess(branch, audit)
+        self.assertIn('counters = {}', source[:branch])
 
 
 if __name__ == "__main__":

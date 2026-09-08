@@ -63,6 +63,6 @@ $listing=(@(& $adb -s $serial shell "if [ -f '$remotePath' ]; then echo present;
 if($listing-ne'present'){throw "Provisioning drop was not created on the device"}
 
 Write-Output "CONTROL credential staged for key_id=$KeyId (contents not shown)."
-Write-Output "Next: launch the Diagnostic build once. It imports the key into the Android Keystore-wrapped"
+Write-Output "Next: run scripts/quest-start.ps1 once. The app imports the key into the Android Keystore-wrapped"
 Write-Output "store and shreds the plaintext drop. Then run scripts/quest-device-auto.ps1 and confirm"
 Write-Output "'quest-control-credential-present' is PASS."

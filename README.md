@@ -32,9 +32,20 @@ powershell -File scripts/quest-build.ps1 -Profile Release -Output build/quest/Ph
 powershell -File scripts/quest-build.ps1 -Profile Diagnostic -Output build/quest/PhantomQuest-diagnostic.apk
 powershell -File scripts/ev3-host-build.ps1 -Profile Release
 powershell -File scripts/ev3-armel-docker.ps1
-powershell -File scripts/pre-install-auto.ps1
-powershell -File scripts/quest-device-auto.ps1
 powershell -File scripts/ev3-package.ps1
+powershell -File scripts/pre-install-auto.ps1
+```
+
+После PRE-INSTALL PASS физические операции запускаются отдельно и не пересобирают artifacts:
+
+```powershell
+powershell -File scripts/quest-install.ps1 -Apk <artifact.apk>
+powershell -File scripts/quest-start.ps1 -Apk <artifact.apk>
+powershell -File scripts/quest-device-auto.ps1 -Apk <artifact.apk>
+powershell -File scripts/ev3-transfer.ps1 -Address <actual-ip-or-rndis-address> -Package <package.tar.gz>
+powershell -File scripts/ev3-install.ps1 -Address <actual-ip-or-rndis-address> -BuildId <ev3_build_id>
+powershell -File scripts/ev3-start.ps1 -Address <actual-ip-or-rndis-address> -BuildId <ev3_build_id>
+powershell -File scripts/ev3-device-auto.ps1 -Address <actual-ip-or-rndis-address> -BuildId <ev3_build_id>
 ```
 
 Before a Quest can open an authenticated CONTROL session it needs its control PSK

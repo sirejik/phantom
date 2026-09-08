@@ -1,11 +1,38 @@
 param(
     [string]$Apk="build/quest/PhantomQuest-diagnostic.apk",
     [string]$Package="dev.phantom.questprototype",
+    [string]$PreInstallReport="results/pre-install/report.json",
     [string]$Destination="results/quest/device-auto",
+    [string]$InstallEvidence="results/quest/install",
+    [string]$StartEvidence="results/quest/start",
     [int]$ReportTimeoutSeconds=35
 )
 $ErrorActionPreference="Stop"
 $startedAt=(Get-Date).ToUniversalTime().ToString('o')
+$phaseComplete=$false
+$phaseTerminal="PREVIOUS_APP_STATE_UNCHANGED"
+$manifest=$null
+$runDirectory=$null
+$reportPath=$null
+$adb=$null
+$serial=$null
+trap
+{
+    if(!$phaseComplete)
+    {
+        if($adb -and $serial)
+        {
+            try{& $adb -s $serial shell am force-stop $Package|Out-Null;$phaseTerminal="APP_FORCE_STOP_REQUESTED"}catch{}
+        }
+        $failedId=if($manifest -and $manifest.build_id){$manifest.build_id}else{"failed-"+(Get-Date).ToUniversalTime().ToString('yyyyMMddTHHmmssZ')}
+        if(!$runDirectory){$runDirectory=Join-Path ([System.IO.Path]::GetFullPath($Destination)) $failedId;New-Item -ItemType Directory -Force -Path $runDirectory|Out-Null}
+        $reportPath=Join-Path $runDirectory "quest-device-auto.json"
+        $failed=[ordered]@{schema_version=2;gate="QUEST DEVICE AUTO";status="FAIL";build_id=$(if($manifest){$manifest.build_id}else{$null});detail=$_.Exception.Message;started_at=$startedAt;finished_at=(Get-Date).ToUniversalTime().ToString('o');terminal_state=$phaseTerminal}
+        [System.IO.File]::WriteAllText($reportPath,($failed|ConvertTo-Json -Depth 8)+"`n",[System.Text.UTF8Encoding]::new($false))
+    }
+    [Console]::Error.WriteLine("QUEST DEVICE AUTO: FAIL report=$reportPath; $($_.Exception.Message)")
+    exit 1
+}
 . "$PSScriptRoot/../tools/toolchain.ps1"
 $adb=Get-PhantomAdb
 $apkPath=[System.IO.Path]::GetFullPath($Apk)
@@ -14,10 +41,16 @@ if(!(Test-Path -LiteralPath $apkPath) -or !(Test-Path -LiteralPath $manifestPath
 $manifest=Get-Content -LiteralPath $manifestPath -Encoding UTF8 -Raw|ConvertFrom-Json
 $actualApkHash=(Get-FileHash -LiteralPath $apkPath -Algorithm SHA256).Hash.ToLowerInvariant()
 if($actualApkHash-ne$manifest.apk_sha256){throw "APK hash does not match build manifest"}
-$preInstallPath=[System.IO.Path]::GetFullPath("results/quest/pre-install/report.json")
+$preInstallPath=[System.IO.Path]::GetFullPath($PreInstallReport)
 if(!(Test-Path -LiteralPath $preInstallPath)){throw "PRE-INSTALL report is missing"}
 $preInstall=Get-Content -LiteralPath $preInstallPath -Encoding UTF8 -Raw|ConvertFrom-Json
-if($preInstall.status-ne"PASS" -or $preInstall.build_ids-notcontains$manifest.build_id){throw "A matching Quest PRE-INSTALL PASS is required before installation"}
+$artifactMatches=@($preInstall.artifacts|Where-Object {$_.sha256-eq$actualApkHash})
+$preInstallMatch=$preInstall.gate-eq"PRE-INSTALL AUTO" -and $preInstall.status-eq"PASS" -and
+    $preInstall.install_authorized-eq$true -and $preInstall.worktree_dirty-eq$false -and
+    $preInstall.build_ids-contains$manifest.build_id -and $preInstall.git_commit-eq$manifest.git_commit -and
+    $preInstall.specification_sha256-eq$manifest.specification_sha256 -and
+    $preInstall.protocol_schema_hash-eq$manifest.protocol_schema_hash -and $artifactMatches.Count-eq 1
+if(!$preInstallMatch){throw "A matching clean Quest PRE-INSTALL PASS with exact artifact and contract identity is required before DEVICE AUTO"}
 
 $devices=@(& $adb devices|Select-Object -Skip 1|Where-Object {$_-match "\sdevice$"})
 if($devices.Count-ne 1){throw "Exactly one authorized ADB device is required; found $($devices.Count)"}
@@ -32,16 +65,22 @@ $serialBytes=[System.Text.Encoding]::UTF8.GetBytes($serial)
 $sha=[System.Security.Cryptography.SHA256]::Create()
 try{$deviceIdHash=([BitConverter]::ToString($sha.ComputeHash($serialBytes))).Replace("-","").ToLowerInvariant().Substring(0,16)}finally{$sha.Dispose()}
 
+$installPath=Join-Path ([System.IO.Path]::GetFullPath($InstallEvidence)) "$($manifest.build_id)/quest-install.json"
+$startPath=Join-Path ([System.IO.Path]::GetFullPath($StartEvidence)) "$($manifest.build_id)/quest-start.json"
+if(!(Test-Path -LiteralPath $installPath -PathType Leaf)){throw "Matching Quest INSTALL report is missing: $installPath"}
+if(!(Test-Path -LiteralPath $startPath -PathType Leaf)){throw "Matching Quest START report is missing: $startPath"}
+$install=Get-Content -LiteralPath $installPath -Encoding UTF8 -Raw|ConvertFrom-Json
+$start=Get-Content -LiteralPath $startPath -Encoding UTF8 -Raw|ConvertFrom-Json
+$installMatch=$install.phase-eq"INSTALL" -and $install.status-eq"PASS" -and $install.build_id-eq$manifest.build_id -and $install.apk_sha256-eq$actualApkHash -and $install.package-eq$Package -and $install.device.anonymized_id-eq$deviceIdHash
+$startMatch=$start.phase-eq"START" -and $start.status-eq"PASS" -and $start.build_id-eq$manifest.build_id -and $start.apk_sha256-eq$actualApkHash -and $start.package-eq$Package -and $start.device.anonymized_id-eq$deviceIdHash
+if(!$installMatch -or !$startMatch){throw "Matching Quest INSTALL and START PASS are required before DEVICE AUTO"}
+
 New-Item -ItemType Directory -Force -Path $Destination|Out-Null
 $safeBuildId=$manifest.build_id-replace'[^A-Za-z0-9._-]','_'
 $runDirectory=Join-Path ([System.IO.Path]::GetFullPath($Destination)) $safeBuildId
 New-Item -ItemType Directory -Force -Path $runDirectory|Out-Null
 $remoteReport="/sdcard/Android/data/$Package/files/quest-device-auto.json"
 
-$installStarted=(Get-Date).ToUniversalTime()
-& $adb -s $serial install -r -g $apkPath
-if($LASTEXITCODE-ne 0){throw "adb install failed"}
-$installDurationMs=[long]((Get-Date).ToUniversalTime()-$installStarted).TotalMilliseconds
 & $adb -s $serial shell am force-stop $Package
 & $adb -s $serial shell rm -f $remoteReport
 & $adb -s $serial logcat -c
@@ -58,6 +97,7 @@ function Start-QuestApp([string]$phase)
     & $adb -s $serial shell input keyevent 82|Out-Null
     $start=@(& $adb -s $serial shell am start -n $activity)
     if($LASTEXITCODE-ne 0 -or ($start-join"`n")-match"Error:"){throw "$phase launch failed: $($start-join' ')"}
+    $script:phaseTerminal="APP_RUNNING_DEVICE_CASE"
     $pidDeadline=(Get-Date).AddSeconds(15)
     $pidValue=""
     while((Get-Date)-lt$pidDeadline)
@@ -96,6 +136,7 @@ $firstPid=(@(& $adb -s $serial shell "pidof '$Package' 2>/dev/null || true")-joi
 $firstDurationMs=[long]((Get-Date).ToUniversalTime()-$firstCaseStarted).TotalMilliseconds
 
 & $adb -s $serial shell am force-stop $Package
+$phaseTerminal="APP_FORCE_STOPPED"
 & $adb -s $serial logcat -c
 $secondCaseStarted=(Get-Date).ToUniversalTime()
 $secondLaunch=Start-QuestApp "relaunch"
@@ -113,22 +154,24 @@ $secondCrash=($secondLogcat-join"`n")-match$crashPattern
 $identityMatch=$appReport.build_id-eq$manifest.build_id
 $hostChecks=@(
     [ordered]@{test_id="pre-install-admission";status="PASS";detail="matching Quest PRE-INSTALL PASS";duration_ms=0},
-    [ordered]@{test_id="apk-install";status="PASS";detail="adb install -r -g succeeded; sha256=$actualApkHash";duration_ms=$installDurationMs},
+    [ordered]@{test_id="install-admission";status="PASS";detail="matching Quest INSTALL PASS; sha256=$actualApkHash";duration_ms=0},
+    [ordered]@{test_id="start-admission";status="PASS";detail="matching Quest START PASS";duration_ms=0},
     [ordered]@{test_id="build-id";status=$(if($identityMatch){"PASS"}else{"FAIL"});detail="expected=$($manifest.build_id); actual=$($appReport.build_id)";duration_ms=0},
     [ordered]@{test_id="first-launch";status=$(if($firstPid-and!$firstCrash){"PASS"}else{"FAIL"});detail="pid_present=$([bool]$firstPid); crash=$firstCrash";duration_ms=$firstDurationMs},
     [ordered]@{test_id="force-stop-relaunch";status=$(if($secondPid-and!$secondCrash){"PASS"}else{"FAIL"});detail="pid_present=$([bool]$secondPid); crash=$secondCrash";duration_ms=$secondDurationMs}
 )
 $hostFailed=@($hostChecks|Where-Object {$_.status -eq "FAIL"}).Count -gt 0
 $status=if($appReport.status-eq"PASS"-and!$hostFailed){"PASS"}else{"FAIL"}
+$finishedAt=(Get-Date).ToUniversalTime()
 $report=[ordered]@{
     schema_version=2;gate="QUEST DEVICE AUTO";status=$status;execution_mode="ZERO_INTERACTION_TABLE_SAFE";test_case_limit_seconds=60
     build_id=$manifest.build_id;apk_sha256=$actualApkHash;build_manifest=$manifest
     device=[ordered]@{model=$model;device=$device;anonymized_id=$deviceIdHash;horizon_display_build=$displayBuild;runtime_incremental=$runtimeVersion;fingerprint=$fingerprint}
-    started_at=$startedAt;finished_at=(Get-Date).ToUniversalTime().ToString('o');app_report=$appReport;host_checks=$hostChecks
+    started_at=$startedAt;finished_at=$finishedAt.ToString('o');duration_ms=[long]($finishedAt-[datetime]$startedAt).TotalMilliseconds;app_report=$appReport;host_checks=$hostChecks
     log_files=@("first-launch.logcat.txt","relaunch.logcat.txt")
 }
 $reportPath=Join-Path $runDirectory "quest-device-auto.json"
-$report|ConvertTo-Json -Depth 12|Set-Content -LiteralPath $reportPath -Encoding UTF8
+[System.IO.File]::WriteAllText($reportPath,($report|ConvertTo-Json -Depth 12)+"`n",[System.Text.UTF8Encoding]::new($false))
 $appChecks=@{};foreach($check in $appReport.checks){$appChecks[$check.test_id]=$check}
 $p0CapabilityIds=@(
     "embedded-build-identity","config-load-and-hash","local-floor",
@@ -146,7 +189,7 @@ foreach($id in $p0CapabilityIds+$p0ObservationIds)
     if($appChecks.ContainsKey($id)){$p0Checks+=[ordered]@{test_id=$id;status=$appChecks[$id].status;detail=$appChecks[$id].detail}}
     else{$p0Checks+=[ordered]@{test_id=$id;status="NOT_RUN";detail="check missing from app report"}}
 }
-$p0PrerequisiteFailed=@($p0Checks|Where-Object {$_.test_id -in $p0CapabilityIds -and $_.status -ne "PASS"}).Count -gt 0
+$p0PrerequisiteFailed=$status-ne"PASS" -or @($p0Checks|Where-Object {$_.test_id -in $p0CapabilityIds -and $_.status -ne "PASS"}).Count -gt 0
 $p0Status=if($p0PrerequisiteFailed){"FAIL"}else{"PASS"}
 $p0Report=[ordered]@{
     schema_version=2;gate="P0 QUEST PLATFORM COMPATIBILITY AUTO";status=$p0Status;execution_mode="ZERO_INTERACTION_TABLE_SAFE"
@@ -167,6 +210,7 @@ $p0Report=[ordered]@{
 }
 $p0Path=Join-Path $runDirectory "quest-p0-report.json"
 $p0Report|ConvertTo-Json -Depth 10|Set-Content -LiteralPath $p0Path -Encoding UTF8
+$phaseComplete=$true
 Write-Output "QUEST DEVICE AUTO: $status"
 Write-Output "report=$reportPath"
 Write-Output "P0 QUEST PLATFORM COMPATIBILITY AUTO: $p0Status"

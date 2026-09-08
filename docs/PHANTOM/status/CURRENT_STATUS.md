@@ -1,5 +1,23 @@
 # Текущее состояние реализации PHANTOM
 
+## Разделённый deployment workflow, 2026-09-08
+
+В рабочем дереве реализован документированный конвейер `BUILD → PRE-INSTALL AUTO → TRANSFER →
+INSTALL → START → DEVICE AUTO`: PRE-INSTALL больше не пересобирает ARMEL/package, EV3 installer
+не запускает self-tests/`compileall`/systemd/DEVICE AUTO, Quest INSTALL/START/DEVICE разделены.
+EV3 START останавливается на первом failed service, сохраняет его journal/systemd properties и
+оставляет failed release для диагностики; recovery не выполняется скрытно.
+
+Дополнительно atomic network status перенесён в принадлежащий `phantom-net` каталог
+`/run/phantom/network/status.json`, а DEVICE runner fail-closed обрабатывает отсутствие status
+после prerequisite failure без вторичного исключения. Off-hardware regression: EV3 workflow
+`25/25 PASS`, network worker `13/13 PASS`, PowerShell/POSIX syntax, docs/contracts и security scan
+— `PASS`.
+
+Это ещё не candidate/evidence: build, PRE-INSTALL на новых bytes и физические
+TRANSFER/INSTALL/START/DEVICE не выполнялись и остаются `NOT_RUN`. Предыдущие artifacts стали
+несовместимы после изменения source/specification hashes.
+
 ## Физический Stage-3 gate от 2026-09-06
 
 Физический запуск network-only candidate `4c842f9a4916389fd5b2898320f840a30763b7ec`

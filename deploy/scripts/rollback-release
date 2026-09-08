@@ -1,0 +1,99 @@
+#!/bin/sh
+# Explicit RECOVERY phase: restore previous release metadata without starting it.
+set -eu
+
+root=/opt/phantom
+result=/var/lib/phantom/recovery-result.json
+units="phantom-controller.service phantom-safety.service phantom-network.service phantom-mdns.service phantom-wifi-autoconnect.service phantom.target"
+stop_order="phantom-mdns.service phantom-network.service phantom-controller.service phantom-wifi-autoconnect.service phantom-safety.service phantom.target"
+started_at=$(date -u +%Y-%m-%dT%H:%M:%SZ)
+started_epoch=$(date +%s)
+step=prerequisites
+build_id=
+previous=
+terminal_state=RUNTIME_STATE_UNVERIFIED
+result_written=0
+
+write_result() {
+  status=$1
+  detail=$2
+  finished_at=$(date -u +%Y-%m-%dT%H:%M:%SZ)
+  finished_epoch=$(date +%s)
+  mkdir -p /var/lib/phantom
+  python3 - "$result" "$status" "$detail" "$started_at" "$finished_at" "$started_epoch" "$finished_epoch" "$build_id" "$previous" "$terminal_state" "$step" <<'PY'
+import json, os, pathlib, sys
+path = pathlib.Path(sys.argv[1])
+payload = {"schema_version": 1, "phase": "RECOVERY", "status": sys.argv[2],
+           "detail": sys.argv[3], "started_at": sys.argv[4], "finished_at": sys.argv[5],
+           "duration_seconds": max(0, int(sys.argv[7]) - int(sys.argv[6])),
+           "build_id": sys.argv[8] or None, "restored_release": sys.argv[9] or None,
+           "terminal_state": sys.argv[10],
+           "steps": [{"step": sys.argv[11], "status": sys.argv[2],
+                      "duration_seconds": max(0, int(sys.argv[7]) - int(sys.argv[6]))}],
+           "next_action": "run start-release explicitly if recovery startup is desired"}
+temporary = path.with_suffix(".tmp")
+temporary.write_text(json.dumps(payload, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+os.replace(str(temporary), str(path))
+PY
+  result_written=1
+}
+
+finish() {
+  code=$?
+  trap - EXIT HUP INT TERM
+  if test "$code" != 0 && test "$result_written" = 0; then
+    write_result FAIL "recovery aborted at step=$step"
+  fi
+  exit "$code"
+}
+trap finish EXIT
+trap 'exit 130' HUP INT TERM
+
+fail() {
+  write_result FAIL "$1"
+  exit 1
+}
+
+force_and_verify_zero_output() {
+  for motor in /sys/class/tacho-motor/motor*; do
+    test -d "$motor" || continue
+    echo 0 > "$motor/duty_cycle_sp"
+    echo brake > "$motor/stop_action"
+    echo stop > "$motor/command"
+  done
+  for motor in /sys/class/tacho-motor/motor*; do
+    test -d "$motor" || continue
+    test "$(cat "$motor/duty_cycle_sp")" = 0 || return 1
+    test "$(cat "$motor/duty_cycle")" = 0 || return 1
+    test "$(cat "$motor/speed")" = 0 || return 1
+    test "$(cat "$motor/stop_action")" = brake || return 1
+  done
+}
+
+test "$(id -u)" = 0 || { echo "root required" >&2; exit 1; }
+previous=$(readlink -f "$root/previous" 2>/dev/null || true)
+case "$previous" in "$root"/releases/*) ;; *) fail "safe previous release is unavailable";; esac
+test -d "$previous" || fail "previous release directory is missing"
+
+step=stop-and-safe
+for unit in $stop_order; do systemctl stop "$unit" >/dev/null 2>&1 || true; done
+for unit in $stop_order; do systemctl is-active --quiet "$unit" 2>/dev/null && fail "runtime unit remained active: $unit" || true; done
+force_and_verify_zero_output || fail "terminal zero-output state could not be established"
+terminal_state=RUNTIME_STOPPED_ZERO_OUTPUT
+
+step=restore-metadata
+network_group=$(sed -n 's/^Group=//p' "$previous/systemd/phantom-network.service" | head -n 1)
+case "$network_group" in ''|*[!A-Za-z0-9._-]*) fail "invalid previous network group";; esac
+getent group "$network_group" >/dev/null 2>&1 || fail "previous network group is unavailable"
+for unit in $units; do install -m 0644 "$previous/systemd/$unit" "/etc/systemd/system/$unit" || fail "could not restore $unit"; done
+install -m 0644 "$previous/tmpfiles/phantom.conf" /etc/tmpfiles.d/phantom.conf || fail "could not restore tmpfiles metadata"
+systemctl daemon-reload || fail "systemd daemon-reload failed"
+if test -d /run/phantom; then
+  find /run/phantom -mindepth 1 -maxdepth 1 ! -name motor-control.lock -exec rm -rf -- {} +
+fi
+systemd-tmpfiles --create /etc/tmpfiles.d/phantom.conf || fail "tmpfiles restoration failed"
+ln -sfn "$previous" "$root/current" || fail "previous symlink activation failed"
+build_id=$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1], encoding="utf-8-sig"))["build_id"])' "$previous/build-manifest.json")
+step=complete
+write_result PASS "previous release restored; runtime intentionally remains stopped"
+echo "EV3 RECOVERY: PASS build_id=$build_id; runtime remains stopped"

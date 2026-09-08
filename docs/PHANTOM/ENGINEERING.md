@@ -171,7 +171,10 @@ flowchart LR
   Build --> Gate[PRE-INSTALL AUTO<br/>по финальным неизменяемым bytes]
   Gate -->|FAIL| Block[Не публиковать<br/>не устанавливать]
   Gate -->|PASS| Publish[Опубликовать без repack/resign<br/>build_id + SHA-256 + provenance]
-  Publish --> Device[Разрешить DEVICE AUTO]
+  Publish --> Transfer[TRANSFER<br/>копирование без преобразования]
+  Transfer --> Install[INSTALL<br/>атомарное размещение]
+  Install --> Start[START<br/>bounded activation]
+  Start --> Device[DEVICE AUTO<br/>отдельный явный gate]
 ```
 
 До и во время сборки выполняются быстрые проверки, чтобы раньше обнаруживать ошибки. После сборки обязательный `PRE-INSTALL AUTO` повторно выполняет весь набор, необходимый для допуска конкретного `build_id` к установке.
@@ -183,7 +186,8 @@ flowchart LR
   единственный авторизует установку (`install_authorized`), и потому обязан включать проверки
   актуальности specification manifest и section index (`specgen --check`, `docindex --check`,
   `doclint`). Без них отчёт мог бы объявить `specification_sha256`, который фактически не
-  покрывает текущие нормативные документы. Требует Unity, Docker и WSL.
+  покрывает текущие нормативные документы. Требует Unity, Docker и WSL на рабочей станции,
+  но ничего не устанавливает на Quest/EV3 и не обращается к ним.
 - **`.github/workflows/ci.yml`** — максимально возможное **детерминированное подмножество**
   того же набора: identity/lint, все generated artifacts, canonicalization, protocol и IPC
   cross-implementation vectors, config-boundary тесты, регрессии shipped EV3 worker и
@@ -217,6 +221,40 @@ flowchart LR
 CI сохраняет отчёт `PRE-INSTALL AUTO` вместе с `commit SHA`, component/profile-specific `build_id` и SHA-256 артефактов. Без успешного отчёта штатный deployment job не должен принимать этот build.
 
 После PASS байты проверенных APK/EV3 package являются immutable для данного evidence: последующая подпись, repack, изменение manifest внутри артефакта или иная byte-level модификация требует нового `build_id`/artifact SHA-256 и повторного PRE-INSTALL. Post-gate разрешено только публиковать внешние provenance/signature metadata, которые не меняют проверенный artifact.
+
+<a id="sec-8-5-1"></a>
+### 8.5.1. Границы фаз и место выполнения инструментов
+
+Каждая фаза имеет одного владельца результата и не запускает предыдущую или следующую фазу
+неявно. Отсутствующий либо устаревший prerequisite означает быстрый `FAIL` с указанием
+требуемой команды, а не автоматическую пересборку, установку или квалификацию.
+
+| Фаза | Где выполняется | Разрешённая работа | Запрещённая скрытая работа |
+|---|---|---|---|
+| `BUILD` | PC/CI | компиляция, подпись, упаковка; создание immutable APK/EV3 package и manifest | доступ к устройствам, установка, DEVICE/HIL |
+| `PRE-INSTALL AUTO` | PC/CI | тесты и admission уже созданных final bytes; отчёт с identity/hashes | пересборка, resign/repack, ADB/SSH deployment |
+| `TRANSFER` | PC→устройство | копирование во staging и сверка end-to-end SHA-256 | распаковка/activation, запуск services/app, тесты |
+| `INSTALL` | устройство | admission, атомарное размещение и выбор версии при запрещённом motion | build, host tests, runtime activation, DEVICE AUTO |
+| `START` | устройство | bounded запуск уже установленной версии и readiness каждого runtime component | установка, fault injection, полный test suite |
+| `DEVICE AUTO` | устройство + host orchestrator | проверки exact installed build, restart/fault cases и machine-readable evidence | сборка, установка, смена artifact bytes, неявный rollback |
+| `HIL AUTO` / manual acceptance | реальное оборудование | только явно выбранные hardware/user cases после DEVICE PASS | компенсация пропущенных предыдущих gates |
+
+Unity Editor существует только на PC/CI: он собирает Quest APK и выполняет Quest
+EditMode/PlayMode/simulator tests. Unity не входит в EV3 package, не устанавливается на EV3 и
+не запускается EV3 installer’ом.
+
+Python имеет две разные роли. На PC/CI он обслуживает generators, linters и test tooling. На
+EV3 закреплённый base image предоставляет системный Python runtime для поставляемых
+`phantom-network`, `phantom-mdns` и `phantom-device-auto`; это runtime dependency, а не build
+tool на Brick. Installer не устанавливает и не обновляет Python, не скачивает packages и не
+выполняет полный `compileall`: syntax/generated/import regressions проверяются до установки,
+а совместимость фактического device runtime — в bounded `START`/`DEVICE AUTO` checks.
+
+Все hardware-side фазы обязаны иметь отдельный declared deadline, выдавать progress не реже
+границ внутренних steps и сохранять machine-readable result с `build_id`, artifact SHA-256,
+start/end/duration, step durations, первым непосредственным отказом и terminal safe state.
+Общий wrapper может последовательно вызвать фазы только по явному списку пользователя и
+должен показывать начало/окончание каждой; имя `install` не может означать весь pipeline.
 
 
 Обязательные дополнительные CI gates для финальной baseline:
@@ -343,38 +381,109 @@ Installer работает с root privilege. Runtime identities разделе�
   previous -> releases/<previous-id>
 ```
 
-Установка должна выполняться атомарно:
+EV3 workflow разделяется на четыре операции: `TRANSFER`, `INSTALL`, `START` и
+`DEVICE AUTO`. Они могут быть оркестрированы последовательно, но имеют отдельные команды,
+deadlines, отчёты и failure semantics.
+
+`TRANSFER` копирует package в новый staging path, проверяет внешний SHA-256 на PC и EV3 и не
+меняет `current`, units либо состояние services. Повторная передача тех же bytes должна быть
+idempotent. Медленный SSH handshake/transport измеряется отдельно и не учитывается как работа
+installer’а.
+
+`INSTALL` выполняется атомарно при запрещённом motion:
 
 ```text
-загрузить новый release directory
-→ проверить SHA-256
+проверить PRE-INSTALL admission и внешний SHA-256 staging package
+→ безопасно распаковать новый release directory
 → проверить schema/config hash
-→ выполнить --self-test
-→ убедиться, что движение запрещено
+→ проверить inventory, внутренние SHA-256, modes и runtime prerequisites
+→ остановить runtime и подтвердить terminal zero-output/safe state
 → обновить previous
-→ атомарно переключить current symlink
-→ restart systemd target
-→ выполнить health check
-→ выполнить `phantom-device-auto`
+→ подготовить и проверить versioned units/tmpfiles metadata
+→ transactional установить metadata и выполнить daemon-reload/tmpfiles
+→ атомарно переключить current symlink последним activation step
+→ завершиться, оставив runtime остановленным
 ```
 
-Если health check не проходит:
+До переключения `current` разрешены только короткие bounded package admission checks.
+Controller/safety self-tests, Python `compileall`, systemd activation, network readiness,
+process kill/restart и `phantom-device-auto` не являются установкой и не выполняются этой
+операцией. Ошибка остановки runtime либо неподтверждённый safe state блокирует переключение;
+она не игнорируется ради продолжения deployment.
+
+`START` активирует уже установленный release по dependency graph с отдельной проверкой после
+каждого шага. Минимальная последовательность: `phantom-safety` → `phantom-controller`;
+`phantom-wifi-autoconnect` устанавливает network prerequisite, после чего запускаются
+`phantom-network` → `phantom-mdns`. Следующий dependent service не запускается после первого
+`FAIL`. Один общий `systemctl start phantom.target` может быть transport mechanism, только
+если orchestrator всё равно показывает per-service deadline/result и однозначно находит
+первый непосредственный отказ, а не объявляет cascade dependency failures отдельными causes.
+
+При startup failure до любого rollback сохраняются journal/status первого failed unit,
+`Result`, `ExecMainCode`, `ExecMainStatus`, dependency/cascade outcomes, identity failed
+release и terminal zero-output/safe state. Failed activated release не удаляется до
+завершения диагностики. `START` не запускает on-device self-tests с fault injection и не
+вызывает `DEVICE AUTO`.
+
+`DEVICE AUTO` запускается отдельной явной командой только после успешного `START` и следует
+§9.1.3. Он может выполнять документированные restart/process-failure cases, но не устанавливает
+release, не меняет `current` и не выполняет rollback.
+
+Штатные host-команды вызываются по одной и требуют фактический IP/USB-RNDIS address; DNS alias
+не является обязательным prerequisite deployment:
+
+```powershell
+scripts/ev3-transfer.ps1 -Address <address> -Package <package.tar.gz>
+scripts/ev3-install.ps1 -Address <address> -BuildId <ev3_build_id>
+scripts/ev3-start.ps1 -Address <address> -BuildId <ev3_build_id>
+scripts/ev3-device-auto.ps1 -Address <address> -BuildId <ev3_build_id>
+scripts/ev3-recover.ps1 -Address <address> -FailedBuildId <ev3_build_id>
+```
+
+Последняя команда выполняется только как явно выбранное recovery. Ни одна из остальных не
+вызывает следующую автоматически. Recovery report возвращает восстановленный `build_id`; для
+его отдельного запуска допускается использовать уже переданный generic start tool:
+`ev3-start.ps1 -BuildId <restored> -ToolBuildId <failed-candidate>`.
+
+Rollback/recovery является отдельной видимой операцией:
 
 ```text
 остановить процессы
 → вернуть current на previous
-→ restart
-→ JointReference оставить invalid
+→ восстановить versioned units/tmpfiles metadata предыдущей версии
+→ подтвердить safe state и оставить JointReference invalid
+→ при явно запрошенном recovery отдельно выполнить START предыдущей версии
 ```
 
-Остановка/перезапуск `phantom.target` обязана распространяться на оба service через `PartOf=` либо эквивалентную явную остановку, чтобы старые процессы не продолжали работать после смены symlink. При failed first install `current` удаляется; при failed upgrade он возвращается на `previous`; неуспешно распакованный новый release удаляется только после проверки, что canonical path находится внутри `/opt/phantom/releases/`.
+Rollback не повторяет INSTALL/DEVICE AUTO и не скрывает первоначальный result. Если recovery
+START не проходит, система остаётся остановленной в safe state, а оба отказа записываются
+раздельно. Остановка/перезапуск `phantom.target` обязана распространяться на все runtime
+services через `PartOf=` либо эквивалентную явную остановку, чтобы старые процессы не
+продолжали работать после смены symlink. При failed first install `current` удаляется; при
+failed upgrade он возвращается на `previous`; неуспешно распакованный staging release можно
+удалить только после проверки, что canonical path находится внутри `/opt/phantom/releases/`.
 
 Развёртывание во время `TRACKING` запрещено.
 
 <a id="sec-8-8"></a>
 ## 8.8. Сборка Quest
 
-Quest также имеет два build профиль. APK разрешается устанавливать в рамках штатного тестового/Release-конвейера только после успешного `PRE-INSTALL AUTO` §9.1.2 для **его `quest_build_id`** и SHA-256. После установки выполняется `DEVICE AUTO` §9.1.3; только затем build допускается к HIL и ручной приёмке.
+Quest также имеет два build profile. APK разрешается устанавливать в рамках штатного
+тестового/Release-конвейера только после успешного `PRE-INSTALL AUTO` §9.1.2 для **его
+`quest_build_id`** и SHA-256. Quest `TRANSFER/INSTALL` ограничен admission и `adb install`
+уже собранного APK с последующей проверкой installed package/version/hash identity; он не
+запускает Unity, не собирает APK и не выполняет app test suite. `START` отдельно запускает
+установленное приложение с bounded process/readiness check. `DEVICE AUTO` §9.1.3 затем
+отдельно выполняет launch/relaunch/config/platform checks exact installed build; только его
+PASS допускает build к HIL и ручной приёмке.
+
+Штатные Quest-команды также разделены:
+
+```powershell
+scripts/quest-install.ps1 -Apk <artifact.apk>
+scripts/quest-start.ps1 -Apk <artifact.apk>
+scripts/quest-device-auto.ps1 -Apk <artifact.apk>
+```
 
 
 <a id="sec-8-8-1"></a>

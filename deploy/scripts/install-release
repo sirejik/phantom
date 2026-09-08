@@ -1,123 +1,283 @@
 #!/bin/sh
+# INSTALL phase only: admit and atomically select an EV3 release while runtime stays stopped.
 set -eu
-archive=${1:?release archive required};gate=${2:?PRE-INSTALL report required};root=/opt/phantom
+
+archive=${1:?release archive required}
+gate=${2:?PRE-INSTALL report required}
+root=/opt/phantom
+result=/var/lib/phantom/install-result.json
 units="phantom-controller.service phantom-safety.service phantom-network.service phantom-mdns.service phantom-wifi-autoconnect.service phantom.target"
-runtime_services="phantom-safety.service phantom-wifi-autoconnect.service phantom-controller.service phantom-network.service phantom-mdns.service"
-test "$(id -u)" = 0 || { echo "root required" >&2;exit 1; }
-release_id=$(basename "$archive" .tar.gz);case "$release_id" in ''|.|..|*[!A-Za-z0-9._-]*) echo "unsafe release id" >&2;exit 1;;esac
-dest="$root/releases/$release_id";test ! -e "$dest" || { echo "release exists" >&2;exit 1; }
-tar -tzf "$archive" | while IFS= read -r member;do case "$member" in /*|../*|*/../*|*/..) echo "unsafe archive member: $member" >&2;exit 1;;esac;done
-mkdir -p "$dest";tar -xzf "$archive" -C "$dest";(cd "$dest"&&sha256sum -c SHA256SUMS)
-python3 - "$gate" "$dest/build-manifest.json" "$archive" <<'PY'
-import hashlib,json,sys
-with open(sys.argv[1],encoding="utf-8-sig") as stream: report=json.load(stream)
-with open(sys.argv[2],encoding="utf-8-sig") as stream: manifest=json.load(stream)
-if report.get("gate")!="PRE-INSTALL AUTO" or report.get("status")!="PASS" or report.get("worktree_dirty") is not False:raise SystemExit("PRE-INSTALL gate is not a clean PASS")
-if report.get("git_commit")!=manifest.get("git_commit") or manifest.get("worktree_dirty") is not False:raise SystemExit("PRE-INSTALL/build manifest source mismatch")
-if manifest.get("build_id") not in report.get("build_ids",[]):raise SystemExit("installed build_id is absent from PRE-INSTALL report")
-if report.get("specification_sha256")!=manifest.get("specification_sha256") or report.get("protocol_schema_hash")!=manifest.get("protocol_schema_hash"):raise SystemExit("PRE-INSTALL/build contract hash mismatch")
-reported={item.get("sha256") for item in report.get("artifacts",[]) if isinstance(item,dict)}
-with open(sys.argv[3],"rb") as stream: archive_hash=hashlib.sha256(stream.read()).hexdigest()
-if archive_hash not in reported:raise SystemExit("EV3 package SHA-256 is absent from PRE-INSTALL artifact evidence")
-for field in ("controller_sha256","safety_sha256"):
-    if manifest.get(field) not in reported:raise SystemExit(field+" is absent from PRE-INSTALL artifact evidence")
+stop_order="phantom-mdns.service phantom-network.service phantom-controller.service phantom-wifi-autoconnect.service phantom-safety.service phantom.target"
+started_at=$(date -u +%Y-%m-%dT%H:%M:%SZ)
+started_epoch=$(date +%s)
+step=prerequisites
+step_started_epoch=$started_epoch
+steps_file=$(mktemp /tmp/phantom-install-steps.XXXXXX)
+release_id=
+build_id=
+previous=
+staging=
+dest=
+backup=
+transaction_started=0
+result_written=0
+terminal_state=PREVIOUS_RUNTIME_UNCHANGED
+failure_detail=
+
+write_result() {
+  status=$1
+  detail=$2
+  finished_at=$(date -u +%Y-%m-%dT%H:%M:%SZ)
+  mkdir -p /var/lib/phantom
+  finished_epoch=$(date +%s)
+  python3 - "$result" "$status" "$detail" "$started_at" "$finished_at" "$started_epoch" "$finished_epoch" "$release_id" "$build_id" "$previous" "$dest" "$terminal_state" "$steps_file" <<'PY'
+import json, os, pathlib, sys
+path = pathlib.Path(sys.argv[1])
+steps = []
+for line in pathlib.Path(sys.argv[13]).read_text(encoding="utf-8").splitlines():
+    fields = line.split("\t")
+    if len(fields) == 3:
+        steps.append({"step": fields[0], "status": fields[1], "duration_seconds": int(fields[2])})
+payload = {
+    "schema_version": 1,
+    "phase": "INSTALL",
+    "status": sys.argv[2],
+    "detail": sys.argv[3],
+    "started_at": sys.argv[4],
+    "finished_at": sys.argv[5],
+    "duration_seconds": max(0, int(sys.argv[7]) - int(sys.argv[6])),
+    "release_id": sys.argv[8] or None,
+    "build_id": sys.argv[9] or None,
+    "previous_release": sys.argv[10] or None,
+    "installed_path": sys.argv[11] or None,
+    "terminal_state": sys.argv[12],
+    "steps": steps,
+}
+temporary = path.with_suffix(".tmp")
+temporary.write_text(json.dumps(payload, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+os.replace(str(temporary), str(path))
 PY
-"$dest/bin/phantom-controller" --self-test;"$dest/bin/phantom-safety" --self-test
-python3 -m compileall -q "$dest/bin"
-for group in phantom-ipc phantom-safety-ipc phantom-motor;do getent group "$group" >/dev/null 2>&1||addgroup --system "$group";done
-for user in phantom-ctrl phantom-net phantom-mdns;do
-  getent group "$user" >/dev/null 2>&1||addgroup --system "$user"
-  getent passwd "$user" >/dev/null 2>&1||adduser --system --ingroup "$user" --home /var/lib/phantom --no-create-home --disabled-password --shell /usr/sbin/nologin "$user"
+  result_written=1
+}
+
+restore_metadata() {
+  test -n "$backup" && test -d "$backup" || return 0
+  for unit in $units; do
+    if test -f "$backup/$unit"; then
+      install -m 0644 "$backup/$unit" "/etc/systemd/system/$unit"
+    else
+      rm -f "/etc/systemd/system/$unit"
+    fi
+  done
+  if test -f "$backup/phantom.conf"; then
+    install -m 0644 "$backup/phantom.conf" /etc/tmpfiles.d/phantom.conf
+  else
+    rm -f /etc/tmpfiles.d/phantom.conf
+  fi
+  systemctl daemon-reload
+}
+
+rollback_install_transaction() {
+  test "$transaction_started" = 1 || return 0
+  rollback_status=0
+  symlink_restored=0
+  restore_metadata || rollback_status=1
+  if test -n "$previous"; then
+    if ln -sfn "$previous" "$root/current"; then symlink_restored=1; else rollback_status=1; fi
+  else
+    if rm -f "$root/current"; then symlink_restored=1; else rollback_status=1; fi
+  fi
+  if test "$symlink_restored" = 1 && test -n "$dest" && test -d "$dest"; then
+    rm -rf -- "$dest" || rollback_status=1
+  fi
+  test "$rollback_status" = 0
+}
+
+finish() {
+  code=$?
+  trap - EXIT HUP INT TERM
+  if test "$code" != 0; then
+    if ! rollback_install_transaction; then
+      terminal_state=RUNTIME_STOPPED_ZERO_OUTPUT_ROLLBACK_INCOMPLETE
+      failure_detail="${failure_detail:-install aborted at step=$step}; transaction rollback incomplete"
+    fi
+    if test "$result_written" = 0; then
+      test -n "$failure_detail" || failure_detail="install aborted at step=$step"
+      write_result FAIL "$failure_detail"
+    fi
+  fi
+  test -z "$staging" || test ! -d "$staging" || rm -rf -- "$staging"
+  test -z "$backup" || test ! -d "$backup" || rm -rf -- "$backup"
+  rm -f "$steps_file"
+  exit "$code"
+}
+trap finish EXIT
+trap 'exit 130' HUP INT TERM
+
+fail() {
+  record_step FAIL
+  failure_detail=$1
+  exit 1
+}
+
+record_step() {
+  status=$1
+  now=$(date +%s)
+  printf '%s\t%s\t%s\n' "$step" "$status" "$((now-step_started_epoch))" >> "$steps_file"
+  step_started_epoch=$now
+}
+
+next_step() {
+  record_step PASS
+  step=$1
+}
+
+unit_loaded() {
+  load_state=$(systemctl show -p LoadState "$1" 2>/dev/null | sed -n 's/^LoadState=//p')
+  test -n "$load_state" && test "$load_state" != not-found
+}
+
+stop_runtime() {
+  for unit in $stop_order; do
+    if unit_loaded "$unit"; then
+      systemctl stop "$unit" || return 1
+    fi
+  done
+  for unit in $stop_order; do
+    if systemctl is-active --quiet "$unit" 2>/dev/null; then
+      echo "runtime unit remained active: $unit" >&2
+      return 1
+    fi
+  done
+}
+
+force_and_verify_zero_output() {
+  for motor in /sys/class/tacho-motor/motor*; do
+    test -d "$motor" || continue
+    echo 0 > "$motor/duty_cycle_sp"
+    echo brake > "$motor/stop_action"
+    echo stop > "$motor/command"
+  done
+  for motor in /sys/class/tacho-motor/motor*; do
+    test -d "$motor" || continue
+    test "$(cat "$motor/duty_cycle_sp")" = 0 || return 1
+    test "$(cat "$motor/duty_cycle")" = 0 || return 1
+    test "$(cat "$motor/speed")" = 0 || return 1
+    test "$(cat "$motor/stop_action")" = brake || return 1
+  done
+}
+
+install_runtime_metadata() {
+  release=$1
+  network_group=$(sed -n 's/^Group=//p' "$release/systemd/phantom-network.service" | head -n 1)
+  case "$network_group" in ''|*[!A-Za-z0-9._-]*) return 1;; esac
+  getent group "$network_group" >/dev/null 2>&1 || return 1
+  for unit in $units; do
+    install -m 0644 "$release/systemd/$unit" "/etc/systemd/system/$unit" || return 1
+  done
+  install -m 0644 "$release/tmpfiles/phantom.conf" /etc/tmpfiles.d/phantom.conf || return 1
+  systemctl daemon-reload || return 1
+  if test -d /run/phantom; then
+    find /run/phantom -mindepth 1 -maxdepth 1 ! -name motor-control.lock -exec rm -rf -- {} + || return 1
+  fi
+  systemd-tmpfiles --create /etc/tmpfiles.d/phantom.conf || return 1
+  if test -d /var/lib/phantom/secrets; then
+    chown "root:$network_group" /var/lib/phantom/secrets || return 1
+    chmod 0750 /var/lib/phantom/secrets || return 1
+    find /var/lib/phantom/secrets -type f -exec chown "root:$network_group" {} + -exec chmod 0640 {} + || return 1
+  fi
+}
+
+test "$(id -u)" = 0 || fail "root required"
+python3 -c 'import sys; raise SystemExit(0 if sys.version_info[:2] >= (3, 5) else 1)' || fail "Python 3.5+ runtime prerequisite is unavailable"
+release_id=$(basename "$archive" .tar.gz)
+case "$release_id" in ''|.|..|*[!A-Za-z0-9._-]*) fail "unsafe release id";; esac
+dest="$root/releases/$release_id"
+test ! -e "$dest" || fail "release already exists: $dest"
+mkdir -p "$root/releases" /var/lib/phantom
+staging="$root/releases/.staging-$release_id-$$"
+test ! -e "$staging" || fail "staging path already exists"
+
+next_step archive-admission
+tar -tzf "$archive" | while IFS= read -r member; do
+  case "$member" in /*|../*|*/../*|*/..) echo "unsafe archive member: $member" >&2; exit 1;; esac
 done
-adduser phantom-ctrl phantom-motor >/dev/null 2>&1||true
-adduser phantom-ctrl phantom-ipc >/dev/null 2>&1||true
-adduser phantom-ctrl phantom-safety-ipc >/dev/null 2>&1||true
-adduser phantom-net phantom-ipc >/dev/null 2>&1||true
-getent group ev3dev >/dev/null 2>&1&&adduser phantom-ctrl ev3dev >/dev/null 2>&1||true
-# The bench characterization harness provisions NOPASSWD root for a binary in a
-# robot-writable path. That is acceptable for an isolated measurement rig, but on
-# a brick that then runs production it is a trivial bypass of the phantom-ctrl /
-# phantom-net privilege separation the safety argument depends on. Remove it, and
-# refuse to install if it cannot be removed.
+mkdir "$staging"
+tar -xzf "$archive" -C "$staging"
+(cd "$staging" && sha256sum -c SHA256SUMS)
+build_id=$(python3 - "$gate" "$staging/build-manifest.json" "$archive" <<'PY'
+import hashlib, json, sys
+with open(sys.argv[1], encoding="utf-8-sig") as stream:
+    report = json.load(stream)
+with open(sys.argv[2], encoding="utf-8-sig") as stream:
+    manifest = json.load(stream)
+if report.get("gate") != "PRE-INSTALL AUTO" or report.get("status") != "PASS" or report.get("worktree_dirty") is not False:
+    raise SystemExit("PRE-INSTALL gate is not a clean PASS")
+if report.get("git_commit") != manifest.get("git_commit") or manifest.get("worktree_dirty") is not False:
+    raise SystemExit("PRE-INSTALL/build manifest source mismatch")
+if manifest.get("build_id") not in report.get("build_ids", []):
+    raise SystemExit("installed build_id is absent from PRE-INSTALL report")
+if report.get("specification_sha256") != manifest.get("specification_sha256") or report.get("protocol_schema_hash") != manifest.get("protocol_schema_hash"):
+    raise SystemExit("PRE-INSTALL/build contract hash mismatch")
+reported = {item.get("sha256") for item in report.get("artifacts", []) if isinstance(item, dict)}
+with open(sys.argv[3], "rb") as stream:
+    archive_hash = hashlib.sha256(stream.read()).hexdigest()
+if archive_hash not in reported:
+    raise SystemExit("EV3 package SHA-256 is absent from PRE-INSTALL artifact evidence")
+for field in ("controller_sha256", "safety_sha256"):
+    if manifest.get(field) not in reported:
+        raise SystemExit(field + " is absent from PRE-INSTALL artifact evidence")
+print(manifest["build_id"])
+PY
+) || fail "artifact admission failed"
+
+next_step runtime-identities
+for group in phantom-ipc phantom-safety-ipc phantom-motor; do
+  getent group "$group" >/dev/null 2>&1 || addgroup --system "$group"
+done
+for user in phantom-ctrl phantom-net phantom-mdns; do
+  getent group "$user" >/dev/null 2>&1 || addgroup --system "$user"
+  getent passwd "$user" >/dev/null 2>&1 || adduser --system --ingroup "$user" --home /var/lib/phantom --no-create-home --disabled-password --shell /usr/sbin/nologin "$user"
+done
+adduser phantom-ctrl phantom-motor >/dev/null 2>&1 || true
+adduser phantom-ctrl phantom-ipc >/dev/null 2>&1 || true
+adduser phantom-ctrl phantom-safety-ipc >/dev/null 2>&1 || true
+adduser phantom-net phantom-ipc >/dev/null 2>&1 || true
+getent group ev3dev >/dev/null 2>&1 && adduser phantom-ctrl ev3dev >/dev/null 2>&1 || true
+
 bench_sudoers=/etc/sudoers.d/phantom-ev3-bench
 if test -e "$bench_sudoers"; then
-  echo "removing bench sudo rule before a production install: $bench_sudoers" >&2
   rm -f "$bench_sudoers"
-  test ! -e "$bench_sudoers" || { echo "refusing to install while the bench sudo rule is present" >&2;exit 1; }
+  test ! -e "$bench_sudoers" || fail "bench sudo rule could not be removed"
 fi
 for stray in /etc/sudoers.d/phantom-*; do
   case "$stray" in *'phantom-*') continue;; esac
-  echo "refusing to install: unexpected phantom sudoers fragment $stray" >&2
-  exit 1
+  fail "unexpected phantom sudoers fragment: $stray"
 done
 
-install_runtime_metadata(){
-  release=$1
-  network_group=$(sed -n 's/^Group=//p' "$release/systemd/phantom-network.service"|head -n 1)
-  case "$network_group" in ''|*[!A-Za-z0-9._-]*) echo "invalid network service group in $release" >&2;return 1;;esac
-  getent group "$network_group" >/dev/null 2>&1||{ echo "network service group is unavailable: $network_group" >&2;return 1; }
-  for unit in $units;do install -m 0644 "$release/systemd/$unit" "/etc/systemd/system/$unit"||return 1;done
-  install -m 0644 "$release/tmpfiles/phantom.conf" /etc/tmpfiles.d/phantom.conf||return 1
-  systemctl daemon-reload||return 1
-  # Services are stopped before every call. Remove release-specific sockets,
-  # status files and subdirectories while preserving the lease inode itself;
-  # tmpfiles then recreates exactly the selected release's volatile layout.
-  if test -d /run/phantom;then
-    find /run/phantom -mindepth 1 -maxdepth 1 ! -name motor-control.lock -exec rm -rf -- {} +||return 1
-  fi
-  systemd-tmpfiles --create /etc/tmpfiles.d/phantom.conf||return 1
-  if test -d /var/lib/phantom/secrets;then
-    chown "root:$network_group" /var/lib/phantom/secrets||return 1
-    chmod 0750 /var/lib/phantom/secrets||return 1
-    find /var/lib/phantom/secrets -type f -exec chown "root:$network_group" {} + -exec chmod 0640 {} +||return 1
-  fi
-}
-runtime_metadata_matches(){
-  release=$1
-  for unit in $units;do cmp -s "$release/systemd/$unit" "/etc/systemd/system/$unit"||return 1;done
-  cmp -s "$release/tmpfiles/phantom.conf" /etc/tmpfiles.d/phantom.conf
-}
-all_services_active(){
-  for unit in $runtime_services;do
-    systemctl is-active --quiet "$unit"||{ echo "required service is not active: $unit" >&2;return 1; }
-  done
-}
-previous=$(readlink -f "$root/current" 2>/dev/null||true)
-rollback(){
-  rollback_status=0
-  systemctl stop phantom-mdns.service phantom-network.service phantom-controller.service phantom-wifi-autoconnect.service phantom-safety.service phantom.target||rollback_status=1
-  if test -n "$previous";then
-    ln -sfn "$previous" "$root/current"||rollback_status=1
-    install_runtime_metadata "$previous"||rollback_status=1
-    runtime_metadata_matches "$previous"||{ echo "rollback metadata does not match previous release" >&2;rollback_status=1; }
-    if test "$rollback_status" = 0;then
-      systemctl start phantom.target||rollback_status=1
-      all_services_active||rollback_status=1
-    fi
-    if test "$rollback_status" != 0;then
-      systemctl stop phantom-mdns.service phantom-network.service phantom-controller.service phantom-wifi-autoconnect.service phantom-safety.service phantom.target||true
-    fi
-  else
-    rm -f "$root/current"
-    for unit in $units;do rm -f "/etc/systemd/system/$unit";done
-    rm -f /etc/tmpfiles.d/phantom.conf
-    systemctl daemon-reload||rollback_status=1
-  fi
-  rm -rf -- "$dest"
-  test "$rollback_status" = 0
-}
-fail_with_rollback(){
-  reason=$1
-  echo "$reason; rolling back release metadata and current symlink" >&2
-  rollback||echo "ROLLBACK FAILED: manual recovery is required before another install" >&2
-  exit 1
-}
+next_step stop-and-safe
+terminal_state=STOP_IN_PROGRESS_UNVERIFIED
+stop_runtime || fail "runtime could not be stopped cleanly"
+force_and_verify_zero_output || fail "terminal zero-output state could not be established"
+terminal_state=RUNTIME_STOPPED_ZERO_OUTPUT
 
-systemctl stop phantom-mdns.service phantom-network.service phantom-controller.service phantom-wifi-autoconnect.service phantom-safety.service phantom.target||true
-if test -n "$previous";then ln -sfn "$previous" "$root/previous";fi
-ln -sfn "$dest" "$root/current"||fail_with_rollback "cannot activate candidate symlink"
-install_runtime_metadata "$dest"||fail_with_rollback "cannot install candidate runtime metadata"
-runtime_metadata_matches "$dest"||fail_with_rollback "installed runtime metadata differs from candidate"
-systemctl start phantom.target||fail_with_rollback "candidate target failed to start"
-all_services_active||fail_with_rollback "candidate service startup check failed"
-"$dest/bin/phantom-device-auto"||fail_with_rollback "candidate DEVICE AUTO failed"
+next_step transaction
+previous=$(readlink -f "$root/current" 2>/dev/null || true)
+case "$previous" in ''|"$root"/releases/*) ;; *) fail "current release resolves outside $root/releases";; esac
+backup=$(mktemp -d "$root/.install-backup.XXXXXX")
+for unit in $units; do
+  test ! -f "/etc/systemd/system/$unit" || cp -p "/etc/systemd/system/$unit" "$backup/$unit"
+done
+test ! -f /etc/tmpfiles.d/phantom.conf || cp -p /etc/tmpfiles.d/phantom.conf "$backup/phantom.conf"
+mv "$staging" "$dest"
+staging=
+transaction_started=1
+install_runtime_metadata "$dest" || fail "candidate runtime metadata installation failed"
+if test -n "$previous"; then ln -sfn "$previous" "$root/previous"; fi
+ln -sfn "$dest" "$root/current" || fail "candidate symlink activation failed"
+
+record_step PASS
+step=complete
+write_result PASS "release installed; runtime intentionally remains stopped"
+transaction_started=0
+echo "EV3 INSTALL: PASS build_id=$build_id release_id=$release_id"

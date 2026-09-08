@@ -619,7 +619,7 @@ def main():
     parser.add_argument("--manifest", default="/opt/phantom/current/build-manifest.json")
     parser.add_argument("--control-key", default="/var/lib/phantom/secrets/control.psk")
     parser.add_argument("--boot-id", default="/run/phantom/controller/boot-id")
-    parser.add_argument("--status", default="/run/phantom/network-status.json")
+    parser.add_argument("--status", default="/run/phantom/network/status.json")
     parser.add_argument("--ipc-own", default="/run/phantom/network/controller.sock")
     parser.add_argument("--ipc-controller", default="/run/phantom/controller/network.sock")
     parser.add_argument("--bind", default="0.0.0.0")

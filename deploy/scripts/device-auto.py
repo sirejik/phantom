@@ -16,11 +16,18 @@ CURRENT = pathlib.Path("/opt/phantom/current")
 REPORT = pathlib.Path("/var/lib/phantom/device-auto.json")
 checks = []
 report_manifest = {}
+run_started_monotonic = time.monotonic()
+run_started_at = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
+last_check_monotonic = run_started_monotonic
 
 
 def add(test_id, status, detail, evidence=None, introduced_at_stage=2):
+    global last_check_monotonic
+    now = time.monotonic()
     item = {"test_id": test_id, "introduced_at_stage": introduced_at_stage,
-            "applicable_to_stage": 3, "status": status, "detail": detail}
+            "applicable_to_stage": 3, "status": status, "detail": detail,
+            "duration_ms": int(max(0.0, now - last_check_monotonic) * 1000)}
+    last_check_monotonic = now
     if evidence is not None:
         item["evidence"] = evidence
     checks.append(item)
@@ -224,6 +231,7 @@ def protocol_probe(root, config, boot_hex, motors):
 
 
 def write_report(manifest):
+    finished_monotonic = time.monotonic()
     status = "PASS" if all(item["status"] in ("PASS", "N_A") for item in checks) else "FAIL"
     payload = {"schema_version": 2, "gate": "DEVICE AUTO", "stage": 3,
                "status": status, "git_commit": manifest.get("git_commit"),
@@ -231,7 +239,10 @@ def write_report(manifest):
                "commissioning_bundle_hash": manifest.get("commissioning_bundle_hash"),
                "artifact_sha256": {"controller": manifest.get("controller_sha256"),
                                    "safety": manifest.get("safety_sha256")},
-               "monotonic_finished_us": int(time.monotonic() * 1000000), "checks": checks}
+               "started_at": run_started_at,
+               "finished_at": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
+               "duration_ms": int(max(0.0, finished_monotonic - run_started_monotonic) * 1000),
+               "monotonic_finished_us": int(finished_monotonic * 1000000), "checks": checks}
     REPORT.parent.mkdir(parents=True, exist_ok=True)
     temporary = REPORT.with_suffix(".tmp")
     temporary.write_text(json.dumps(payload, indent=2, sort_keys=True) + "\n", encoding="utf-8")
@@ -248,6 +259,15 @@ def main():
     root = CURRENT.resolve()
     manifest = json.loads((root / "build-manifest.json").read_text(encoding="utf-8-sig"))
     report_manifest = manifest
+    start_result, start_error = read_json_object(pathlib.Path("/var/lib/phantom/start-result.json"))
+    start_ok = (start_error is None and start_result.get("phase") == "START" and
+                start_result.get("status") == "PASS" and
+                start_result.get("build_id") == manifest.get("build_id"))
+    add("ev3-start-admission", "PASS" if start_ok else "FAIL",
+        "matching START PASS is required before DEVICE AUTO",
+        start_result if start_error is None else start_error)
+    if not start_ok:
+        return write_report(manifest)
     config = json.loads((root / "config.generated.json").read_text(encoding="utf-8-sig"))
     bundle = json.loads((root / "commissioning-bundle.generated.json").read_text(encoding="utf-8-sig"))
     profile_ok = (config.get("build_profile") == "Diagnostic" and config.get("qualification_only") is True and
@@ -341,6 +361,8 @@ def main():
     safe, safe_evidence = zero_state(motors)
     add("ev3-zero-output-startup", "PASS" if safe else "FAIL", "all physically present motors stationary/BRAKE", safe_evidence)
 
+    network_status = {}
+    counters = {}
     boot_before_path = pathlib.Path("/run/phantom/controller/boot-id")
     boot_before = text(boot_before_path) if boot_before_path.is_file() else ""
     if services_ok and profile_ok and safe:
@@ -393,7 +415,7 @@ def main():
             add("ev3-network-security-stage3", "NOT_RUN", "protocol probe did not reach the security cases", protocol_evidence, 3)
         else:
             time.sleep(1.1)
-            network_status_path = pathlib.Path("/run/phantom/network-status.json")
+            network_status_path = pathlib.Path("/run/phantom/network/status.json")
             network_status, status_error = read_json_object(network_status_path)
             counters = network_status.get("counters", {}) if network_status is not None else {}
             security_ok = status_error is None and counters.get("hmac_fail", 0) >= 1 and counters.get("replay_reject", 0) >= 1

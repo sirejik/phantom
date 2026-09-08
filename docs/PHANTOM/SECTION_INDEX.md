@@ -214,6 +214,7 @@
 | `§8.3` | [`ENGINEERING.md`](ENGINEERING.md#sec-8-3) | 8.3. Симулятор EV3 |
 | `§8.4` | [`ENGINEERING.md`](ENGINEERING.md#sec-8-4) | 8.4. Повторное воспроизведение отслеживания |
 | `§8.5` | [`ENGINEERING.md`](ENGINEERING.md#sec-8-5) | 8.5. Непрерывная интеграция |
+| `§8.5.1` | [`ENGINEERING.md`](ENGINEERING.md#sec-8-5-1) | 8.5.1. Границы фаз и место выполнения инструментов |
 | `§8.6` | [`ENGINEERING.md`](ENGINEERING.md#sec-8-6) | 8.6. Сборка EV3 |
 | `§8.7` | [`ENGINEERING.md`](ENGINEERING.md#sec-8-7) | 8.7. Развёртывание EV3 |
 | `§8.8` | [`ENGINEERING.md`](ENGINEERING.md#sec-8-8) | 8.8. Сборка Quest |

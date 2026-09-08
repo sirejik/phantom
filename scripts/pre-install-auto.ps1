@@ -1,6 +1,5 @@
 param(
   [switch]$SkipUnity,
-  [switch]$SkipArmel,
   [switch]$AllowDirtyAuditSnapshot,
   [ValidateRange(1,7)][int]$Stage=3
 )
@@ -10,6 +9,7 @@ $started=(Get-Date).ToUniversalTime()
 $checks=@()
 $wslDistro=Get-PhantomWslDistro
 $wslEv3Source=Get-PhantomWslPath ev3
+$wslRepository=Get-PhantomWslPath .
 function Run-Check([string]$Name,[int]$IntroducedAtStage,[scriptblock]$Body){
     try{
         $global:LASTEXITCODE=0
@@ -36,6 +36,16 @@ Run-Check "protocol-exact-hmac-fuzz" 1 {python tools/test_protocol.py}
 Run-Check "simulator-regressions" 1 {python sim/ev3-simulator/test_simulator.py}
 Run-Check "ev3-stage3-network-security" 3 {python ev3/network/test_phantom_network.py}
 Run-Check "ev3-device-auto-regressions" 3 {python tools/test_ev3_device_auto.py}
+Run-Check "ev3-deployment-shell-syntax" 2 {wsl.exe -d $wslDistro -- bash -lc "cd '$wslRepository' && sh -n deploy/scripts/install-release deploy/scripts/start-release deploy/scripts/run-device-auto deploy/scripts/rollback-release deploy/scripts/wifi-autoconnect"}
+Run-Check "deployment-powershell-syntax" 2 {
+  $parseFailures=@()
+  foreach($path in @('scripts/quest-install.ps1','scripts/quest-start.ps1','scripts/quest-device-auto.ps1','scripts/ev3-transfer.ps1','scripts/ev3-install.ps1','scripts/ev3-start.ps1','scripts/ev3-device-auto.ps1','scripts/ev3-recover.ps1')){
+    $tokens=$null;$errors=$null
+    [System.Management.Automation.Language.Parser]::ParseFile((Resolve-Path $path),[ref]$tokens,[ref]$errors)|Out-Null
+    if($errors.Count){$parseFailures+="$path`: $($errors.Message -join '; ')"}
+  }
+  if($parseFailures.Count){throw ($parseFailures -join "`n")}
+}
 Run-Check "tracking-replay-regressions" 1 {python sim/tracking-replay/test_tracking_replay.py}
 Run-Check "artifact-gate-regressions" 1 {python tools/test_artifact_check.py}
 Run-Check "build-identity-golden" 1 {python tools/test_build_identity.py}
@@ -53,11 +63,6 @@ Run-Check "ev3-host-release" 1 {powershell -NoProfile -ExecutionPolicy Bypass -F
 Run-Check "ev3-host-diagnostic" 1 {powershell -NoProfile -ExecutionPolicy Bypass -File scripts/ev3-host-build.ps1 -Profile Diagnostic}
 Run-Check "ev3-host-asan-ubsan" 1 {wsl.exe -d $wslDistro -- bash -lc "rm -rf /tmp/phantom-ev3-sanitize && cmake -S '$wslEv3Source' -B /tmp/phantom-ev3-sanitize -G Ninja -DCMAKE_BUILD_TYPE=Debug -DCMAKE_CXX_FLAGS='-fsanitize=address,undefined -fno-omit-frame-pointer' && cmake --build /tmp/phantom-ev3-sanitize && ASAN_OPTIONS=detect_leaks=1 ctest --test-dir /tmp/phantom-ev3-sanitize --output-on-failure"}
 if($SkipUnity){$checks+=@{test_id="unity-editmode";introduced_at_stage=2;applicable_to_stage=$Stage;status="NOT_RUN";runner="scripts/quest-test.ps1";detail="explicit -SkipUnity"}}else{Run-Check "unity-editmode" 2 {powershell -NoProfile -ExecutionPolicy Bypass -File scripts/quest-test.ps1}}
-if($SkipArmel){$checks+=@{test_id="ev3-armel-release-diagnostic";introduced_at_stage=1;applicable_to_stage=$Stage;status="NOT_RUN";runner="scripts/ev3-armel-docker.ps1";detail="explicit -SkipArmel"}}else{Run-Check "ev3-armel-release-diagnostic" 1 {powershell -NoProfile -ExecutionPolicy Bypass -File scripts/ev3-armel-docker.ps1}}
-if(!$SkipArmel -and $Stage -ge 3){Run-Check "ev3-stage3-diagnostic-package" 3 {
-  if($AllowDirtyAuditSnapshot){powershell -NoProfile -ExecutionPolicy Bypass -File scripts/ev3-package.ps1 -Profile Diagnostic -AllowDirtyAuditSnapshot}
-  else{powershell -NoProfile -ExecutionPolicy Bypass -File scripts/ev3-package.ps1 -Profile Diagnostic}
-}}
 Run-Check "post-build-artifacts" 2 {
   if($AllowDirtyAuditSnapshot){python tools/artifact_check.py --allow-dirty-snapshot}
   else{python tools/artifact_check.py}
@@ -77,6 +82,7 @@ $artifactFiles=@(
   Get-ChildItem build\ev3-host-*\build-manifest.json,build\ev3-host-*\SHA256SUMS -File -ErrorAction SilentlyContinue
   Get-ChildItem build\ev3-armel\*\bin\phantom-controller,build\ev3-armel\*\bin\phantom-safety,build\ev3-armel\*\build-manifest.json,build\ev3-armel\*\SHA256SUMS -File -ErrorAction SilentlyContinue
   Get-ChildItem build\ev3-packages\phantom-*.tar.gz,build\ev3-packages\phantom-*.tar.gz.build-manifest.json -File -ErrorAction SilentlyContinue|Where-Object{$path=$_.Name;$currentEv3BuildIds|Where-Object{$path.Contains($_)}}
+  Get-Item deploy\scripts\install-release,deploy\scripts\start-release,deploy\scripts\run-device-auto,deploy\scripts\rollback-release -ErrorAction SilentlyContinue
 )
 $artifactFiles|Sort-Object FullName -Unique|ForEach-Object{$artifacts+=@{path=$_.FullName.Substring((Resolve-Path .).Path.Length+1);sha256=(Get-FileHash $_.FullName -Algorithm SHA256).Hash.ToLower()}}
 $buildIds=@();$artifactFiles|Where-Object Name -eq "build-manifest.json"|ForEach-Object{$buildIds+=(Get-Content $_.FullName -Raw|ConvertFrom-Json).build_id};$artifactFiles|Where-Object Name -like "*.build-manifest.json"|ForEach-Object{$buildIds+=(Get-Content $_.FullName -Raw|ConvertFrom-Json).build_id};$buildIds=@($buildIds|Sort-Object -Unique)

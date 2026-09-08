@@ -1,0 +1,186 @@
+#!/bin/sh
+# START phase only: activate the installed EV3 release and stop at the first failed unit.
+set -eu
+
+root=/opt/phantom/current
+install_result=/var/lib/phantom/install-result.json
+recovery_result=/var/lib/phantom/recovery-result.json
+result=/var/lib/phantom/start-result.json
+start_order="phantom-safety.service phantom-controller.service phantom-wifi-autoconnect.service phantom-network.service phantom-mdns.service"
+stop_order="phantom-mdns.service phantom-network.service phantom-controller.service phantom-wifi-autoconnect.service phantom-safety.service phantom.target"
+step_timeout=${PHANTOM_START_STEP_TIMEOUT_SECONDS:-95}
+started_at=$(date -u +%Y-%m-%dT%H:%M:%SZ)
+started_epoch=$(date +%s)
+steps_file=$(mktemp /tmp/phantom-start-steps.XXXXXX)
+first_failed=
+failure_detail=
+diagnostics=
+terminal_state=RUNTIME_STATE_UNVERIFIED
+build_id=unknown
+result_written=0
+
+finish() {
+  code=$?
+  trap - EXIT HUP INT TERM
+  if test "$code" != 0 && test "$result_written" = 0; then
+    test -n "$first_failed" || first_failed=start-runner
+    test -n "$failure_detail" || failure_detail="START aborted before completion"
+    capture_failure
+    if stop_runtime && force_and_verify_zero_output; then terminal_state=RUNTIME_STOPPED_ZERO_OUTPUT; else terminal_state=SAFE_STATE_VERIFICATION_FAILED; fi
+    write_result FAIL
+  fi
+  rm -f "$steps_file"
+  exit "$code"
+}
+trap finish EXIT
+trap 'exit 130' HUP INT TERM
+
+force_and_verify_zero_output() {
+  for motor in /sys/class/tacho-motor/motor*; do
+    test -d "$motor" || continue
+    echo 0 > "$motor/duty_cycle_sp"
+    echo brake > "$motor/stop_action"
+    echo stop > "$motor/command"
+  done
+  for motor in /sys/class/tacho-motor/motor*; do
+    test -d "$motor" || continue
+    test "$(cat "$motor/duty_cycle_sp")" = 0 || return 1
+    test "$(cat "$motor/duty_cycle")" = 0 || return 1
+    test "$(cat "$motor/speed")" = 0 || return 1
+    test "$(cat "$motor/stop_action")" = brake || return 1
+  done
+}
+
+stop_runtime() {
+  for unit in $stop_order; do
+    systemctl stop "$unit" >/dev/null 2>&1 || true
+  done
+  for unit in $stop_order; do
+    if systemctl is-active --quiet "$unit" 2>/dev/null; then return 1; fi
+  done
+}
+
+capture_failure() {
+  stamp=$(date -u +%Y%m%dT%H%M%SZ)
+  diagnostics="/var/lib/phantom/startup-failures/${build_id}-${stamp}"
+  mkdir -p "$diagnostics"
+  for unit in $start_order phantom.target; do
+    systemctl show -p LoadState -p ActiveState -p SubState -p Result -p ExecMainCode -p ExecMainStatus -p Requires -p Wants -p After -p Before "$unit" > "$diagnostics/$unit.show.txt" 2>&1 || true
+    journalctl -u "$unit" -n 120 --no-pager > "$diagnostics/$unit.journal.txt" 2>&1 || true
+  done
+  systemctl list-dependencies --all phantom.target > "$diagnostics/phantom.target.dependencies.txt" 2>&1 || true
+}
+
+write_result() {
+  status=$1
+  finished_at=$(date -u +%Y-%m-%dT%H:%M:%SZ)
+  finished_epoch=$(date +%s)
+  mkdir -p /var/lib/phantom
+  python3 - "$result" "$status" "$started_at" "$finished_at" "$started_epoch" "$finished_epoch" "$build_id" "$first_failed" "$failure_detail" "$terminal_state" "$diagnostics" "$steps_file" <<'PY'
+import json, os, pathlib, sys
+path = pathlib.Path(sys.argv[1])
+steps = []
+step_path = pathlib.Path(sys.argv[12])
+if step_path.is_file():
+    for line in step_path.read_text(encoding="utf-8").splitlines():
+        fields = line.split("\t")
+        if len(fields) == 6:
+            steps.append({"unit": fields[0], "status": fields[1], "result": fields[2],
+                          "exec_main_code": fields[3], "exec_main_status": fields[4],
+                          "duration_seconds": int(fields[5])})
+payload = {
+    "schema_version": 1,
+    "phase": "START",
+    "status": sys.argv[2],
+    "started_at": sys.argv[3],
+    "finished_at": sys.argv[4],
+    "duration_seconds": max(0, int(sys.argv[6]) - int(sys.argv[5])),
+    "build_id": sys.argv[7],
+    "first_failed_service": sys.argv[8] or None,
+    "failure_detail": sys.argv[9] or None,
+    "terminal_state": sys.argv[10],
+    "diagnostics_directory": sys.argv[11] or None,
+    "steps": steps,
+}
+temporary = path.with_suffix(".tmp")
+temporary.write_text(json.dumps(payload, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+os.replace(str(temporary), str(path))
+PY
+  result_written=1
+}
+
+record_step() {
+  unit=$1
+  status=$2
+  duration=$3
+  properties=$(systemctl show -p Result -p ExecMainCode -p ExecMainStatus "$unit" 2>/dev/null || true)
+  service_result=$(printf '%s\n' "$properties" | sed -n 's/^Result=//p')
+  main_code=$(printf '%s\n' "$properties" | sed -n 's/^ExecMainCode=//p')
+  main_status=$(printf '%s\n' "$properties" | sed -n 's/^ExecMainStatus=//p')
+  printf '%s\t%s\t%s\t%s\t%s\t%s\n' "$unit" "$status" "${service_result:-unknown}" "${main_code:-unknown}" "${main_status:-unknown}" "$duration" >> "$steps_file"
+}
+
+fail_start() {
+  first_failed=$1
+  failure_detail=$2
+  capture_failure
+  if stop_runtime && force_and_verify_zero_output; then terminal_state=RUNTIME_STOPPED_ZERO_OUTPUT; else terminal_state=SAFE_STATE_VERIFICATION_FAILED; fi
+  write_result FAIL
+  echo "EV3 START: FAIL first_failed_service=$first_failed diagnostics=$diagnostics" >&2
+  exit 1
+}
+
+test "$(id -u)" = 0 || { echo "root required" >&2; exit 1; }
+case "$step_timeout" in ''|*[!0-9]*) echo "PHANTOM_START_STEP_TIMEOUT_SECONDS must be a positive integer" >&2; exit 1;; esac
+test "$step_timeout" -gt 0 || { echo "PHANTOM_START_STEP_TIMEOUT_SECONDS must be positive" >&2; exit 1; }
+test -L "$root" && test -f "$root/build-manifest.json" || fail_start start-admission "installed current release is missing"
+build_id=$(python3 - "$root/build-manifest.json" "$install_result" "$recovery_result" <<'PY'
+import json, sys
+with open(sys.argv[1], encoding="utf-8-sig") as stream:
+    manifest = json.load(stream)
+build_id = manifest.get("build_id")
+matched = False
+for path, phase in ((sys.argv[2], "INSTALL"), (sys.argv[3], "RECOVERY")):
+    try:
+        with open(path, encoding="utf-8-sig") as stream:
+            result = json.load(stream)
+    except (OSError, ValueError):
+        continue
+    matched = matched or (result.get("phase") == phase and result.get("status") == "PASS" and result.get("build_id") == build_id)
+if not matched:
+    raise SystemExit("matching INSTALL or RECOVERY PASS is required")
+print(build_id)
+PY
+) || fail_start start-admission "matching INSTALL or RECOVERY PASS is required"
+
+stop_runtime || fail_start pre-start-stop "existing runtime could not be stopped cleanly"
+force_and_verify_zero_output || fail_start pre-start-safe-state "could not establish zero-output before activation"
+terminal_state=RUNTIME_STOPPED_ZERO_OUTPUT
+
+for unit in $start_order; do
+  echo "EV3 START: starting $unit (deadline ${step_timeout}s)"
+  step_started=$(date +%s)
+  if timeout "$step_timeout" systemctl start "$unit" && systemctl is-active --quiet "$unit"; then
+    step_finished=$(date +%s)
+    record_step "$unit" PASS "$((step_finished-step_started))"
+  else
+    step_finished=$(date +%s)
+    record_step "$unit" FAIL "$((step_finished-step_started))"
+    fail_start "$unit" "service did not reach active state within its bounded start step"
+  fi
+done
+
+target_started=$(date +%s)
+if timeout "$step_timeout" systemctl start phantom.target && systemctl is-active --quiet phantom.target; then
+  target_finished=$(date +%s)
+  record_step phantom.target PASS "$((target_finished-target_started))"
+else
+  target_finished=$(date +%s)
+  record_step phantom.target FAIL "$((target_finished-target_started))"
+  fail_start phantom.target "target did not reach active state"
+fi
+
+force_and_verify_zero_output || fail_start startup-zero-output "runtime started but zero-output verification failed"
+terminal_state=RUNTIME_ACTIVE_ZERO_OUTPUT
+write_result PASS
+echo "EV3 START: PASS build_id=$build_id"

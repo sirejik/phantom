@@ -1,0 +1,71 @@
+#!/bin/sh
+# Explicit DEVICE AUTO launcher. It never installs or rolls back a release.
+set -eu
+
+expected_build_id=${1:?expected build_id required}
+deadline=${2:-360}
+result=/var/lib/phantom/device-auto.json
+case "$expected_build_id" in *[!0-9a-f]*|'') echo "invalid build_id" >&2; exit 1;; esac
+test "${#expected_build_id}" = 64 || { echo "invalid build_id length" >&2; exit 1; }
+case "$deadline" in *[!0-9]*|'') echo "invalid DEVICE AUTO deadline" >&2; exit 1;; esac
+test "$deadline" -gt 0 || { echo "DEVICE AUTO deadline must be positive" >&2; exit 1; }
+
+actual_build_id=$(python3 -c 'import json; print(json.load(open("/opt/phantom/current/build-manifest.json", encoding="utf-8-sig"))["build_id"])')
+test "$actual_build_id" = "$expected_build_id" || { echo "installed build_id mismatch" >&2; exit 1; }
+
+rm -f "$result"
+set +e
+timeout "$deadline" /opt/phantom/current/bin/phantom-device-auto
+code=$?
+set -e
+if test "$code" != 0; then
+  for unit in phantom-mdns.service phantom-network.service phantom-controller.service phantom-wifi-autoconnect.service phantom-safety.service phantom.target; do
+    systemctl stop "$unit" >/dev/null 2>&1 || true
+  done
+  for motor in /sys/class/tacho-motor/motor*; do
+    test -d "$motor" || continue
+    echo 0 > "$motor/duty_cycle_sp" 2>/dev/null || true
+    echo brake > "$motor/stop_action" 2>/dev/null || true
+    echo stop > "$motor/command" 2>/dev/null || true
+  done
+  terminal_state=RUNTIME_STOPPED_ZERO_OUTPUT
+  for unit in phantom-mdns.service phantom-network.service phantom-controller.service phantom-wifi-autoconnect.service phantom-safety.service phantom.target; do
+    if systemctl is-active --quiet "$unit" 2>/dev/null; then terminal_state=SAFE_STATE_VERIFICATION_FAILED; fi
+  done
+  for motor in /sys/class/tacho-motor/motor*; do
+    test -d "$motor" || continue
+    test "$(cat "$motor/duty_cycle_sp" 2>/dev/null)" = 0 || terminal_state=SAFE_STATE_VERIFICATION_FAILED
+    test "$(cat "$motor/duty_cycle" 2>/dev/null)" = 0 || terminal_state=SAFE_STATE_VERIFICATION_FAILED
+    test "$(cat "$motor/speed" 2>/dev/null)" = 0 || terminal_state=SAFE_STATE_VERIFICATION_FAILED
+    test "$(cat "$motor/stop_action" 2>/dev/null)" = brake || terminal_state=SAFE_STATE_VERIFICATION_FAILED
+  done
+  python3 - "$result" "$expected_build_id" "$code" "$terminal_state" <<'PY'
+import json, os, pathlib, sys, time
+path = pathlib.Path(sys.argv[1])
+try:
+    payload = json.loads(path.read_text(encoding="utf-8-sig"))
+    if not isinstance(payload, dict):
+        raise ValueError("report root is not an object")
+except (OSError, ValueError):
+    payload = {
+        "schema_version": 2,
+        "gate": "DEVICE AUTO",
+        "stage": 3,
+        "status": "FAIL",
+        "build_id": sys.argv[2],
+        "finished_at": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
+        "checks": [{
+            "test_id": "device-auto-launcher",
+            "status": "FAIL",
+            "detail": "runner exited or timed out before producing a valid report",
+        }],
+    }
+payload["status"] = "FAIL"
+payload["launcher_exit_code"] = int(sys.argv[3])
+payload["launcher_terminal_state"] = sys.argv[4]
+temporary = path.with_suffix(".tmp")
+temporary.write_text(json.dumps(payload, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+os.replace(str(temporary), str(path))
+PY
+fi
+exit "$code"
