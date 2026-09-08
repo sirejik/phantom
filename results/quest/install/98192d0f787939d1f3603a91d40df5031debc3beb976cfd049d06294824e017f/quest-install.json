@@ -1,0 +1,10 @@
+{
+    "schema_version":  1,
+    "phase":  "INSTALL",
+    "status":  "FAIL",
+    "build_id":  "98192d0f787939d1f3603a91d40df5031debc3beb976cfd049d06294824e017f",
+    "detail":  "adb install completed but did not expose an exit code",
+    "started_at":  "2026-09-08T02:47:53.4023140Z",
+    "finished_at":  "2026-09-08T02:48:07.3403498Z",
+    "terminal_state":  "APK_INSTALL_STARTED_RESULT_UNKNOWN"
+}

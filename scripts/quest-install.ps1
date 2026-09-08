@@ -53,8 +53,11 @@ $sha=[System.Security.Cryptography.SHA256]::Create()
 try{$deviceIdHash=([BitConverter]::ToString($sha.ComputeHash([System.Text.Encoding]::UTF8.GetBytes($serial)))).Replace('-','').ToLowerInvariant().Substring(0,16)}finally{$sha.Dispose()}
 $installStarted=(Get-Date).ToUniversalTime()
 $phaseTerminal='APK_INSTALL_STARTED_RESULT_UNKNOWN'
-$adbArguments=@('-s',$serial,'install','-r','-g',('"'+$apkPath+'"'))
-$installProcess=Start-Process -FilePath $adb -ArgumentList $adbArguments -NoNewWindow -PassThru
+$installInfo=[System.Diagnostics.ProcessStartInfo]::new()
+$installInfo.FileName=$adb
+$installInfo.Arguments='-s "{0}" install -r -g "{1}"' -f $serial,$apkPath
+$installInfo.UseShellExecute=$false
+$installProcess=[System.Diagnostics.Process]::Start($installInfo)
 $completed=$installProcess.WaitForExit($TimeoutSeconds*1000)
 if(!$completed)
 {
@@ -62,13 +65,8 @@ if(!$completed)
     $installProcess.WaitForExit()
     throw "adb install exceeded ${TimeoutSeconds}s deadline"
 }
-# Windows PowerShell 5.1 may leave ExitCode unset after only the timed overload.
-# The parameterless wait refreshes the native process handle without extending
-# the deadline because the process has already completed.
 $installProcess.WaitForExit()
-$installProcess.Refresh()
 $installExitCode=$installProcess.ExitCode
-if($null-eq$installExitCode){throw 'adb install completed but did not expose an exit code'}
 if($installExitCode-ne 0){throw "adb install failed with exit $installExitCode"}
 $phaseTerminal='APK_INSTALLED_IDENTITY_UNVERIFIED'
 $installDurationMs=[long]((Get-Date).ToUniversalTime()-$installStarted).TotalMilliseconds

@@ -229,14 +229,15 @@ class DeploymentRegressionTests(unittest.TestCase):
         self.assertIn("mv '$remoteUpload' '$remote'", source)
         self.assertIn("Deployment tool $name is absent or ambiguous", source)
         self.assertIn("WaitForExit($TimeoutSeconds*1000)", source)
+        self.assertIn("[System.Diagnostics.Process]::Start", source)
+        self.assertNotIn("Start-Process", source)
         self.assertIn("$process.WaitForExit()", source)
-        self.assertIn("$process.Refresh()", source)
 
     def test_quest_install_start_and_device_runners_are_separate(self):
         installer = (ROOT / "scripts" / "quest-install.ps1").read_text(encoding="utf-8")
         starter = (ROOT / "scripts" / "quest-start.ps1").read_text(encoding="utf-8")
         device = (ROOT / "scripts" / "quest-device-auto.ps1").read_text(encoding="utf-8")
-        self.assertIn("'install','-r','-g'", installer)
+        self.assertIn('install -r -g', installer)
         self.assertNotIn("am start", installer)
         self.assertIn("am start", starter)
         self.assertNotIn("install -r -g", starter)
@@ -249,8 +250,9 @@ class DeploymentRegressionTests(unittest.TestCase):
         self.assertIn("worktree_dirty-eq$false", installer)
         self.assertIn("artifactMatches.Count-eq 1", installer)
         self.assertIn("APK_INSTALL_STARTED_RESULT_UNKNOWN", installer)
+        self.assertIn("[System.Diagnostics.Process]::Start", installer)
+        self.assertNotIn("Start-Process", installer)
         self.assertIn("$installProcess.WaitForExit()", installer)
-        self.assertIn("$installProcess.Refresh()", installer)
         self.assertLess(starter.index("APP_LAUNCH_REQUESTED_READINESS_UNVERIFIED"),
                         starter.index("shell am start"))
         self.assertIn('$p0PrerequisiteFailed=$status-ne"PASS"', device)

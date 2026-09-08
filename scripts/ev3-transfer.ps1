@@ -51,7 +51,11 @@ try
     $scp=(Get-Command scp -ErrorAction Stop).Source
     $options=Get-PhantomEv3SshOptions $key
     $arguments=@($options)+@('-r',$stage,"$User@${Address}:$remoteUpload")
-    $process=Start-Process -FilePath $scp -ArgumentList $arguments -NoNewWindow -PassThru
+    $transferInfo=[System.Diagnostics.ProcessStartInfo]::new()
+    $transferInfo.FileName=$scp
+    $transferInfo.Arguments=(@($arguments|ForEach-Object{'"'+$_.Replace('"','\"')+'"'})-join' ')
+    $transferInfo.UseShellExecute=$false
+    $process=[System.Diagnostics.Process]::Start($transferInfo)
     $completed=$process.WaitForExit($TimeoutSeconds*1000)
     if(!$completed)
     {
@@ -60,9 +64,7 @@ try
         throw "EV3 transfer exceeded ${TimeoutSeconds}s deadline"
     }
     $process.WaitForExit()
-    $process.Refresh()
     $transferExitCode=$process.ExitCode
-    if($null-eq$transferExitCode){throw 'EV3 transfer completed but did not expose an exit code'}
     if($transferExitCode-ne 0){throw "EV3 transfer failed with exit $transferExitCode"}
     $verify=Invoke-PhantomEv3Command $Address $User $key "cd '$remoteUpload' && timeout 30 sha256sum -c SHA256SUMS && chmod 0755 install-release start-release run-device-auto rollback-release && cd / && rm -rf -- '$remote' && mv '$remoteUpload' '$remote'"
     if($verify.ExitCode-ne 0){throw "EV3 transfer verification failed: $($verify.Output-join' ')"}
