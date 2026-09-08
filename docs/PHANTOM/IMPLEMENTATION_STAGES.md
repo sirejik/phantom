@@ -79,8 +79,8 @@ flowchart TD
 | Точность | для новой функции заранее определяется измеряемая ошибка; расчёты не должны накапливать программный drift; физические допуски проверяются по мере появления соответствующего оборудования |
 | Производительность | новая функция не должна нарушать бюджет кадра Quest, 50-Hz цикл EV3, ограничения очередей, памяти и сетевого обмена; критический путь профилируется сразу, а не в конце проекта |
 | Удобство использования | пользовательские действия и ошибки сразу проектируются с русскими понятными сообщениями; инженерные детали не попадают в обычный UI; новые обязательные действия не добавляются без необходимости |
-| Автоматические тесты | всё, что можно проверить без человека и физической неопределённости, получает unit/property/protocol/replay/simulation regression и входит в `PRE-INSTALL AUTO` |
-| Аппаратные и ручные проверки | по мере появления физической функции добавляются `DEVICE AUTO`, HIL и необходимые ручные safety/UX проверки из главы 9; применимость определяется active stage/profile, но финальный Release требует полный production комплект |
+| Автоматические тесты | всё, что можно проверить без человека и физической неопределённости, получает unit/property/protocol/replay/simulation regression и входит в `TEST` |
+| Аппаратные и ручные проверки | по мере появления физической функции добавляются `DEVICE INTEGRATION TEST`, HIL и необходимые ручные safety/UX проверки из главы 9; применимость определяется active stage/profile, но финальный Release требует полный production комплект |
 
 Если дефект обнаружен на более позднем этапе, исправление возвращается в тот слой, где он должен был быть обнаружен. Если дефект воспроизводим программно, вместе с исправлением добавляется автоматический regression test. После исправления повторяется затронутый stage gate и применимый regression.
 
@@ -103,7 +103,7 @@ flowchart TD
 текущего build; старый PASS не доказывает новый `protocol_schema_hash`.
 
 **Этап считается выполненным, если:** чистый checkout воспроизводимо собирается; применимый
-`PRE-INSTALL AUTO` проходит; Quest способен работать с симулятором EV3, EV3 controller — с
+`TEST` проходит; Quest способен работать с симулятором EV3, EV3 controller — с
 mock-моторами; ошибки фундамента наблюдаемы и журналируются. Scope-specific P0 §9.6 остаётся
 отдельным prerequisite соответствующего actuator milestone: `COMMISSIONING_QR` до первого
 QR-driven движения этапа 4, `D_ONLY_USER` до этапа 5, `FULL_ARM_USER` до full-arm live
@@ -115,7 +115,7 @@ qualification/этапа 9. Отсутствие required evidence = `NOT_RUN`. 
 Цель — Quest и EV3 запускаются независимо; EV3 безопасен при zero output. Полная механика и
 Wi-Fi не являются gate. Scope-aware `qualification_only`/`actuator_scope_mask`/
 `safety_observation_mask` вводятся последующими этапами. До первого движения D на этапе 4
-установленный build обязан повторно пройти применимый DEVICE AUTO уже с gripper-only
+установленный build обязан повторно пройти применимый DEVICE INTEGRATION TEST уже с gripper-only
 profile; для каждого последующего нового actuator scope выполняется его применимый DEVICE
 regression. Это новый gate соответствующей функции, а не переоценка более раннего этапа.
 
@@ -123,7 +123,7 @@ regression. Это новый gate соответствующей функции
 оборудовании; `phantom-controller`/`phantom-safety` heartbeat и takeover проходят zero-output
 tests; scoped I/O обнаруживается корректно; отсутствующий out-of-scope I/O не считается
 fault; ни startup, ни shutdown не создают ненулевой motor output; применимые
-`PRE-INSTALL AUTO`/`DEVICE AUTO` имеют PASS.
+`TEST`/`DEVICE INTEGRATION TEST` имеют PASS.
 
 <a id="sec-10-5"></a>
 ## 10.5. Этап 3 — Wi-Fi EV3, Quest↔EV3 и телеметрия
@@ -339,9 +339,9 @@ Gripper channel продолжает использовать проверенн
 
 **Этап считается выполненным, если:**
 
-1. один зафиксированный Release candidate проходит полный `PRE-INSTALL AUTO`;
+1. один зафиксированный Release candidate проходит полный `TEST`;
 2. именно эти артефакты установлены на Quest/EV3;
-3. полный production `DEVICE AUTO` проходит с A/B/C/D и обязательными sensors;
+3. полный production `DEVICE INTEGRATION TEST` проходит с A/B/C/D и обязательными sensors;
 4. все применимые HIL/safety/network/calibration/accuracy/resource tests главы 9 PASS;
 5. серия независимых bounded runs `<=60 s` и повторных starts/restarts не выявляет blocking regressions;
 6. Release/Diagnostic, rollback, config/bundle/schema hashes согласованы; CAD/mechanical artifact hash, SBOM, legacy-EOL vulnerability/risk record и exact toolchain/image provenance закрыты по §9.24.4;

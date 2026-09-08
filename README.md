@@ -1,67 +1,47 @@
 # PHANTOM
 
-The normative requirements are in `docs/PHANTOM_SPECIFICATION.md`. This tree
-contains the Stage 1/2 software foundation: generated protocol/config
-contracts, Quest observation runtime and pure logic, fail-closed EV3 runtime,
-PC simulator, tracking replay and build/test/deployment gates.
+PHANTOM is a safety-oriented teleoperation system: Meta Quest 3 supplies user intent and
+LEGO Mindstorms EV3 remains authoritative for state, safety gates, and motor I/O. The
+normative specification is generated as `docs/PHANTOM_SPECIFICATION.md`; engineering
+commands and lifecycle rules are owned by `docs/PHANTOM/ENGINEERING.md`.
 
-Host tooling is declared in `toolchains/host-tools.json` and resolved by
-`tools/toolchain.ps1`. Override any of it without editing scripts:
-`PHANTOM_UNITY_ROOT`, `PHANTOM_ADB`, `PHANTOM_WSL_DISTRO`, `PHANTOM_GIT_BASH`.
-The Unity version itself is pinned by `PhantomQuest/ProjectSettings/ProjectVersion.txt`.
-See `docs/PHANTOM/ENGINEERING.md` §8.1.1.
+The lifecycle has explicit, independently invoked phases:
 
-Quick checks on Windows:
-
-```powershell
-python tools/specgen.py --check
-python tools/docindex.py --check
-python tools/doclint.py
-python tools/protocolgen.py --check
-python tools/configgen.py --check
-python tools/implementation_map_check.py
-python tools/test_jcs.py
-python tools/test_ipc_contract.py
-python tools/test_configgen.py
-python tools/security_scan.py
-powershell -File tools/quest_validation/compile_and_smoke.ps1
-powershell -File tools/quest_validation/run_udp_integration.ps1
-powershell -File scripts/quest-test.ps1
-powershell -File scripts/quest-build.ps1 -Profile Release -Output build/quest/PhantomQuest-release.apk
-powershell -File scripts/quest-build.ps1 -Profile Diagnostic -Output build/quest/PhantomQuest-diagnostic.apk
-powershell -File scripts/ev3-host-build.ps1 -Profile Release
-powershell -File scripts/ev3-armel-docker.ps1
-powershell -File scripts/ev3-package.ps1
-powershell -File scripts/pre-install-auto.ps1
+```text
+TEST → BUILD → PROVISION → TRANSFER → INSTALL → START → DEBUG
+     → DEVICE INTEGRATION TEST → HIL → MANUAL ACCEPTANCE → RECOVERY
 ```
 
-Физические операции запускаются отдельно и не пересобирают artifacts. INSTALL проверяет
-выбранные bytes и не требует предыдущих локальных reports; DEVICE AUTO требует exact
-PRE-INSTALL PASS:
+No phase silently runs another phase. In particular, BUILD does not run tests, INSTALL does
+not build or test, START does not provision, and DEVICE INTEGRATION TEST does not install.
+`build/**` and `results/**` are disposable local data and are not prerequisites for installing
+already selected bytes.
+
+Cleanup is explicit and dry-run by default: `scripts/build-clean.ps1` for build outputs and
+`scripts/results-clean.ps1` for local reports; add `-Apply` only after reviewing the targets.
+
+Typical off-device development commands:
 
 ```powershell
-powershell -File scripts/quest-install.ps1 -Apk <artifact.apk>
-powershell -File scripts/quest-start.ps1 -Apk <artifact.apk>
-powershell -File scripts/quest-device-auto.ps1 -Apk <artifact.apk>
-powershell -File scripts/ev3-transfer.ps1 -Address <actual-ip-or-rndis-address> -Package <package.tar.gz>
-powershell -File scripts/ev3-install.ps1 -Address <actual-ip-or-rndis-address> -BuildId <ev3_build_id>
-powershell -File scripts/ev3-start.ps1 -Address <actual-ip-or-rndis-address> -BuildId <ev3_build_id>
-powershell -File scripts/ev3-device-auto.ps1 -Address <actual-ip-or-rndis-address> -BuildId <ev3_build_id>
+scripts\phantom.cmd TEST QUEST
+scripts\phantom.cmd TEST EV3
+scripts\phantom.cmd BUILD QUEST -Profile Diagnostic
+scripts\phantom.cmd BUILD EV3 -Profile Diagnostic
 ```
 
-Before a Quest can open an authenticated CONTROL session it needs its control PSK
-provisioned out of band (`docs/PHANTOM/ENGINEERING.md` §8.11.1):
+Provisioning is a separate, infrequent administrative operation. Quest CONTROL credentials
+are stored in Android Keystore-backed storage; EV3 SSH trust, maintenance helpers, users, and
+the Wi-Fi autoconnect platform unit are provisioned separately from application releases.
 
 ```powershell
-powershell -File scripts/quest-provision-credential.ps1 -KeyFile <path outside the repository>
+powershell -NoProfile -ExecutionPolicy Bypass -File scripts/quest-provision-credential.ps1 -KeyFile <outside-repository-path>
+powershell -NoProfile -ExecutionPolicy Bypass -File scripts/ev3-provision-maintenance.ps1 -Address <actual-ip> -HostFingerprint <SHA256:...>
 ```
 
-The armel build uses the pinned
-`ev3dev/debian-stretch-cross@sha256:819ea744...176a29f` image for both Release
-and Diagnostic. `PRE-INSTALL AUTO` is the post-build gate and expects both
-Quest APK profiles to exist with matching manifests.
+Deployment commands consume existing artifacts and installed/provisioned state. See §8.5 of
+`docs/PHANTOM/ENGINEERING.md` for exact arguments and error categories.
 
-No checked-in configuration authorizes physical movement. All safety-critical
-`MEASURED` values, the Quest P0 qualification, EV3 DEVICE AUTO, mechanical
-inspection and HIL must be completed on the named physical artifacts before
-`READY`; see `mechanical/safety-inspection.md`.
+No checked-in configuration authorizes physical movement. Simulator output, builds, and
+software tests are never hardware PASS. Physical DEVICE INTEGRATION TEST, HIL, safety
+inspection, and applicable P0/acceptance gates remain required for the named installed
+artifacts and physical assembly.

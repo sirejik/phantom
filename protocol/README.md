@@ -13,9 +13,9 @@ duplicate wire tables here or anywhere else.
 | `generated/` | canonical projections, C++/C#/Python constants and layouts, schema hashes |
 | `golden_vectors/` | cross-language fixtures: `v1.json` (wire), `ipc_v1.json` (IPC layout), `jcs_v1.json` (canonicalization) |
 
-Run `python tools/protocolgen.py` after an intentional schema change. CI and
-`PRE-INSTALL AUTO` run the same command with `--check` and reject stale metadata, a stale
-`protocol.md`, or stale golden vectors.
+Run `python tools/protocolgen.py` after an intentional schema change. The TEST phase and CI
+run the same command with `--check` and reject stale metadata, a stale `protocol.md`, or stale
+golden vectors.
 
 The v1 transport is bounded to 1024 bytes and uses HMAC-SHA-256 with a minimum 32-byte PSK.
 The key committed in `golden_vectors/` is `bytes(range(32))` — a published test vector, never

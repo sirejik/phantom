@@ -1,5 +1,8 @@
 # Stage 3 network-only: физическая приёмка Quest 3 и EV3
 
+> **Исторический план:** vocabulary и оставшиеся команды относятся к прежнему lifecycle.
+> Для нового запуска использовать актуальные §8.5/§9.1 и отдельный новый hardware plan.
+
 > **Тип:** execution plan; ненормативный
 > **Область:** Stage 3, Quest 3, EV3, DEVICE/HIL/integration, `actuator_scope_mask=0x00`
 > **Начало:** 2026-09-06, source candidate `4c842f9a4916389fd5b2898320f840a30763b7ec`

@@ -1,8 +1,7 @@
 [Unit]
 Description=PHANTOM authenticated UDP network worker
 Requires=phantom-controller.service
-Wants=phantom-wifi-autoconnect.service
-After=phantom-controller.service phantom-wifi-autoconnect.service
+After=phantom-controller.service network-online.target
 PartOf=phantom.target
 
 [Service]

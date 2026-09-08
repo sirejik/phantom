@@ -1,11 +1,20 @@
 param(
-    [string]$Output="build/quest/PhantomQuest-release.apk",
+    [string]$Output="",
     [string]$SigningDirectory=".secrets/quest-release",
-    [ValidateSet("Release","Diagnostic")][string]$Profile="Release"
+    [ValidateSet("Release","Diagnostic","DeepDebug")][string]$Profile="Diagnostic"
 )
 $ErrorActionPreference="Stop"
+foreach($check in @(
+    @('tools/specgen.py','--check'),
+    @('tools/protocolgen.py','--check'),
+    @('tools/configgen.py','--check')))
+{
+    & python $check[0] $check[1]
+    if($LASTEXITCODE-ne 0){throw "Quest BUILD prerequisite consistency check failed: $($check[0])"}
+}
 . "$PSScriptRoot/../tools/toolchain.ps1"
 $unity=Get-PhantomUnityExe
+if(!$Output){$Output="build/quest/PhantomQuest-$($Profile.ToLowerInvariant()).apk"}
 $signingRoot=[System.IO.Path]::GetFullPath($SigningDirectory)
 $keystore=Join-Path $signingRoot "phantom-quest-release.keystore"
 $passwordFile=Join-Path $signingRoot "keystore.pass"
@@ -21,11 +30,11 @@ $env:PHANTOM_GIT_COMMIT=(git rev-parse HEAD).Trim()
 $env:PHANTOM_WORKTREE_DIRTY=if((git status --porcelain).Count -gt 0){"true"}else{"false"}
 $env:PHANTOM_SPECIFICATION_SHA256=(Get-FileHash docs\PHANTOM_SPECIFICATION.md -Algorithm SHA256).Hash.ToLower()
 $env:PHANTOM_PROTOCOL_SCHEMA_HASH=(Get-Content protocol\generated\schema.sha256).Split()[0]
-$questConfig=if($Profile -eq "Diagnostic"){"config\generated\quest-network-only.generated.json"}else{"config\generated\quest.generated.json"}
+$questConfig=if($Profile -in @("Diagnostic","DeepDebug")){"config\generated\quest-network-only.generated.json"}else{"config\generated\quest.generated.json"}
 $env:PHANTOM_QUEST_CONFIG_PATH=[System.IO.Path]::GetFullPath($questConfig)
 $env:PHANTOM_CONFIG_HASH=(Get-FileHash $questConfig -Algorithm SHA256).Hash.ToLower()
 $configManifest=Get-Content config\generated\config-manifest.json -Raw|ConvertFrom-Json
-$env:PHANTOM_BUNDLE_HASH=if($Profile -eq "Diagnostic"){$configManifest.artifact_hashes.'commissioning_bundle-network-only'}else{$configManifest.artifact_hashes.commissioning_bundle}
+$env:PHANTOM_BUNDLE_HASH=if($Profile -in @("Diagnostic","DeepDebug")){$configManifest.artifact_hashes.'commissioning_bundle-network-only'}else{$configManifest.artifact_hashes.commissioning_bundle}
 $env:PHANTOM_PACKAGE_LOCK_SHA256=(Get-FileHash PhantomQuest\Packages\packages-lock.json -Algorithm SHA256).Hash.ToLower()
 $env:PHANTOM_SOURCE_TREE_HASH=(python tools\source_hash.py PhantomQuest\Assets\Phantom PhantomQuest\Assets\Plugins PhantomQuest\Packages PhantomQuest\ProjectSettings).Trim()
 $env:PHANTOM_BUILD_ID=(python tools\build_identity.py --component QUEST --profile $Profile --source-tree-hash $env:PHANTOM_SOURCE_TREE_HASH --specification-sha256 $env:PHANTOM_SPECIFICATION_SHA256 --protocol-schema-hash $env:PHANTOM_PROTOCOL_SCHEMA_HASH --component-config-hash $env:PHANTOM_CONFIG_HASH --toolchain-or-package-lock-hash $env:PHANTOM_PACKAGE_LOCK_SHA256).Trim()
@@ -59,3 +68,20 @@ if(Test-Path -LiteralPath $gradleWrapper)
     finally { Set-Location $previousLocation }
 }
 if($unityExitCode -ne 0){throw "Unity Android build failed with exit code $unityExitCode; see results/quest/android-build.log"}
+$manifest=Get-Content -LiteralPath ($env:PHANTOM_APK_PATH+'.build-manifest.json') -Raw -Encoding UTF8|ConvertFrom-Json
+$actualHash=(Get-FileHash -LiteralPath $env:PHANTOM_APK_PATH -Algorithm SHA256).Hash.ToLowerInvariant()
+if($manifest.build_id-ne$env:PHANTOM_BUILD_ID-or$manifest.apk_sha256-ne$actualHash){throw 'Quest BUILD artifact validation failed'}
+$apkSigner=Get-PhantomApkSigner
+$signatureOutput=& $apkSigner verify --verbose --print-certs $env:PHANTOM_APK_PATH 2>&1
+if($LASTEXITCODE-ne 0){throw "Quest APK signature verification failed: $($signatureOutput -join [Environment]::NewLine)"}
+$certificateLine=$signatureOutput|Where-Object{$_-match 'Signer #1 certificate SHA-256 digest:\s*([0-9a-fA-F:]{64,95})'}|Select-Object -First 1
+if(!$certificateLine){throw 'Quest APK signing certificate SHA-256 was not reported by apksigner'}
+$certificateSha256=([regex]::Match([string]$certificateLine,'([0-9a-fA-F:]{64,95})\s*$').Groups[1].Value-replace':','').ToLowerInvariant()
+if($certificateSha256-notmatch'^[0-9a-f]{64}$'){throw 'Quest APK signing certificate SHA-256 is malformed'}
+$manifest|Add-Member -NotePropertyName apk_signing_certificate_sha256 -NotePropertyValue $certificateSha256 -Force
+[IO.File]::WriteAllText($env:PHANTOM_APK_PATH+'.build-manifest.json',($manifest|ConvertTo-Json -Depth 20 -Compress)+"`n",[Text.UTF8Encoding]::new($false))
+python tools/artifact_check.py --component QUEST --profile $Profile --artifact $env:PHANTOM_APK_PATH
+if($LASTEXITCODE-ne 0){throw 'Quest BUILD artifact structure/metadata validation failed'}
+$buildResult=[ordered]@{schema_version=1;phase='BUILD';status='PASS';component='QUEST';profile=$Profile;qualification_eligible=($Profile-ne'DeepDebug');build_id=$manifest.build_id;artifact_path=$env:PHANTOM_APK_PATH;artifact_sha256=$actualHash;config_hash=$manifest.config_hash;specification_sha256=$manifest.specification_sha256;protocol_schema_hash=$manifest.protocol_schema_hash;apk_signing_certificate_sha256=$certificateSha256}
+[IO.File]::WriteAllText($env:PHANTOM_APK_PATH+'.build-result.json',($buildResult|ConvertTo-Json -Depth 5)+"`n",[Text.UTF8Encoding]::new($false))
+Write-Output "QUEST BUILD: PASS profile=$Profile build_id=$($manifest.build_id)"

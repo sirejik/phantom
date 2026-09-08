@@ -1,6 +1,6 @@
-import unittest
+import io,pathlib,tarfile,tempfile,unittest
 
-from artifact_check import compiler_matches, ev3_package_name
+from artifact_check import compiler_matches, ev3_package_name, verify_ev3_archive
 
 
 class CompilerFactTests(unittest.TestCase):
@@ -17,6 +17,26 @@ class CompilerFactTests(unittest.TestCase):
 class PackageNameTests(unittest.TestCase):
     def test_content_addressed_package_name(self):
         self.assertEqual(ev3_package_name("abc"),"phantom-abc.tar.gz")
+
+    def test_archive_traversal_is_rejected(self):
+        with tempfile.TemporaryDirectory() as directory:
+            path=pathlib.Path(directory)/"unsafe.tar.gz"
+            with tarfile.open(path,"w:gz") as archive:
+                info=tarfile.TarInfo("../escape");payload=b"x";info.size=len(payload)
+                archive.addfile(info,io.BytesIO(payload))
+            with self.assertRaisesRegex(ValueError,"unsafe EV3 archive path"):
+                verify_ev3_archive(path)
+
+    def test_required_executable_mode_is_checked(self):
+        required=("./build-manifest.json","./SHA256SUMS","./bin/phantom-controller","./bin/phantom-safety","./bin/phantom-network","./bin/phantom-mdns","./bin/phantom-device-integration-test")
+        with tempfile.TemporaryDirectory() as directory:
+            path=pathlib.Path(directory)/"bad-mode.tar.gz"
+            with tarfile.open(path,"w:gz") as archive:
+                for name in required:
+                    info=tarfile.TarInfo(name);payload=b"x";info.size=1;info.mode=0o644
+                    archive.addfile(info,io.BytesIO(payload))
+            with self.assertRaisesRegex(ValueError,"not executable"):
+                verify_ev3_archive(path)
 
 
 if __name__=="__main__":unittest.main()

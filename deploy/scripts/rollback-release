@@ -4,8 +4,8 @@ set -eu
 
 root=/opt/phantom
 result=/var/lib/phantom/recovery-result.json
-units="phantom-controller.service phantom-safety.service phantom-network.service phantom-mdns.service phantom-wifi-autoconnect.service phantom.target"
-stop_order="phantom-mdns.service phantom-network.service phantom-controller.service phantom-wifi-autoconnect.service phantom-safety.service phantom.target"
+units="phantom-controller.service phantom-safety.service phantom-network.service phantom-mdns.service phantom.target"
+stop_order="phantom-mdns.service phantom-network.service phantom-controller.service phantom-safety.service phantom.target"
 started_at=$(date -u +%Y-%m-%dT%H:%M:%SZ)
 started_epoch=$(date +%s)
 step=prerequisites

@@ -22,6 +22,7 @@ namespace Phantom.Diagnostics
         public string source_tree_hash;
         public bool worktree_dirty;
         public string build_profile;
+        public bool qualification_eligible;
         public int protocol_version;
         public string specification_sha256;
         public string protocol_schema_hash;
@@ -43,7 +44,7 @@ namespace Phantom.Diagnostics
     }
 
     [Serializable]
-    public sealed class QuestDeviceAutoCheck
+    public sealed class QuestDeviceIntegrationCheck
     {
         public string test_id;
         public int introduced_at_stage=2;
@@ -52,13 +53,14 @@ namespace Phantom.Diagnostics
     }
 
     [Serializable]
-    public sealed class QuestDeviceAutoReport
+    public sealed class QuestDeviceIntegrationReport
     {
         public int schema_version=2;
-        public string gate="QUEST DEVICE AUTO";
+        public string gate="QUEST DEVICE INTEGRATION TEST";
         public string status;
         public string build_id;
         public string build_profile;
+        public bool qualification_eligible;
         public string git_commit;
         public string specification_sha256;
         public string protocol_schema_hash;
@@ -76,13 +78,13 @@ namespace Phantom.Diagnostics
         public string body_provider_state;
         public string body_provider_reason;
         public int error_log_count;
-        public QuestDeviceAutoCheck[] checks;
+        public QuestDeviceIntegrationCheck[] checks;
     }
 
     // Short, zero-interaction post-install compatibility gate. A Quest may stay
     // unworn on a table: inactive XR/focus and absent live samples are recorded
     // as environment evidence, not confused with SDK/API incompatibility.
-    public sealed class QuestDeviceAuto : MonoBehaviour
+    public sealed class QuestDeviceIntegrationTest : MonoBehaviour
     {
         // A cold OpenXR start consumes several seconds and an unattended Quest
         // can suspend the activity quickly. Keep the individual case bounded.
@@ -107,7 +109,7 @@ namespace Phantom.Diagnostics
         {
             var build=Resources.Load<TextAsset>("phantom-build");
             _identity=build?JsonUtility.FromJson<QuestBuildIdentity>(build.text):null;
-            Debug.Log("PHANTOM DEVICE AUTO START "+(build?build.text:"{\"error\":\"embedded_build_manifest_missing\"}"));
+            Debug.Log("PHANTOM DEVICE INTEGRATION TEST START "+(build?build.text:"{\"error\":\"embedded_build_manifest_missing\"}"));
             while(Time.realtimeSinceStartup-_startedMonotonic<SettleSeconds)yield return new WaitForSecondsRealtime(.25f);
             WriteReport();
         }
@@ -116,7 +118,7 @@ namespace Phantom.Diagnostics
         {
             if(_finished)return;
             _finished=true;
-            var checks=new List<QuestDeviceAutoCheck>();
+            var checks=new List<QuestDeviceIntegrationCheck>();
             Add(checks,"embedded-build-identity",_identity!=null&&_identity.schema_version==6&&
                 _identity.build_identity_schema=="PHANTOM-BUILD-V2"&&!string.IsNullOrEmpty(_identity.build_id),
                 _identity==null?"embedded build manifest missing":$"build_id={_identity.build_id}; profile={_identity.build_profile}; identity={_identity.build_identity_schema}");
@@ -199,18 +201,19 @@ namespace Phantom.Diagnostics
                 foreach(var result in synthetic)Add(checks,result.test_id,result.passed,result.detail);
                 Add(checks,"diagnostic-synthetic-suite",Array.TrueForAll(synthetic,result=>result.passed),$"cases={synthetic.Length}; RobotTransport=false; motor_authority=false");
             }
-            else checks.Add(new QuestDeviceAutoCheck{test_id="diagnostic-synthetic-suite",status="N_A",detail="Diagnostic-only; Release has no active engineering runner"});
+            else checks.Add(new QuestDeviceIntegrationCheck{test_id="diagnostic-synthetic-suite",status="N_A",detail="Diagnostic-only; Release has no active engineering runner"});
 
             var runner=FindFirstObjectByType<Phantom.Experiments.QuestValidationRunner>();
             Add(checks,"release-engineering-disabled",diagnostic||runner==null,diagnostic?"N_A for Diagnostic profile":$"validation_runner_active={runner!=null}");
 
             var failed=checks.Exists(value=>value.status=="FAIL");
             var now=DateTime.UtcNow;
-            var report=new QuestDeviceAutoReport
+            var report=new QuestDeviceIntegrationReport
             {
                 status=failed?"FAIL":"PASS",
                 build_id=_identity?.build_id??"UNKNOWN",
                 build_profile=_identity?.build_profile??"UNKNOWN",
+                qualification_eligible=_identity!=null&&_identity.qualification_eligible,
                 git_commit=_identity?.git_commit??"UNKNOWN",
                 specification_sha256=_identity?.specification_sha256??"UNKNOWN",
                 protocol_schema_hash=_identity?.protocol_schema_hash??"UNKNOWN",
@@ -231,11 +234,11 @@ namespace Phantom.Diagnostics
                 checks=checks.ToArray()
             };
             var json=JsonUtility.ToJson(report,true);
-            File.WriteAllText(Path.Combine(Application.persistentDataPath,"quest-device-auto.json"),json+Environment.NewLine);
-            Debug.Log("PHANTOM DEVICE AUTO RESULT "+JsonUtility.ToJson(report));
+            File.WriteAllText(Path.Combine(Application.persistentDataPath,"quest-device-integration-test.json"),json+Environment.NewLine);
+            Debug.Log("PHANTOM DEVICE INTEGRATION TEST RESULT "+JsonUtility.ToJson(report));
         }
 
-        void WriteStage3Report(List<QuestDeviceAutoCheck> checks,Stage3RuntimeConfig config)
+        void WriteStage3Report(List<QuestDeviceIntegrationCheck> checks,Stage3RuntimeConfig config)
         {
             Add(checks,"stage3-network-only-profile",config.qualification.required_user_inputs=="NONE"&&config.network!=null&&config.network.protocol_version==1,"Diagnostic qualification_only=true actuator_scope_mask=0 required_user_inputs=NONE");
             Add(checks,"android-nsd-adapter",typeof(AndroidNsdDiscoveryBackend)!=null,"Android NSD adapter compiled");
@@ -250,31 +253,31 @@ namespace Phantom.Diagnostics
             // Stage-3 exit criterion: an authenticated CONTROL session is
             // impossible without a provisioned credential. Only presence is
             // reported; the key itself never reaches a report or a log.
-            Add(checks,"quest-control-credential-present",runtime!=null&&runtime.ControlCredentialProvisioned,
+            Add(checks,"quest-control-credential-ready",runtime!=null&&runtime.ControlCredentialProvisioned,
                 $"control_credential={runtime?.ControlCredentialState??"unknown"}; provisioned out of band per ENGINEERING 8.11");
             Add(checks,"quest-log-storage-healthy",runtime!=null&&!runtime.LoggingDegraded,
                 $"log_storage_degraded={(runtime!=null&&runtime.LoggingDegraded)}");
             Add(checks,"runtime-error-log",_errorLogs==0,$"error_exception_assert_count={_errorLogs}");
             var incomplete=checks.Exists(value=>value.status=="NOT_RUN");var failed=checks.Exists(value=>value.status=="FAIL");var now=DateTime.UtcNow;
-            var report=new QuestDeviceAutoReport{status=failed?"FAIL":incomplete?"INCOMPLETE":"PASS",build_id=_identity?.build_id??"UNKNOWN",build_profile=_identity?.build_profile??"UNKNOWN",git_commit=_identity?.git_commit??"UNKNOWN",specification_sha256=_identity?.specification_sha256??"UNKNOWN",protocol_schema_hash=_identity?.protocol_schema_hash??"UNKNOWN",config_hash=_identity?.config_hash??"UNKNOWN",unity_version=Application.unityVersion,device_model=SystemInfo.deviceModel,operating_system=SystemInfo.operatingSystem,started_utc=_startedUtc.ToString("o"),finished_utc=now.ToString("o"),duration_ms=(long)((Time.realtimeSinceStartup-_startedMonotonic)*1000),motor_authority=false,xr_session_active=false,xr_focus_active=Application.isFocused,live_observation_available=false,body_provider_state="N_A_NETWORK_ONLY",body_provider_reason="required_user_inputs=NONE",error_log_count=_errorLogs,checks=checks.ToArray()};
-            var json=JsonUtility.ToJson(report,true);File.WriteAllText(Path.Combine(Application.persistentDataPath,"quest-device-auto.json"),json+Environment.NewLine);Debug.Log("PHANTOM DEVICE AUTO RESULT "+JsonUtility.ToJson(report));
+            var report=new QuestDeviceIntegrationReport{status=failed?"FAIL":incomplete?"INCOMPLETE":"PASS",build_id=_identity?.build_id??"UNKNOWN",build_profile=_identity?.build_profile??"UNKNOWN",qualification_eligible=_identity!=null&&_identity.qualification_eligible,git_commit=_identity?.git_commit??"UNKNOWN",specification_sha256=_identity?.specification_sha256??"UNKNOWN",protocol_schema_hash=_identity?.protocol_schema_hash??"UNKNOWN",config_hash=_identity?.config_hash??"UNKNOWN",unity_version=Application.unityVersion,device_model=SystemInfo.deviceModel,operating_system=SystemInfo.operatingSystem,started_utc=_startedUtc.ToString("o"),finished_utc=now.ToString("o"),duration_ms=(long)((Time.realtimeSinceStartup-_startedMonotonic)*1000),motor_authority=false,xr_session_active=false,xr_focus_active=Application.isFocused,live_observation_available=false,body_provider_state="N_A_NETWORK_ONLY",body_provider_reason="required_user_inputs=NONE",error_log_count=_errorLogs,checks=checks.ToArray()};
+            var json=JsonUtility.ToJson(report,true);File.WriteAllText(Path.Combine(Application.persistentDataPath,"quest-device-integration-test.json"),json+Environment.NewLine);Debug.Log("PHANTOM DEVICE INTEGRATION TEST RESULT "+JsonUtility.ToJson(report));
         }
 
-        void AddPermission(List<QuestDeviceAutoCheck> checks,string id,string permission)
+        void AddPermission(List<QuestDeviceIntegrationCheck> checks,string id,string permission)
         {
 #if UNITY_ANDROID && !UNITY_EDITOR
             var granted=UnityEngine.Android.Permission.HasUserAuthorizedPermission(permission);
             Add(checks,id,granted,$"{permission}; granted={granted}");
 #else
-            checks.Add(new QuestDeviceAutoCheck{test_id=id,status="N_A",detail="Android device permission check"});
+            checks.Add(new QuestDeviceIntegrationCheck{test_id=id,status="N_A",detail="Android device permission check"});
 #endif
         }
 
-        static void Add(List<QuestDeviceAutoCheck> checks,string id,bool passed,string detail)
-            =>checks.Add(new QuestDeviceAutoCheck{test_id=id,status=passed?"PASS":"FAIL",detail=detail});
+        static void Add(List<QuestDeviceIntegrationCheck> checks,string id,bool passed,string detail)
+            =>checks.Add(new QuestDeviceIntegrationCheck{test_id=id,status=passed?"PASS":"FAIL",detail=detail});
 
-        static void Observe(List<QuestDeviceAutoCheck> checks,string id,bool observed,string detail)
-            =>checks.Add(new QuestDeviceAutoCheck{test_id=id,status=observed?"PASS":"NOT_RUN",detail=detail});
+        static void Observe(List<QuestDeviceIntegrationCheck> checks,string id,bool observed,string detail)
+            =>checks.Add(new QuestDeviceIntegrationCheck{test_id=id,status=observed?"PASS":"NOT_RUN",detail=detail});
 
         static string Sha256(byte[] bytes)
         {

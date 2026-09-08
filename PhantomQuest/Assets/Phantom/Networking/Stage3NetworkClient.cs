@@ -92,7 +92,7 @@ namespace Phantom.Networking
         public void Start()
         {
             ThrowIfDisposed();if(_running&&!_paused)return;_paused=false;_running=true;
-            ClearKey();if(!_credentials.TryLoad(_options.ControlKeyId,out _key)||_key==null||_key.Length<32){ClearKey();SetState(NetworkState.AuthenticationFailure);Emit("authentication_failed","credential_unavailable");}
+            ClearKey();var credentialStatus=_credentials.GetStatus(_options.ControlKeyId);if(credentialStatus!=CredentialStoreStatus.Ready||!_credentials.TryLoad(_options.ControlKeyId,out _key)||_key==null||_key.Length<32){ClearKey();SetState(NetworkState.AuthenticationFailure);Emit("authentication_failed",credentialStatus==CredentialStoreStatus.Absent?"PROVISION_REQUIRED":"PROVISION_CORRUPT");}
             _discovery.Changed-=OnDiscoveryChanged;_discovery.Changed+=OnDiscoveryChanged;_discovery.Start(_options.ServiceType);Emit("discovery_started","");
             if(Snapshot.State!=NetworkState.AuthenticationFailure)SetState(NetworkState.Discovering);
         }

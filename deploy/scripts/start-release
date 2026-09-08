@@ -4,15 +4,16 @@ set -eu
 
 root=/opt/phantom/current
 result=/var/lib/phantom/start-result.json
-start_order="phantom-safety.service phantom-controller.service phantom-wifi-autoconnect.service phantom-network.service phantom-mdns.service"
-stop_order="phantom-mdns.service phantom-network.service phantom-controller.service phantom-wifi-autoconnect.service phantom-safety.service phantom.target"
-step_timeout=${PHANTOM_START_STEP_TIMEOUT_SECONDS:-95}
+start_order="phantom-safety.service phantom-controller.service phantom-network.service phantom-mdns.service"
+stop_order="phantom-mdns.service phantom-network.service phantom-controller.service phantom-safety.service phantom.target"
+step_timeout=${PHANTOM_START_STEP_TIMEOUT_SECONDS:-15}
 started_at=$(date -u +%Y-%m-%dT%H:%M:%SZ)
 started_epoch=$(date +%s)
 steps_file=$(mktemp /tmp/phantom-start-steps.XXXXXX)
 first_failed=
 failure_detail=
 diagnostics=
+start_verbosity=${PHANTOM_START_VERBOSITY:-normal}
 terminal_state=RUNTIME_STATE_UNVERIFIED
 build_id=unknown
 result_written=0
@@ -25,6 +26,7 @@ finish() {
     test -n "$failure_detail" || failure_detail="START aborted before completion"
     capture_failure
     if stop_runtime && force_and_verify_zero_output; then terminal_state=RUNTIME_STOPPED_ZERO_OUTPUT; else terminal_state=SAFE_STATE_VERIFICATION_FAILED; fi
+    capture_context
     write_result FAIL
   fi
   rm -f "$steps_file"
@@ -49,6 +51,13 @@ force_and_verify_zero_output() {
   done
 }
 
+network_ready() {
+  timeout 5 sh -c '
+    ip -4 route show default | grep -q . || exit 1
+    ip -4 -o addr show scope global | grep -q . || exit 1
+  '
+}
+
 stop_runtime() {
   for unit in $stop_order; do
     systemctl stop "$unit" >/dev/null 2>&1 || true
@@ -67,6 +76,33 @@ capture_failure() {
     journalctl -u "$unit" -n 120 --no-pager > "$diagnostics/$unit.journal.txt" 2>&1 || true
   done
   systemctl list-dependencies --all phantom.target > "$diagnostics/phantom.target.dependencies.txt" 2>&1 || true
+  capture_context
+}
+
+capture_context() {
+  ip -4 -o address show > "$diagnostics/ip-address.txt" 2>&1 || true
+  ip -4 route show > "$diagnostics/ip-route.txt" 2>&1 || true
+  readlink -f /opt/phantom/current > "$diagnostics/current-release.txt" 2>&1 || true
+  readlink -f /opt/phantom/previous > "$diagnostics/previous-release.txt" 2>&1 || true
+  : > "$diagnostics/motor-terminal-state.txt"
+  for motor in /sys/class/tacho-motor/motor*; do
+    test -d "$motor" || continue
+    printf '%s duty_sp=%s duty=%s speed=%s stop_action=%s\n' "$motor" "$(cat "$motor/duty_cycle_sp" 2>/dev/null || echo unreadable)" "$(cat "$motor/duty_cycle" 2>/dev/null || echo unreadable)" "$(cat "$motor/speed" 2>/dev/null || echo unreadable)" "$(cat "$motor/stop_action" 2>/dev/null || echo unreadable)" >> "$diagnostics/motor-terminal-state.txt"
+  done
+  ps -eo pid,ppid,user,stat,rss,vsz,comm,args > "$diagnostics/processes.txt" 2>&1 || true
+}
+
+capture_debug() {
+  test "$start_verbosity" = debug || return 0
+  stamp=$(date -u +%Y%m%dT%H%M%SZ)
+  diagnostics="/var/lib/phantom/startup-debug/${build_id}-${stamp}"
+  mkdir -p "$diagnostics"
+  for unit in $start_order phantom.target; do
+    systemctl show -p LoadState -p ActiveState -p SubState -p Result -p ExecMainCode -p ExecMainStatus -p MainPID -p Requires -p Wants -p After -p Before "$unit" > "$diagnostics/$unit.show.txt" 2>&1 || true
+    journalctl -u "$unit" -n 200 --no-pager > "$diagnostics/$unit.journal.txt" 2>&1 || true
+  done
+  systemctl list-dependencies --all phantom.target > "$diagnostics/phantom.target.dependencies.txt" 2>&1 || true
+  capture_context
 }
 
 write_result() {
@@ -123,6 +159,7 @@ fail_start() {
   failure_detail=$2
   capture_failure
   if stop_runtime && force_and_verify_zero_output; then terminal_state=RUNTIME_STOPPED_ZERO_OUTPUT; else terminal_state=SAFE_STATE_VERIFICATION_FAILED; fi
+  capture_context
   write_result FAIL
   echo "EV3 START: FAIL first_failed_service=$first_failed diagnostics=$diagnostics" >&2
   exit 1
@@ -149,6 +186,9 @@ force_and_verify_zero_output || fail_start pre-start-safe-state "could not estab
 terminal_state=RUNTIME_STOPPED_ZERO_OUTPUT
 
 for unit in $start_order; do
+  if test "$unit" = phantom-network.service && ! network_ready; then
+    fail_start network-prerequisite "NETWORK_NOT_READY: provisioned EV3 network is not ready"
+  fi
   echo "EV3 START: starting $unit (deadline ${step_timeout}s)"
   step_started=$(date +%s)
   if timeout "$step_timeout" systemctl start "$unit" && systemctl is-active --quiet "$unit"; then
@@ -173,5 +213,6 @@ fi
 
 force_and_verify_zero_output || fail_start startup-zero-output "runtime started but zero-output verification failed"
 terminal_state=RUNTIME_ACTIVE_ZERO_OUTPUT
+capture_debug
 write_result PASS
 echo "EV3 START: PASS build_id=$build_id"

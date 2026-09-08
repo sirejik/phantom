@@ -1,17 +1,15 @@
 param(
-    [Parameter(Mandatory=$true)][string]$Address,
     [Parameter(Mandatory=$true)][ValidatePattern('^[0-9a-f]{64}$')][string]$BuildId,
-    [ValidatePattern('^$|^[0-9a-f]{64}$')][string]$ToolBuildId='',
-    [string]$User='root',[string]$KeyPath='.ev3-ssh/id_ed25519',
-    [ValidateRange(1,300)][int]$StepTimeoutSeconds=95,
-    [ValidateRange(1,1200)][int]$TimeoutSeconds=600,
-    [string]$Destination='results/ev3/start'
+    [string]$Target='phantom-ev3',[string]$SshConfig='.ev3-ssh/config',
+    [ValidateRange(1,60)][int]$StepTimeoutSeconds=15,
+    [ValidateRange(1,300)][int]$TimeoutSeconds=90,[switch]$Debug,
+    [string]$Destination=''
 )
 $ErrorActionPreference='Stop'
 . "$PSScriptRoot/ev3-deploy-common.ps1"
-if(!$ToolBuildId){$ToolBuildId=$BuildId}
-$remote="/tmp/phantom-transfer-$ToolBuildId"
-$report=Join-Path ([System.IO.Path]::GetFullPath($Destination)) "$BuildId/start.json"
-$command="timeout $TimeoutSeconds env PHANTOM_START_STEP_TIMEOUT_SECONDS=$StepTimeoutSeconds '$remote/start-release'"
-$result=Invoke-PhantomEv3ReportedPhase $Address $User $KeyPath $command '/var/lib/phantom/start-result.json' $report $BuildId 'START'
+$destinationRoot=if($Destination){$Destination}elseif($Debug){'results/ev3/debug'}else{'results/ev3/start'}
+$report=Join-Path ([System.IO.Path]::GetFullPath($destinationRoot)) "$BuildId/start.json"
+$verbosity=if($Debug){'debug'}else{'normal'}
+$command="timeout $TimeoutSeconds env PHANTOM_START_STEP_TIMEOUT_SECONDS=$StepTimeoutSeconds PHANTOM_START_VERBOSITY=$verbosity /usr/local/libexec/phantom-maintenance/start-release"
+$result=Invoke-PhantomEv3ReportedPhase $command '/var/lib/phantom/start-result.json' $report $BuildId $(if($Debug){'DEBUG'}else{'START'}) $SshConfig $Target
 Write-Output "EV3 START: PASS build_id=$($result.build_id) report=$report"

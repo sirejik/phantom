@@ -7,10 +7,12 @@ using UnityEngine;
 namespace Phantom.Networking
 {
     public enum CredentialProvisioningResult { NoDropPresent,Imported,Rejected,Unsupported }
+    public enum CredentialStoreStatus { Ready,Absent,Corrupt,Unsupported,InvalidKeyId }
 
     public interface IControlCredentialStore:IDisposable
     {
         bool TryLoad(string keyId,out byte[] key);
+        CredentialStoreStatus GetStatus(string keyId);
     }
 
     public sealed class EphemeralControlCredentialStore:IControlCredentialStore
@@ -20,6 +22,7 @@ namespace Phantom.Networking
         {if(string.IsNullOrWhiteSpace(keyId)||key==null||key.Length<32)throw new ArgumentException("credential");_keyId=keyId;_key=(byte[])key.Clone();}
         public bool TryLoad(string keyId,out byte[] key)
         {if(_key!=null&&string.Equals(keyId,_keyId,StringComparison.Ordinal)){key=(byte[])_key.Clone();return true;}key=null;return false;}
+        public CredentialStoreStatus GetStatus(string keyId)=>string.Equals(keyId,_keyId,StringComparison.Ordinal)&&_key!=null?CredentialStoreStatus.Ready:CredentialStoreStatus.Absent;
         public void Dispose(){if(_key!=null){Array.Clear(_key,0,_key.Length);_key=null;}}
     }
 
@@ -60,6 +63,28 @@ namespace Phantom.Networking
             catch(IOException){return false;}catch(UnauthorizedAccessException){return false;}
 #endif
         }
+        public CredentialStoreStatus GetStatus(string keyId)
+        {
+            if(!ValidKeyId(keyId))return CredentialStoreStatus.InvalidKeyId;
+#if UNITY_ANDROID && !UNITY_EDITOR
+            try
+            {
+                using(var store=new AndroidJavaClass("dev.phantom.security.PhantomCredentialStore"))
+                using(var unity=new AndroidJavaClass("com.unity3d.player.UnityPlayer"))
+                using(var activity=unity.GetStatic<AndroidJavaObject>("currentActivity"))
+                {
+                    var value=store.CallStatic<int>("status",activity,keyId);
+                    return value==1?CredentialStoreStatus.Ready:value==0?CredentialStoreStatus.Absent:CredentialStoreStatus.Corrupt;
+                }
+            }
+            catch(AndroidJavaException){return CredentialStoreStatus.Corrupt;}
+#else
+            var path=Path.Combine(_root,"phantom-secrets",keyId+".psk");
+            if(!File.Exists(path))return CredentialStoreStatus.Absent;
+            byte[] key;if(!TryLoad(keyId,out key))return CredentialStoreStatus.Corrupt;
+            Array.Clear(key,0,key.Length);return CredentialStoreStatus.Ready;
+#endif
+        }
         /// <summary>
         /// One-shot engineering import of a CONTROL PSK delivered outside the
         /// runtime protocol (see ENGINEERING 8.11). The host writes the key into
@@ -89,24 +114,10 @@ namespace Phantom.Networking
 #endif
         }
 
-        /// <summary>True when a credential is stored, without ever loading it.</summary>
+        /// <summary>Compatibility presence query; readiness requires successful decrypt.</summary>
         public bool IsProvisioned(string keyId)
         {
-            if(!ValidKeyId(keyId))return false;
-#if UNITY_ANDROID && !UNITY_EDITOR
-            try
-            {
-                using(var store=new AndroidJavaClass("dev.phantom.security.PhantomCredentialStore"))
-                using(var unity=new AndroidJavaClass("com.unity3d.player.UnityPlayer"))
-                using(var activity=unity.GetStatic<AndroidJavaObject>("currentActivity"))
-                    return store.CallStatic<bool>("isProvisioned",activity,keyId);
-            }
-            catch(AndroidJavaException){return false;}
-#else
-            byte[] key;
-            if(!TryLoad(keyId,out key))return false;
-            Array.Clear(key,0,key.Length);return true;
-#endif
+            return GetStatus(keyId)==CredentialStoreStatus.Ready;
         }
 
         /// <summary>Decodes 32+ raw bytes or exactly 64 ASCII hex characters.</summary>

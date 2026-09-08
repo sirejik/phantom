@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Stage-3 EV3 DEVICE AUTO: real network/security checks with zero actuator scope."""
+"""Stage-3 EV3 DEVICE INTEGRATION TEST with zero actuator scope."""
 import hashlib
 import json
 import os
@@ -13,7 +13,7 @@ import sys
 import time
 
 CURRENT = pathlib.Path("/opt/phantom/current")
-REPORT = pathlib.Path("/var/lib/phantom/device-auto.json")
+REPORT = pathlib.Path("/var/lib/phantom/device-integration-test.json")
 checks = []
 report_manifest = {}
 run_started_monotonic = time.monotonic()
@@ -233,8 +233,9 @@ def protocol_probe(root, config, boot_hex, motors):
 def write_report(manifest):
     finished_monotonic = time.monotonic()
     status = "PASS" if all(item["status"] in ("PASS", "N_A") for item in checks) else "FAIL"
-    payload = {"schema_version": 2, "gate": "DEVICE AUTO", "stage": 3,
+    payload = {"schema_version": 2, "gate": "DEVICE INTEGRATION TEST", "stage": 3,
                "status": status, "git_commit": manifest.get("git_commit"),
+               "qualification_eligible": manifest.get("qualification_eligible") is True,
                "build_id": manifest.get("build_id"), "config_hash": manifest.get("config_hash"),
                "commissioning_bundle_hash": manifest.get("commissioning_bundle_hash"),
                "artifact_sha256": {"controller": manifest.get("controller_sha256"),
@@ -254,18 +255,17 @@ def write_report(manifest):
 def main():
     global report_manifest
     if os.geteuid() != 0:
-        add("device-auto-root", "FAIL", "root is required for sysfs takeover checks")
+        add("device-integration-root", "FAIL", "root is required for sysfs takeover checks")
         return write_report({})
     root = CURRENT.resolve()
     manifest = json.loads((root / "build-manifest.json").read_text(encoding="utf-8-sig"))
     report_manifest = manifest
-    start_result, start_error = read_json_object(pathlib.Path("/var/lib/phantom/start-result.json"))
-    start_ok = (start_error is None and start_result.get("phase") == "START" and
-                start_result.get("status") == "PASS" and
-                start_result.get("build_id") == manifest.get("build_id"))
-    add("ev3-start-admission", "PASS" if start_ok else "FAIL",
-        "matching START PASS is required before DEVICE AUTO",
-        start_result if start_error is None else start_error)
+    active = {unit: run(["systemctl", "is-active", "--quiet", unit], 5).returncode == 0
+              for unit in ("phantom-safety.service", "phantom-controller.service",
+                           "phantom-network.service", "phantom-mdns.service")}
+    start_ok = all(active.values())
+    add("ev3-runtime-active", "PASS" if start_ok else "FAIL",
+        "exact installed runtime services must be active; no START report is read", active)
     if not start_ok:
         return write_report(manifest)
     config = json.loads((root / "config.generated.json").read_text(encoding="utf-8-sig"))
@@ -444,7 +444,7 @@ if __name__ == "__main__":
     try:
         sys.exit(0 if main() == "PASS" else 1)
     except Exception as error:
-        add("device-auto-runner", "FAIL", repr(error))
+        add("device-integration-runner", "FAIL", repr(error))
         try:
             write_report(report_manifest)
         finally:

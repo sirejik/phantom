@@ -87,6 +87,28 @@ function Get-PhantomAdb
            "or put adb on PATH. Searched: " + ($candidates -join "; "))
 }
 
+function Get-PhantomApkSigner
+{
+    if ($env:PHANTOM_APKSIGNER)
+    {
+        if (!(Test-Path -LiteralPath $env:PHANTOM_APKSIGNER)) { throw "PHANTOM_APKSIGNER does not exist: $($env:PHANTOM_APKSIGNER)" }
+        return $env:PHANTOM_APKSIGNER
+    }
+    $sdkRoot = Join-Path (Get-PhantomUnityEditorData) "PlaybackEngines\AndroidPlayer\SDK"
+    $buildTools = Join-Path $sdkRoot "build-tools"
+    if (Test-Path -LiteralPath $buildTools)
+    {
+        foreach ($directory in (Get-ChildItem -LiteralPath $buildTools -Directory | Sort-Object Name -Descending))
+        {
+            $candidate = Join-Path $directory.FullName "apksigner.bat"
+            if (Test-Path -LiteralPath $candidate) { return $candidate }
+        }
+    }
+    $onPath = Get-Command apksigner -ErrorAction SilentlyContinue
+    if ($onPath) { return $onPath.Source }
+    throw "apksigner was not found in the pinned Unity Android SDK. Set PHANTOM_APKSIGNER or repair the Unity Android Build Support installation."
+}
+
 function Get-PhantomWslDistro
 {
     if ($env:PHANTOM_WSL_DISTRO) { return $env:PHANTOM_WSL_DISTRO }

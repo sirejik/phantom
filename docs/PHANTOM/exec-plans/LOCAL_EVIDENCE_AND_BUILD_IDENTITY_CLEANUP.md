@@ -1,5 +1,8 @@
 # Локальное evidence и независимая идентичность сборки
 
+> **Исторический план:** прежние названия фаз ниже сохранены только как provenance уже
+> выполненной миграции; текущий lifecycle определён §8.5/§9.1.
+
 > **Тип:** execution plan; ненормативный
 > **Область:** repository policy, build identity, BUILD/TRANSFER/INSTALL/START tooling, evidence lifecycle, документация
 > **Начало:** 2026-09-08

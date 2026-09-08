@@ -36,7 +36,7 @@ namespace Phantom.Editor
             var buildId=RequiredEnvironmentVariable("PHANTOM_BUILD_ID");
             var worktreeDirty=RequiredEnvironmentVariable("PHANTOM_WORKTREE_DIRTY");
             if(worktreeDirty!="true"&&worktreeDirty!="false")throw new Exception("Invalid PHANTOM_WORKTREE_DIRTY value");
-            if(profile!="Release"&&profile!="Diagnostic")throw new Exception("Invalid build profile: "+profile);
+            if(profile!="Release"&&profile!="Diagnostic"&&profile!="DeepDebug")throw new Exception("Invalid build profile: "+profile);
             if(configuredAppId!=MetaAppId)throw new Exception("Unexpected Meta App ID: "+configuredAppId);
             if(!File.Exists(keystore))throw new FileNotFoundException("Release keystore not found",keystore);
             if(!File.Exists(passwordFile))throw new FileNotFoundException("Release keystore password file not found",passwordFile);
@@ -58,22 +58,33 @@ namespace Phantom.Editor
             var oldKeyaliasName=PlayerSettings.Android.keyaliasName;
             var oldKeyaliasPass=PlayerSettings.Android.keyaliasPass;
             var oldDevelopment=EditorUserBuildSettings.development;
+            var oldExceptionStack=UnityEngine.Application.GetStackTraceLogType(UnityEngine.LogType.Exception);
+            var oldErrorStack=UnityEngine.Application.GetStackTraceLogType(UnityEngine.LogType.Error);
             BuildReport report;
             try
             {
-                EditorUserBuildSettings.development=profile=="Diagnostic";
+                EditorUserBuildSettings.development=profile=="DeepDebug";
+                if(profile=="DeepDebug")
+                {
+                    PlayerSettings.SetStackTraceLogType(UnityEngine.LogType.Exception,UnityEngine.StackTraceLogType.Full);
+                    PlayerSettings.SetStackTraceLogType(UnityEngine.LogType.Error,UnityEngine.StackTraceLogType.Full);
+                }
                 PlayerSettings.Android.useCustomKeystore=true;
                 PlayerSettings.Android.keystoreName=keystore;
                 PlayerSettings.Android.keystorePass=password;
                 PlayerSettings.Android.keyaliasName=alias;
                 PlayerSettings.Android.keyaliasPass=password;
                 WriteEmbeddedInputs(profile,buildId,gitCommit,sourceTreeHash,worktreeDirty,specificationHash,protocolHash,configHash,bundleHash,packageLockHash);
-                report=BuildPipeline.BuildPlayer(paths,output,BuildTarget.Android,BuildOptions.None);
+                var options=BuildOptions.None;
+                if(profile=="DeepDebug")options=BuildOptions.Development|BuildOptions.AllowDebugging|BuildOptions.ConnectWithProfiler;
+                report=BuildPipeline.BuildPlayer(paths,output,BuildTarget.Android,options);
             }
             finally
             {
                 DeleteEmbeddedInputs();
                 EditorUserBuildSettings.development=oldDevelopment;
+                PlayerSettings.SetStackTraceLogType(UnityEngine.LogType.Exception,oldExceptionStack);
+                PlayerSettings.SetStackTraceLogType(UnityEngine.LogType.Error,oldErrorStack);
                 PlayerSettings.Android.useCustomKeystore=oldUseCustomKeystore;
                 PlayerSettings.Android.keystoreName=oldKeystoreName;
                 PlayerSettings.Android.keystorePass=oldKeystorePass;
@@ -114,8 +125,8 @@ namespace Phantom.Editor
             var metaOpenxr=PackageVersion("com.unity.xr.meta-openxr");
             var hands=PackageVersion("com.unity.xr.hands");
             var bodyCompatibility=BodyMultimodalCompatibility();
-            var multimodal=profile=="Release"?"true":"false";
-            return $"{{\"schema_version\":6,\"build_identity_schema\":\"PHANTOM-BUILD-V2\",\"component\":\"QUEST\",\"build_id\":\"{buildId}\",\"git_commit\":\"{gitCommit}\",\"source_tree_hash\":\"{sourceTreeHash}\",\"worktree_dirty\":{worktreeDirty},\"build_profile\":\"{profile}\",\"protocol_version\":1,\"specification_sha256\":\"{specificationHash}\",\"protocol_schema_hash\":\"{protocolHash}\",\"config_hash\":\"{configHash}\",\"commissioning_bundle_hash\":\"{bundleHash}\",\"unity_version\":\"{UnityEngine.Application.unityVersion}\",\"app_version\":\"{PlayerSettings.bundleVersion}\",\"package_lock_sha256\":\"{packageLockHash}\",\"toolchain_or_package_lock_hash\":\"{packageLockHash}\",\"meta_xr_core_version\":\"{core}\",\"movement_sdk_version\":\"{core}\",\"body_tracking_provider\":\"OVRBody/com.meta.xr.sdk.core\",\"multimodal_required\":{multimodal},\"body_provider_joint_set\":\"UpperBody\",\"body_right_shoulder_api\":\"OVRPlugin.BoneId.Body_RightShoulder\",\"body_multimodal_compatibility\":\"{bodyCompatibility}\",\"mruk_version\":\"{mruk}\",\"openxr_plugin_version\":\"{openxr}\",\"meta_openxr_version\":\"{metaOpenxr}\",\"xr_hands_version\":\"{hands}\"}}";
+            var multimodal=profile=="Release"?"true":"false";var qualificationEligible=profile=="DeepDebug"?"false":"true";
+            return $"{{\"schema_version\":6,\"build_identity_schema\":\"PHANTOM-BUILD-V2\",\"component\":\"QUEST\",\"build_id\":\"{buildId}\",\"git_commit\":\"{gitCommit}\",\"source_tree_hash\":\"{sourceTreeHash}\",\"worktree_dirty\":{worktreeDirty},\"build_profile\":\"{profile}\",\"qualification_eligible\":{qualificationEligible},\"protocol_version\":1,\"specification_sha256\":\"{specificationHash}\",\"protocol_schema_hash\":\"{protocolHash}\",\"config_hash\":\"{configHash}\",\"commissioning_bundle_hash\":\"{bundleHash}\",\"unity_version\":\"{UnityEngine.Application.unityVersion}\",\"app_version\":\"{PlayerSettings.bundleVersion}\",\"package_lock_sha256\":\"{packageLockHash}\",\"toolchain_or_package_lock_hash\":\"{packageLockHash}\",\"meta_xr_core_version\":\"{core}\",\"movement_sdk_version\":\"{core}\",\"body_tracking_provider\":\"OVRBody/com.meta.xr.sdk.core\",\"multimodal_required\":{multimodal},\"body_provider_joint_set\":\"UpperBody\",\"body_right_shoulder_api\":\"OVRPlugin.BoneId.Body_RightShoulder\",\"body_multimodal_compatibility\":\"{bodyCompatibility}\",\"mruk_version\":\"{mruk}\",\"openxr_plugin_version\":\"{openxr}\",\"meta_openxr_version\":\"{metaOpenxr}\",\"xr_hands_version\":\"{hands}\"}}";
         }
 
         static string ExternalManifestJson(string identity,string apkHash,string embeddedIdentityHash,string createdAt)

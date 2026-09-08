@@ -1,8 +1,6 @@
-name: phantom-pre-install
-# Deterministic subset of `scripts/pre-install-auto.ps1`. Everything that runs
-# without Unity, Docker-on-Windows or a device belongs here, so a regression in
-# the shipped EV3 worker, the IPC contract, canonicalization or the config gate
-# cannot reach main by only being covered on a developer workstation.
+name: phantom-test-and-build
+# CI owns the full off-hardware software regression. BUILD remains a separate
+# component/profile operation and no job provisions, transfers or starts devices.
 on: [push, pull_request]
 jobs:
   schemas-python-ev3-host:
@@ -20,21 +18,20 @@ jobs:
           python3 tools/test_ipc_contract.py
           python3 tools/test_build_identity.py
           python3 tools/test_configgen.py
-      - name: EV3 worker, device-auto and simulation regressions
+      - name: EV3 worker, device integration and simulation regressions
         run: |
           python3 ev3/network/test_phantom_network.py
-          python3 tools/test_ev3_device_auto.py
+          python3 tools/test_ev3_device_integration.py
           python3 tools/test_artifact_check.py
+          python3 tools/test_apk_repro_diff.py
           python3 sim/ev3-simulator/test_simulator.py
           python3 sim/tracking-replay/test_tracking_replay.py
       - name: Report analyzers
         run: python3 tools/quest_validation/test_analyze.py && python3 tools/ev3_validation/test_analyze.py
       - name: Quest static contracts
         run: python3 tools/quest_android_nsd_check.py && python3 tools/quest_provider_compatibility_check.py && python3 tools/spec_test_duration_check.py
-      # The androidlib compile itself needs the bundled Unity JDK and Android SDK,
-      # so it stays a workstation check; CI at least proves the gate is wired in.
-      - name: Androidlib gate is part of PRE-INSTALL
-        run: grep -q 'quest-androidlib-compile' scripts/pre-install-auto.ps1
+      - name: Lifecycle boundary regressions
+        run: python3 tools/test_lifecycle.py
       - name: Secret and provisioning scan
         run: python3 tools/security_scan.py && python3 tools/test_security_scan.py
       - name: EV3 host build and tests
@@ -52,7 +49,7 @@ jobs:
       - name: Build ARMv5TEJ armel artifacts in pinned image
         run: |
           mkdir -p "$RUNNER_TEMP/phantom-ev3-armel"
-          for profile in Release Diagnostic; do
+          for profile in Diagnostic; do
             out="$RUNNER_TEMP/phantom-ev3-armel/$(echo "$profile" | tr A-Z a-z)"
             mkdir -p "$out"
             docker run --rm --entrypoint sh \

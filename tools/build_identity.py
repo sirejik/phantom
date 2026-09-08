@@ -15,7 +15,7 @@ def canonical(value):
 def identity(component,profile,source_tree_hash,specification_sha256,
              protocol_schema_hash,component_config_hash,toolchain_or_package_lock_hash):
     if component not in ("EV3","QUEST"): raise ValueError("component_id")
-    if profile not in ("Release","Diagnostic"): raise ValueError("build_profile")
+    if profile not in ("Release","Diagnostic","DeepDebug"): raise ValueError("build_profile")
     values=(source_tree_hash,specification_sha256,protocol_schema_hash,
             component_config_hash,toolchain_or_package_lock_hash)
     lengths=(64,64,64,64,64)
@@ -33,7 +33,7 @@ def identity(component,profile,source_tree_hash,specification_sha256,
 def main():
     parser=argparse.ArgumentParser()
     parser.add_argument("--component",required=True,choices=("EV3","QUEST"))
-    parser.add_argument("--profile",required=True,choices=("Release","Diagnostic"))
+    parser.add_argument("--profile",required=True,choices=("Release","Diagnostic","DeepDebug"))
     parser.add_argument("--source-tree-hash",required=True)
     parser.add_argument("--specification-sha256",required=True)
     parser.add_argument("--protocol-schema-hash",required=True)

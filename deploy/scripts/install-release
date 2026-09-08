@@ -3,11 +3,12 @@
 set -eu
 
 archive=${1:?release archive required}
-sidecar=${2:?package build manifest required}
+expected_build_id=${2:?expected build_id required}
+expected_archive_sha256=${3:?expected archive SHA-256 required}
 root=/opt/phantom
 result=/var/lib/phantom/install-result.json
-units="phantom-controller.service phantom-safety.service phantom-network.service phantom-mdns.service phantom-wifi-autoconnect.service phantom.target"
-stop_order="phantom-mdns.service phantom-network.service phantom-controller.service phantom-wifi-autoconnect.service phantom-safety.service phantom.target"
+units="phantom-controller.service phantom-safety.service phantom-network.service phantom-mdns.service phantom.target"
+stop_order="phantom-mdns.service phantom-network.service phantom-controller.service phantom-safety.service phantom.target"
 started_at=$(date -u +%Y-%m-%dT%H:%M:%SZ)
 started_epoch=$(date +%s)
 step=prerequisites
@@ -172,19 +173,24 @@ install_runtime_metadata() {
   network_group=$(sed -n 's/^Group=//p' "$release/systemd/phantom-network.service" | head -n 1)
   case "$network_group" in ''|*[!A-Za-z0-9._-]*) return 1;; esac
   getent group "$network_group" >/dev/null 2>&1 || return 1
+  units_changed=0
   for unit in $units; do
-    install -m 0644 "$release/systemd/$unit" "/etc/systemd/system/$unit" || return 1
+    if ! cmp -s "$release/systemd/$unit" "/etc/systemd/system/$unit" 2>/dev/null; then
+      install -m 0644 "$release/systemd/$unit" "/etc/systemd/system/$unit" || return 1
+      units_changed=1
+    fi
   done
-  install -m 0644 "$release/tmpfiles/phantom.conf" /etc/tmpfiles.d/phantom.conf || return 1
-  systemctl daemon-reload || return 1
+  tmpfiles_changed=0
+  if ! cmp -s "$release/tmpfiles/phantom.conf" /etc/tmpfiles.d/phantom.conf 2>/dev/null; then
+    install -m 0644 "$release/tmpfiles/phantom.conf" /etc/tmpfiles.d/phantom.conf || return 1
+    tmpfiles_changed=1
+  fi
+  test "$units_changed" = 0 || systemctl daemon-reload || return 1
   if test -d /run/phantom; then
     find /run/phantom -mindepth 1 -maxdepth 1 ! -name motor-control.lock -exec rm -rf -- {} + || return 1
   fi
-  systemd-tmpfiles --create /etc/tmpfiles.d/phantom.conf || return 1
-  if test -d /var/lib/phantom/secrets; then
-    chown "root:$network_group" /var/lib/phantom/secrets || return 1
-    chmod 0750 /var/lib/phantom/secrets || return 1
-    find /var/lib/phantom/secrets -type f -exec chown "root:$network_group" {} + -exec chmod 0640 {} + || return 1
+  if test "$tmpfiles_changed" = 1 || test ! -d /run/phantom/controller; then
+    systemd-tmpfiles --create /etc/tmpfiles.d/phantom.conf || return 1
   fi
 }
 
@@ -194,60 +200,105 @@ mkdir -p "$root/releases" /var/lib/phantom
 staging=$(mktemp -d "$root/releases/.staging.XXXXXX")
 
 next_step artifact-validation
-tar -tzf "$archive" | while IFS= read -r member; do
-  case "$member" in /*|../*|*/../*|*/..) echo "unsafe archive member: $member" >&2; exit 1;; esac
-done
+case "$expected_build_id" in ''|*[!0-9a-f]*) fail "invalid expected build_id";; esac
+test "${#expected_build_id}" = 64 || fail "invalid expected build_id length"
+case "$expected_archive_sha256" in ''|*[!0-9a-f]*) fail "invalid expected archive SHA-256";; esac
+test "${#expected_archive_sha256}" = 64 || fail "invalid expected archive SHA-256 length"
+actual_archive_sha256=$(sha256sum "$archive" | sed 's/[[:space:]].*$//')
+test "$actual_archive_sha256" = "$expected_archive_sha256" || fail "artifact SHA-256 mismatch"
+python3 - "$archive" <<'PY' || fail "unsafe archive inventory"
+import posixpath, sys, tarfile
+required = set(("build-manifest.json", "SHA256SUMS", "bin/phantom-controller",
+                "bin/phantom-safety", "bin/phantom-network", "bin/phantom-mdns",
+                "bin/phantom-device-integration-test"))
+names = set()
+with tarfile.open(sys.argv[1], "r:gz") as archive:
+    for member in archive.getmembers():
+        normalized = posixpath.normpath(member.name)
+        if (not normalized or normalized == "." or normalized.startswith("/") or
+                normalized == ".." or normalized.startswith("../")):
+            raise SystemExit("unsafe archive member: " + member.name)
+        if normalized in names:
+            raise SystemExit("duplicate archive member: " + member.name)
+        names.add(normalized)
+        if member.issym() or member.islnk() or not (member.isfile() or member.isdir()):
+            raise SystemExit("unsupported archive member type: " + member.name)
+if not required.issubset(names):
+    raise SystemExit("required archive inventory is incomplete")
+PY
 tar -xzf "$archive" -C "$staging"
 (cd "$staging" && sha256sum -c SHA256SUMS)
-build_id=$(python3 - "$sidecar" "$staging/build-manifest.json" "$archive" <<'PY'
-import hashlib, json, sys
+python3 - "$staging" <<'PY' || fail "SHA256SUMS inventory mismatch"
+import pathlib, re, sys
+root = pathlib.Path(sys.argv[1])
+listed = set()
+for line in (root / "SHA256SUMS").read_text(encoding="ascii").splitlines():
+    match = re.match(r"^[0-9a-f]{64}  (.+)$", line)
+    if not match:
+        raise SystemExit("invalid SHA256SUMS entry")
+    relative = match.group(1)
+    if relative in listed:
+        raise SystemExit("duplicate SHA256SUMS entry")
+    listed.add(relative)
+actual = set(path.relative_to(root).as_posix() for path in root.rglob("*")
+             if path.is_file() and path.name != "SHA256SUMS")
+if listed != actual:
+    raise SystemExit("SHA256SUMS does not describe the exact file inventory")
+PY
+for executable in phantom-controller phantom-safety phantom-network phantom-mdns phantom-device-integration-test; do
+  test -f "$staging/bin/$executable" && test -x "$staging/bin/$executable" || fail "required runtime executable/mode is invalid: $executable"
+done
+build_id=$(python3 - "$staging/build-manifest.json" "$expected_build_id" <<'PY'
+import json, sys
 with open(sys.argv[1], encoding="utf-8-sig") as stream:
-    package = json.load(stream)
-with open(sys.argv[2], encoding="utf-8-sig") as stream:
     manifest = json.load(stream)
-with open(sys.argv[3], "rb") as stream:
-    archive_hash = hashlib.sha256(stream.read()).hexdigest()
-if package.get("schema_version") != 2 or package.get("component") != "EV3":
-    raise SystemExit("invalid EV3 package sidecar")
 if manifest.get("schema_version") != 3 or manifest.get("build_identity_schema") != "PHANTOM-BUILD-V2" or manifest.get("component") != "EV3":
     raise SystemExit("invalid embedded EV3 build manifest")
-if package.get("artifact_sha256") != archive_hash:
-    raise SystemExit("EV3 package SHA-256 mismatch")
-with open(sys.argv[2], "rb") as stream:
-    embedded_hash = hashlib.sha256(stream.read()).hexdigest()
-if package.get("embedded_identity_sha256") != embedded_hash:
-    raise SystemExit("embedded EV3 build manifest SHA-256 mismatch")
-for field in ("build_id", "build_profile", "source_tree_hash"):
-    if package.get(field) != manifest.get(field):
-        raise SystemExit("EV3 package/embedded manifest mismatch: " + field)
+if manifest.get("build_id") != sys.argv[2]:
+    raise SystemExit("embedded EV3 build_id mismatch")
 print(manifest["build_id"])
 PY
 ) || fail "artifact validation failed"
+python3 - "$staging" <<'PY' || fail "embedded config/bundle validation failed"
+import hashlib, json, pathlib, sys
+root = pathlib.Path(sys.argv[1])
+with (root / "build-manifest.json").open(encoding="utf-8-sig") as stream:
+    manifest = json.load(stream)
+with (root / "config.generated.json").open(encoding="utf-8-sig") as stream:
+    config = json.load(stream)
+with (root / "commissioning-bundle.generated.json").open(encoding="utf-8-sig") as stream:
+    bundle = json.load(stream)
+file_digest = lambda path: hashlib.sha256(path.read_bytes()).hexdigest()
+def canonical_digest(path):
+    data = path.read_bytes()
+    return hashlib.sha256(data[:-1] if data.endswith(b"\n") else data).hexdigest()
+if file_digest(root / "config.generated.json") != manifest.get("config_hash"):
+    raise SystemExit("config hash mismatch")
+if canonical_digest(root / "commissioning-bundle.generated.json") != manifest.get("commissioning_bundle_hash"):
+    raise SystemExit("commissioning bundle hash mismatch")
+if config.get("build_profile") != manifest.get("build_profile") and not (manifest.get("build_profile") == "DeepDebug" and config.get("build_profile") == "Diagnostic"):
+    raise SystemExit("config profile mismatch")
+if config.get("qualification_only") != bundle.get("qualification_only") or config.get("actuator_scope_mask") != bundle.get("actuator_scope_mask") or config.get("safety_observation_mask") != bundle.get("safety_observation_mask"):
+    raise SystemExit("config/bundle qualification mismatch")
+PY
 case "$build_id" in ''|*[!0-9a-f]*) fail "artifact validation returned invalid build_id";; esac
 test "${#build_id}" = 64 || fail "artifact validation returned invalid build_id length"
 release_id="phantom-$build_id"
 dest="$root/releases/$release_id"
 test ! -e "$dest" || fail "release already exists: $dest"
 
-next_step runtime-identities
+next_step platform-prerequisites
 for group in phantom-ipc phantom-safety-ipc phantom-motor; do
-  getent group "$group" >/dev/null 2>&1 || addgroup --system "$group"
+  getent group "$group" >/dev/null 2>&1 || fail "PROVISION_REQUIRED: missing runtime group $group"
 done
 for user in phantom-ctrl phantom-net phantom-mdns; do
-  getent group "$user" >/dev/null 2>&1 || addgroup --system "$user"
-  getent passwd "$user" >/dev/null 2>&1 || adduser --system --ingroup "$user" --home /var/lib/phantom --no-create-home --disabled-password --shell /usr/sbin/nologin "$user"
+  getent group "$user" >/dev/null 2>&1 || fail "PROVISION_REQUIRED: missing runtime group $user"
+  getent passwd "$user" >/dev/null 2>&1 || fail "PROVISION_REQUIRED: missing runtime user $user"
 done
-adduser phantom-ctrl phantom-motor >/dev/null 2>&1 || true
-adduser phantom-ctrl phantom-ipc >/dev/null 2>&1 || true
-adduser phantom-ctrl phantom-safety-ipc >/dev/null 2>&1 || true
-adduser phantom-net phantom-ipc >/dev/null 2>&1 || true
-getent group ev3dev >/dev/null 2>&1 && adduser phantom-ctrl ev3dev >/dev/null 2>&1 || true
-
-bench_sudoers=/etc/sudoers.d/phantom-ev3-bench
-if test -e "$bench_sudoers"; then
-  rm -f "$bench_sudoers"
-  test ! -e "$bench_sudoers" || fail "bench sudo rule could not be removed"
-fi
+id -nG phantom-ctrl | tr ' ' '\n' | grep -qx phantom-motor || fail "PROVISION_REQUIRED: phantom-ctrl is not in phantom-motor"
+id -nG phantom-ctrl | tr ' ' '\n' | grep -qx phantom-ipc || fail "PROVISION_REQUIRED: phantom-ctrl is not in phantom-ipc"
+id -nG phantom-ctrl | tr ' ' '\n' | grep -qx phantom-safety-ipc || fail "PROVISION_REQUIRED: phantom-ctrl is not in phantom-safety-ipc"
+id -nG phantom-net | tr ' ' '\n' | grep -qx phantom-ipc || fail "PROVISION_REQUIRED: phantom-net is not in phantom-ipc"
 for stray in /etc/sudoers.d/phantom-*; do
   case "$stray" in *'phantom-*') continue;; esac
   fail "unexpected phantom sudoers fragment: $stray"

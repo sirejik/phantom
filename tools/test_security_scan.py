@@ -77,7 +77,7 @@ class JsonArtifactTests(unittest.TestCase):
     def test_public_key_identifier_field_is_skipped(self):
         self.assertFalse(self.scan_document({"network": {"control_key_id": "ab" * 32}}))
 
-    def test_legacy_device_auto_hash_detail_is_narrowly_allowed(self):
+    def test_legacy_device_report_hash_detail_is_narrowly_allowed(self):
         digest = "ab" * 32
         self.assertFalse(self.scan_document({"test_id": "installed-config-hash", "detail": digest}))
         self.assertFalse(self.scan_document({"test_id": "installed-bundle-hash", "detail": digest}))

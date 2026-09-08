@@ -2,6 +2,29 @@
 
 > **Тип:** ненормативный provenance. Requirements находятся в нормативном specification set.
 
+## 2026-09-09 — явный lifecycle без скрытых фаз
+
+Lifecycle переработан в независимые `TEST`, `BUILD`, `PROVISION`, `TRANSFER`, `INSTALL`,
+`START`, `DEBUG`, `DEVICE INTEGRATION TEST`, `HIL`, `MANUAL ACCEPTANCE` и `RECOVERY`.
+Активная PRE-INSTALL-фаза удалена; её полезные software regressions принадлежат TEST/CI, а
+дешёвая проверка exact artifact выполняется самим BUILD. `results/**` и `build/**` являются
+удаляемыми локальными outputs и не управляют допуском установки уже выбранных bytes.
+
+EV3 maintenance trust/helpers и Wi-Fi autoconnect вынесены в явный persistent PROVISION.
+TRANSFER передаёт только пакет и сверяет SHA-256; INSTALL валидирует и атомарно выбирает
+release, оставляя runtime остановленным; START имеет bounded per-service порядок и сохраняет
+первый непосредственный отказ без автоматического rollback. DEVICE INTEGRATION TEST и recovery
+запускаются только явно.
+
+Quest обновляется через `adb install -r`, сохраняет стабильные package/storage/Keystore names и
+различает отсутствующий credential (`PROVISION_REQUIRED`) от повреждённого (`PROVISION_CORRUPT`).
+BUILD проверяет фактическую APK-подпись и фиксирует SHA-256 сертификата. Unity Development Build
+ограничен `DeepDebug`; обычный Diagnostic использует тот же runtime с профильными engineering
+поверхностями без profiler/debugger instrumentation. Reproducibility TEST подтвердил одинаковую
+identity обоих Quest builds и локализовал оставшийся Unity per-build GUID nondeterminism в
+`boot.config`, `globalgamemanagers`, `unity_app_guid` и GUID-именованных entries с одинаковым
+содержимым. EV3 package воспроизводится побайтово.
+
 ## 2026-09-05 — проверенный монолитный baseline
 
 Проверенная исходная спецификация фиксировала устранение противоречий вокруг TCP/Gripper QR

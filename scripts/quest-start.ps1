@@ -1,72 +1,64 @@
 param(
-    [string]$Apk='build/quest/PhantomQuest-diagnostic.apk',
     [string]$Package='dev.phantom.questprototype',
-    [ValidateRange(1,60)][int]$TimeoutSeconds=15,
-    [string]$Destination='results/quest/start'
+    [ValidatePattern('^$|^[0-9a-f]{64}$')][string]$ExpectedBuildId='',
+    [ValidateRange(1,60)][int]$TimeoutSeconds=15,[switch]$Debug,
+    [string]$Destination=''
 )
-$ErrorActionPreference='Stop'
-$started=(Get-Date).ToUniversalTime()
-$phaseComplete=$false
-$phaseTerminal='PREVIOUS_APP_STATE_UNCHANGED'
-$manifest=$null
-$reportPath=$null
+$ErrorActionPreference='Stop';$destinationRoot=if($Destination){$Destination}elseif($Debug){'results/quest/debug'}else{'results/quest/start'};$started=(Get-Date).ToUniversalTime();$phaseComplete=$false;$reportPath=$null;$adb=$null;$serial=$null;$remoteStatus=$null
 trap
 {
     if(!$phaseComplete)
     {
-        $failedId=if($manifest -and $manifest.build_id){$manifest.build_id}else{'failed-'+(Get-Date).ToUniversalTime().ToString('yyyyMMddTHHmmssZ')}
-        $runDirectory=Join-Path ([System.IO.Path]::GetFullPath($Destination)) $failedId
-        New-Item -ItemType Directory -Force -Path $runDirectory|Out-Null
-        $reportPath=Join-Path $runDirectory 'quest-start.json'
-        $failed=[ordered]@{schema_version=1;phase='START';status='FAIL';build_id=if($manifest){$manifest.build_id}else{$null};detail=$_.Exception.Message;started_at=$started.ToString('o');finished_at=(Get-Date).ToUniversalTime().ToString('o');terminal_state=$phaseTerminal}
-        [System.IO.File]::WriteAllText($reportPath,($failed|ConvertTo-Json -Depth 8)+"`n",[System.Text.UTF8Encoding]::new($false))
+        $failedId=if($ExpectedBuildId){$ExpectedBuildId}else{'failed-'+(Get-Date).ToUniversalTime().ToString('yyyyMMddTHHmmssZ')}
+        $runDirectory=Join-Path ([IO.Path]::GetFullPath($destinationRoot)) $failedId;New-Item -ItemType Directory -Force -Path $runDirectory|Out-Null
+        $reportPath=Join-Path $runDirectory 'quest-start.json';$failed=[ordered]@{schema_version=1;phase=if($Debug){'DEBUG'}else{'START'};status='FAIL';build_id=if($ExpectedBuildId){$ExpectedBuildId}else{$null};detail=$_.Exception.Message;started_at=$started.ToString('o');finished_at=(Get-Date).ToUniversalTime().ToString('o');terminal_state='APP_STATE_UNVERIFIED'}
+        [IO.File]::WriteAllText($reportPath,($failed|ConvertTo-Json -Depth 8)+"`n",[Text.UTF8Encoding]::new($false))
+        if($Debug -and $adb -and $serial)
+        {
+            @(& $adb -s $serial logcat -d 2>&1)|Set-Content -LiteralPath (Join-Path $runDirectory 'quest-debug.logcat.txt') -Encoding UTF8
+            @(& $adb -s $serial shell dumpsys activity top 2>&1)|Set-Content -LiteralPath (Join-Path $runDirectory 'quest-debug.activity.txt') -Encoding UTF8
+            @(& $adb -s $serial shell dumpsys package $Package 2>&1)|Set-Content -LiteralPath (Join-Path $runDirectory 'quest-debug.package.txt') -Encoding UTF8
+            if($remoteStatus){@(& $adb -s $serial shell "test ! -f '$remoteStatus' || cat '$remoteStatus'" 2>&1)|Set-Content -LiteralPath (Join-Path $runDirectory 'quest-debug.startup-status.json') -Encoding UTF8}
+        }
     }
-    [Console]::Error.WriteLine("QUEST START: FAIL report=$reportPath; $($_.Exception.Message)")
-    exit 1
+    [Console]::Error.WriteLine("QUEST START: FAIL report=$reportPath; $($_.Exception.Message)");exit 1
 }
-. "$PSScriptRoot/../tools/toolchain.ps1"
-$adb=Get-PhantomAdb
-$apkPath=[System.IO.Path]::GetFullPath($Apk)
-$manifest=Get-Content -LiteralPath ($apkPath+'.build-manifest.json') -Encoding UTF8 -Raw|ConvertFrom-Json
-$apkHash=(Get-FileHash -LiteralPath $apkPath -Algorithm SHA256).Hash.ToLowerInvariant()
-if($apkHash-ne$manifest.apk_sha256){throw 'APK hash does not match build manifest'}
-if($manifest.schema_version-ne 6 -or $manifest.build_identity_schema-ne'PHANTOM-BUILD-V2' -or $manifest.component-ne'QUEST' -or $manifest.build_id-notmatch'^[0-9a-f]{64}$'){throw 'Invalid Quest build manifest'}
+. "$PSScriptRoot/../tools/toolchain.ps1";$adb=Get-PhantomAdb
 $devices=@(& $adb devices|Select-Object -Skip 1|Where-Object {$_-match'\sdevice$'})
 if($devices.Count-ne 1){throw "Exactly one authorized ADB device is required; found $($devices.Count)"}
-$serial=($devices[0]-split'\s+')[0]
-$model=(@(& $adb -s $serial shell getprop ro.product.model)-join'').Trim()
-$device=(@(& $adb -s $serial shell getprop ro.product.device)-join'').Trim()
+$serial=($devices[0]-split'\s+')[0];$model=(@(& $adb -s $serial shell getprop ro.product.model)-join'').Trim();$device=(@(& $adb -s $serial shell getprop ro.product.device)-join'').Trim()
 if($model-ne'Quest 3' -or $device-ne'eureka'){throw "Physical Quest 3 required; found model=$model device=$device"}
-$sha=[System.Security.Cryptography.SHA256]::Create()
-try{$deviceIdHash=([BitConverter]::ToString($sha.ComputeHash([System.Text.Encoding]::UTF8.GetBytes($serial)))).Replace('-','').ToLowerInvariant().Substring(0,16)}finally{$sha.Dispose()}
 $installedPath=(@(& $adb -s $serial shell pm path $Package|Where-Object {$_-match'^package:'}|Select-Object -First 1)-join'').Trim()
-if($LASTEXITCODE-ne 0 -or $installedPath-notmatch'^package:'){throw "Installed package was not found: $Package"}
-$installedApk=$installedPath.Substring(8)
-$installedHash=(@(& $adb -s $serial shell toybox sha256sum $installedApk)-join'').Trim().Split()[0].ToLowerInvariant()
-if($LASTEXITCODE-ne 0 -or $installedHash-ne$apkHash){throw "Installed APK hash mismatch: expected=$apkHash actual=$installedHash"}
-$activity=(@(& $adb -s $serial shell cmd package resolve-activity --brief $Package)|Select-Object -Last 1)-join''
-$activity=$activity.Trim()
+if($installedPath-notmatch'^package:'){throw "Installed package was not found: $Package"}
+$activity=(@(& $adb -s $serial shell cmd package resolve-activity --brief $Package|Select-Object -Last 1)-join'').Trim()
 if(!$activity -or $activity-match'No activity'){throw "Launch activity was not resolved for $Package"}
-$launchStarted=(Get-Date).ToUniversalTime()
+$remoteStatus="/sdcard/Android/data/$Package/files/phantom-status/startup.json";& $adb -s $serial shell rm -f $remoteStatus|Out-Null
+if($Debug){& $adb -s $serial logcat -c|Out-Null}
 & $adb -s $serial shell input keyevent KEYCODE_WAKEUP|Out-Null
-& $adb -s $serial shell input keyevent 82|Out-Null
-$phaseTerminal='APP_LAUNCH_REQUESTED_READINESS_UNVERIFIED'
-$launch=@(& $adb -s $serial shell am start -n $activity)
-if($LASTEXITCODE-ne 0 -or ($launch-join"`n")-match'Error:'){throw "Quest START failed: $($launch-join' ')"}
-$deadline=(Get-Date).AddSeconds($TimeoutSeconds)
-$pid=''
+$launch=@(& $adb -s $serial shell am start -n $activity);if($LASTEXITCODE-ne 0 -or ($launch-join"`n")-match'Error:'){throw "Quest START launch failed: $($launch-join' ')"}
+$deadline=(Get-Date).AddSeconds($TimeoutSeconds);$appPid='';$statusJson=''
 while((Get-Date)-lt$deadline)
 {
-    $pid=(@(& $adb -s $serial shell "pidof '$Package' 2>/dev/null || true")-join'').Trim()
-    if($pid){break}
-    Start-Sleep -Milliseconds 250
+    $appPid=(@(& $adb -s $serial shell "pidof '$Package' 2>/dev/null || true")-join'').Trim()
+    $statusJson=(@(& $adb -s $serial shell "test ! -f '$remoteStatus' || cat '$remoteStatus'")-join"`n").Trim()
+    if($appPid-and$statusJson){break};Start-Sleep -Milliseconds 250
 }
-if(!$pid){throw "Quest START did not create a process within $TimeoutSeconds seconds"}
-$finished=(Get-Date).ToUniversalTime()
-$report=[ordered]@{schema_version=1;phase='START';status='PASS';build_id=$manifest.build_id;apk_sha256=$manifest.apk_sha256;installed_apk_sha256=$installedHash;package=$Package;device=[ordered]@{model=$model;device=$device;anonymized_id=$deviceIdHash};started_at=$started.ToString('o');finished_at=$finished.ToString('o');duration_ms=[long]($finished-$started).TotalMilliseconds;steps=@([ordered]@{step='installed-apk-hash';status='PASS';duration_ms=0},[ordered]@{step='app-process-readiness';status='PASS';duration_ms=[long]($finished-$launchStarted).TotalMilliseconds;deadline_seconds=$TimeoutSeconds});terminal_state='APP_PROCESS_RUNNING_EXACT_BYTES'}
-$runDirectory=Join-Path ([System.IO.Path]::GetFullPath($Destination)) $manifest.build_id
-New-Item -ItemType Directory -Force -Path $runDirectory|Out-Null
-$reportPath=Join-Path $runDirectory 'quest-start.json'
-[System.IO.File]::WriteAllText($reportPath,($report|ConvertTo-Json -Depth 6)+"`n",[System.Text.UTF8Encoding]::new($false))
-$phaseComplete=$true
-Write-Output "QUEST START: PASS build_id=$($manifest.build_id) report=$reportPath"
+if(!$appPid){throw "Quest START did not create a process within $TimeoutSeconds seconds"}
+if(!$statusJson){throw "Quest START did not produce bounded startup status within $TimeoutSeconds seconds"}
+try{$status=$statusJson|ConvertFrom-Json}catch{throw 'Quest START returned malformed startup status'}
+if($status.schema_version-ne 1 -or $status.build_id-notmatch'^[0-9a-f]{64}$'){throw 'Quest START returned invalid installed build identity'}
+if($ExpectedBuildId-and$status.build_id-ne$ExpectedBuildId){throw "Installed Quest build mismatch: expected=$ExpectedBuildId actual=$($status.build_id)"}
+if($status.runtime_status-ne'ready'){throw "QUEST_RUNTIME_NOT_READY: runtime_status=$($status.runtime_status)"}
+if($status.control_credential-eq'absent'){throw 'PROVISION_REQUIRED: Quest CONTROL credential is absent'}
+if($status.control_credential-ne'ready'){throw "PROVISION_CORRUPT: Quest CONTROL credential status=$($status.control_credential)"}
+$runDirectory=Join-Path ([IO.Path]::GetFullPath($destinationRoot)) $status.build_id;New-Item -ItemType Directory -Force -Path $runDirectory|Out-Null
+if($Debug)
+{
+    & $adb -s $serial logcat -d|Set-Content -LiteralPath (Join-Path $runDirectory 'quest-debug.logcat.txt') -Encoding UTF8
+    & $adb -s $serial shell dumpsys activity top|Set-Content -LiteralPath (Join-Path $runDirectory 'quest-debug.activity.txt') -Encoding UTF8
+    & $adb -s $serial shell dumpsys package $Package|Set-Content -LiteralPath (Join-Path $runDirectory 'quest-debug.package.txt') -Encoding UTF8
+    [IO.File]::WriteAllText((Join-Path $runDirectory 'quest-debug.startup-status.json'),$statusJson+"`n",[Text.UTF8Encoding]::new($false))
+}
+$finished=(Get-Date).ToUniversalTime();$report=[ordered]@{schema_version=1;phase=if($Debug){'DEBUG'}else{'START'};status='PASS';build_id=$status.build_id;package=$Package;control_credential='ready';device=[ordered]@{model=$model;device=$device};started_at=$started.ToString('o');finished_at=$finished.ToString('o');duration_ms=[long]($finished-$started).TotalMilliseconds;terminal_state='APP_PROCESS_RUNNING'}
+$reportPath=Join-Path $runDirectory 'quest-start.json';[IO.File]::WriteAllText($reportPath,($report|ConvertTo-Json -Depth 6)+"`n",[Text.UTF8Encoding]::new($false));$phaseComplete=$true
+Write-Output "QUEST START: PASS build_id=$($status.build_id) report=$reportPath"

@@ -8,6 +8,20 @@ description: Запустить или подготовить real PHANTOM Quest
 Используй только когда real hardware validation явно запрошен или непосредственно
 подготавливается.
 
+Сначала интерпретируй пользовательский intent буквально:
+
+- `установи` → только EV3 `TRANSFER` при необходимости + `INSTALL` и/или Quest `INSTALL`;
+- `установи и запусти` → только те же `TRANSFER`/`INSTALL`, затем `START`;
+- `запусти` → только `START`; `запусти debug` → только `DEBUG START` тех же bytes;
+- `device auto`/`device integration test` → только `DEVICE INTEGRATION TEST` уже
+  установленного и запущенного build;
+- `HIL`, `qualify Stage N`, `release qualification` и `recover` запускают только явно
+  названную фазу/pipeline.
+
+INSTALL/START не подразумевают BUILD, TEST, PROVISION, DEVICE INTEGRATION TEST, HIL,
+acceptance или RECOVERY. При отсутствующем provisioning остановись с `PROVISION_REQUIRED`;
+не передавай, не создавай и не ротируй secret без отдельного явного запроса PROVISION.
+
 1. Найди нужный stage в `docs/PHANTOM/IMPLEMENTATION_STAGES.md`, затем прочитай только
    применимые разделы `docs/PHANTOM/TEST_PLAN.md`, `docs/PHANTOM/SAFETY.md` и involved
    component specs.

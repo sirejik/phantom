@@ -14,7 +14,11 @@
 
 Тестирование PHANTOM строится как последовательность обязательных ворот. Чем раньше ошибка может быть обнаружена без физического оборудования, тем раньше она должна обнаруживаться. Установка нового приложения на Quest или новых бинарных файлов на EV3 не является первым способом проверить изменение.
 
-Глобальный нормативный инвариант: любой тест с пометкой `AUTO` (`PRE-INSTALL AUTO`, `DEVICE AUTO`, `HIL AUTO`) от запуска case runner до формирования результата выполняется без участия человека. Он не может просить надеть/разбудить Quest, двигать рукой или Touch Plus, показать QR, подтвердить haptics, выполнить pause/resume либо иное действие. Quest в AUTO разрешено лежать на столе. Для HIL инженерная подготовка безопасной зоны и исходной конфигурации является внешним prerequisite до запуска case runner; после запуска конкретного AUTO-case вмешательство запрещено и приводит к `FAIL`, а не к ожиданию пользователя.
+Глобальный нормативный инвариант: любой автоматический `DEVICE INTEGRATION TEST` или `HIL`
+от запуска case runner до результата выполняется без участия человека. Он не может просить
+надеть/разбудить Quest, двигать рукой или Touch Plus, показать QR, подтвердить haptics,
+выполнить pause/resume либо иное действие. Для HIL подготовка безопасной зоны является
+внешним prerequisite; вмешательство после запуска case даёт `FAIL`, а не ожидание.
 
 Каждый **непрерывный автоматический motion/stress exposure segment** любого HIL/DEVICE/MANUAL сценария ограничен `<=60 s`; предпочтительная длительность — `5..30 s`. Один логический test case или endurance suite может занимать больше и состоять из многих bounded segments/runs с явными checkpoints/reset conditions; отчёт обязан отдельно хранить suite/setup time, каждый segment duration и агрегированный результат. Свойства с большим временным горизонтом проверяются ускоренным monotonic/virtual time, контролируемой инъекцией порога или серией независимых bounded segments. Непрерывно оставлять автоматическое actuator exposure дольше `60 s` одним segment запрещено.
 
@@ -22,52 +26,50 @@
 
 ```text
 изменение кода
-→ сборка артефактов
-→ автоматические тесты до установки
-→ разрешение установки
-→ transfer и установка без запуска tests
+→ targeted software TEST
+→ BUILD затронутого component/profile
+→ TRANSFER и INSTALL без запуска tests
 → bounded запуск exact installed build
-→ автоматические проверки на устройстве
-→ HIL/сценарные проверки
-→ ручная системная и пользовательская приёмка
-→ Release candidate
+→ targeted runtime/manual verification
 ```
 
-Провал любого обязательного уровня блокирует переход на следующий уровень. Исключение допускается только для явно помеченной локальной инженерной отладки; такой build не может считаться кандидатом в `Release` и не используется для приёмочных тестов.
+Для явного `qualify Stage N` или release qualification этот цикл расширяется полным
+применимым software regression, DEVICE INTEGRATION TEST, HIL и MANUAL ACCEPTANCE. Провал
+обязательного qualification level блокирует следующий. Обычный development deployment не
+запускает qualification скрыто.
 
 <a id="sec-9-1-1"></a>
 ### 9.1.1. Конвейер от сборки до приёмки
 
 ```mermaid
 flowchart TD
-  C[Изменение кода] --> B[Сборка Quest APK<br/>и EV3 binaries]
-  B --> A[PRE-INSTALL AUTO<br/>post-build gate перед qualification]
-  A -->|FAIL| X[Артефакт заблокирован<br/>не квалифицировать/не публиковать]
-  A -->|PASS| P[Опубликовать без изменения bytes<br/>build_id + hashes]
+  C[Изменение кода] --> A[Полный применимый<br/>software TEST]
+  A --> B[BUILD final candidate<br/>+ artifact validation]
+  B --> P[Опубликовать без изменения bytes<br/>build_id + hashes]
   P --> T[TRANSFER<br/>копирование + hash]
   T --> D[INSTALL<br/>размещение без запуска тестов]
   D --> ST[START<br/>bounded activation]
-  ST --> S[DEVICE AUTO<br/>отдельный smoke/self-test]
+  ST --> S[DEVICE INTEGRATION TEST<br/>installed runtime]
   S -->|FAIL| X2[Build непригоден<br/>собрать логи]
-  S -->|PASS| H[HIL AUTO<br/>сценарии с реальным оборудованием]
+  S -->|PASS| H[HIL<br/>сценарии с реальным оборудованием]
   H -->|FAIL| X3[Дефект + regression test]
   H -->|PASS| M[MANUAL ACCEPTANCE<br/>готовое приложение + реальная система]
   M -->|FAIL| X4[Дефект + воспроизводимый сценарий]
   M -->|PASS| R[Release candidate]
 ```
 
-Быстрые статические проверки и часть модульных тестов могут выполняться до или параллельно компиляции, но **после успешной сборки существует отдельный обязательный `PRE-INSTALL` gate перед qualification/Release**. Он привязан к конкретным `build_id` и хэшам артефактов; commit хранится только как provenance. Нельзя считать достаточным ситуацию, когда тесты прошли для исходников, а квалифицируется другой APK или другой EV3 binary. Границы `TRANSFER`/`INSTALL`/`START` нормативно определены в §8.5.1 и §8.7; эти операции не читают предыдущие result-файлы, а успешная установка сама по себе не является DEVICE PASS.
+Полный software regression и BUILD являются отдельными фазами qualification. BUILD проверяет
+созданные bytes и фиксирует `build_id`/artifact SHA-256; qualification evidence связывает
+результаты TEST с этими identities. Commit хранится только как provenance. Границы фаз
+определены в §8.5.1; ни одна из них не требует local result-файла другой фазы.
 
 <a id="sec-9-1-2"></a>
-### 9.1.2. Автоматические тесты до установки (`PRE-INSTALL AUTO`)
+### 9.1.2. Программные тесты (`TEST`/CI)
 
-Эти тесты выполняются на PC/CI после получения сборочных артефактов и **до** DEVICE/HIL/Release qualification. Инженерные TRANSFER/INSTALL могут быть выполнены раньше для диагностики: это не переносит и не создаёт PRE-INSTALL PASS.
-
-`PRE-INSTALL AUTO` принимает уже существующие финальные artifact bytes как input. Runner не
-вызывает production build, не переподписывает/переупаковывает артефакт и не обращается к
-физическим устройствам. Unity tests выполняются Unity Editor’ом на PC; их наличие в этом gate
-не означает установку Unity на Quest или EV3. Если для теста нужна отдельная disposable test
-сборка, она хранится вне candidate paths и не может заменить либо изменить проверяемые bytes.
+TEST выполняется на PC/CI и не обращается к физическим устройствам. В development cycle
+запускаются только затронутые области. Полный применимый набор обязателен для CI, закрытия
+этапа и release qualification, но не является скрытой частью BUILD/deploy. Unity tests
+выполняются Unity Editor на PC; Unity не устанавливается на Quest или EV3.
 
 Обязательный набор:
 
@@ -87,32 +89,37 @@ flowchart TD
 | Interop | shipped Quest client против **shipped** `phantom-network`, отдельно от сценариев PC-симулятора; отчёт обязан различать эти два источника |
 | Артефакты | package/application id Quest, требуемые permissions/features, build metadata; архитектура и зависимости EV3 ELF, отсутствие test/debug secret в Release |
 
-Минимальные правила gate:
+Минимальные правила полного software regression:
 
 ```text
 0 failed mandatory tests
 0 crashed tests
 0 unexpected skipped tests
 all generated protocol/config golden hashes match
-Quest and EV3 build_id recorded
-artifact SHA-256 recorded
+all applicable suites linked to candidate semantic inputs
 ```
 
-Отчёт имеет versioned machine-readable schema и для каждого нормативного test id хранит как минимум `status`, `introduced_at_stage`, `applicable_to_stage`, команду/runner и ссылку на evidence. Допустимые статусы: `PASS`, `FAIL`, `NOT_RUN`, `N_A`. `N_A` разрешён только если тест ещё не применим к проверяемому этапу и содержит нормативную причину; отсутствие строки или неожиданный `NOT_RUN` эквивалентны FAIL. Итоговый `PASS` обязан содержать `source_tree_hash`, `specification_sha256`, `protocol_schema_hash`, **все применимые component/profile-specific `quest_build_id`/`ev3_build_id`**, а также SHA-256 каждого проверенного артефакта. `git_commit` и `worktree_dirty` разрешены только как provenance и не влияют на `build_id` либо статус gate. Локальный report пишется в игнорируемый `results/**`; долговечное evidence публикуется неизменяемым CI/release artifact с URI и SHA-256.
+Отчёт полного regression имеет versioned machine-readable schema и для каждого нормативного
+test id хранит `status`, применимость, команду/runner и evidence. Допустимые статусы: `PASS`,
+`FAIL`, `NOT_RUN`, `N_A`. Для qualification он связывается с exact component build IDs,
+artifact/config/spec/protocol hashes. Локальный report disposable; долговечное evidence
+публикуется неизменяемым CI/release artifact с URI и SHA-256.
 
 Минимальный набор этапа 1 включает schemas/generated-file checks, protocol/golden/HMAC/parser tests, Quest pure logic и synthetic adapters, EV3 host core/MockMotorBackend, simulator/replay, secret scan и host sanitizers. На этапе 2 дополнительно обязательны Unity EditMode/PlayMode и доступные XR/MRUK simulation tests, Release/Diagnostic APK audit, pinned ARMv5TEJ cross-build, artifact manifests/hashes и автономные startup/self-test сценарии. Проверки функций, впервые вводимых этапом 3+, могут иметь `N_A` до своего этапа, но не должны молча исчезать из отчёта.
 
 Если тест требует настоящей камеры, пользователя, EV3 scheduler или физический мотор, он **не симулируется как доказательство аппаратной готовности**; для него существует следующий уровень. Но вся чистая логика такого теста должна быть вынесена из SDK/I/O слоя и проверена здесь.
 
 <a id="sec-9-1-3"></a>
-### 9.1.3. Автоматические тесты после установки (`DEVICE AUTO`)
+### 9.1.3. Интеграционные тесты установленного устройства (`DEVICE INTEGRATION TEST`)
 
-Явная инженерная установка разрешена без `PRE-INSTALL AUTO`, но не является qualification.
-`DEVICE AUTO` требует успешный PRE-INSTALL report для exact artifact bytes и является
-отдельной явно запускаемой фазой над уже установленным и успешно активированным exact build.
+`DEVICE INTEGRATION TEST` является отдельной явно запускаемой фазой над уже установленным и
+успешно активированным exact build.
 Его runner не выполняет build, transfer, package installation, смену active release или
 rollback. Он может перезапускать процессы только внутри явно перечисленных test cases и после
 каждого такого case обязан восстановить документированное безопасное terminal state.
+Runner получает identity из установленного runtime и/или явного expected build id. Он не
+читает результаты TEST, BUILD, TRANSFER, INSTALL либо START; отсутствие/очистка/stale
+`results/**` не меняет его поведение.
 
 **Quest:**
 
@@ -124,10 +131,8 @@ rollback. Он может перезапускать процессы тольк
 - отсутствует crash/exception при входе/выходе из приложения и повторном запуске;
 - Release не содержит включённых инженерных механизмов, которые должны быть Diagnostic-only.
 
-Штатный Quest stage-2 DEVICE runner — `scripts/quest-device-auto.ps1`. Он принимает только
-уже установленный APK со смежным build manifest и явно указанный PRE-INSTALL report со
-статусом `PASS`, содержащим тот же `quest_build_id` и artifact SHA-256; локальный путь по
-умолчанию — `results/pre-install/report.json`. Runner проверяет единственный авторизованный ADB target `Quest 3/eureka` и identity
+Штатный Quest runner — `scripts/quest-device-integration-test.ps1`. Он проверяет единственный
+авторизованный ADB target `Quest 3/eureka` и identity
 установленного package. `adb install -r -g` относится к отдельному Quest INSTALL runner и не
 выполняется DEVICE runner’ом. DEVICE runner выполняет первый bounded запуск, `force-stop` и
 повторный bounded запуск. Запуск через ADB не использует неограниченный `am start -W`: runner
@@ -142,34 +147,34 @@ Body/Wrist live/provider qualification помечается `N_A` для это�
 blocker будущего этапа 8/9. При pause сохраняется тот же классифицированный snapshot, а
 Diagnostic выполняет полный synthetic suite без `RobotTransport`. Raw logcat обоих запусков
 и объединённый host/app report сохраняются под
-`results/quest/device-auto/<quest_build_id>/`; серийный номер в отчёт не попадает,
+`results/quest/device-integration/<quest_build_id>/`; серийный номер в отчёт не попадает,
 используется только сокращённый SHA-256 идентификатор.
 
-Quest `DEVICE AUTO PASS` доказывает запуск конкретного установленного APK и software/platform compatibility, но не доказывает качество реальных Wrist/Shoulder/grasp/Touch/QR observations. Он не заменяет bounded live-observation cases §9.6, camera/QR measurement §9.10 и ручные pause/resume/HMD/haptics сценарии. Provider классифицируется раздельно: API отсутствует — `FAIL`; provider явно отключён или несовместим — `FAIL`; provider сконфигурирован, но XR/focus неактивен и live samples отсутствуют — compatibility `PASS`, live evidence `NOT_RUN`; provider инициализирован — `PASS`, а live sample является дополнительным evidence.
+Quest `DEVICE INTEGRATION TEST PASS` доказывает запуск конкретного установленного APK и software/platform compatibility, но не доказывает качество реальных Wrist/Shoulder/grasp/Touch/QR observations. Он не заменяет bounded live-observation cases §9.6, camera/QR measurement §9.10 и ручные pause/resume/HMD/haptics сценарии. Provider классифицируется раздельно: API отсутствует — `FAIL`; provider явно отключён или несовместим — `FAIL`; provider сконфигурирован, но XR/focus неактивен и live samples отсутствуют — compatibility `PASS`, live evidence `NOT_RUN`; provider инициализирован — `PASS`, а live sample является дополнительным evidence.
 
 **EV3:**
 
 - `phantom-controller` и `phantom-safety` запускаются через `systemd`;
 - версии и **`ev3_build_id`** соответствуют установленному EV3 package/profile;
 - конфигурация читается и проходит schema/hash checks;
-- sysfs devices обнаруживаются по `address`, а не по нестабильному имени `motorN`; DEVICE AUTO проверяет **ровно обязательный motor/sensor I/O active profile**: Release требует `outA/outB/outC/outD + GRIPPER_HOME + LOCAL_STOP`, gripper-only Diagnostic требует `outD + GRIPPER_HOME + LOCAL_STOP`, network-only Diagnostic не требует motor I/O; battery telemetry является общим обязательным I/O для всех профилей; любой physically present disabled motor дополнительно проверяется на zero-output inhibit; для scoped моторов проверяются ожидаемые `driver_name`/тип и `count_per_rot=360`;
+- sysfs devices обнаруживаются по `address`, а не по нестабильному имени `motorN`; DEVICE INTEGRATION TEST проверяет **ровно обязательный motor/sensor I/O active profile**: Release требует `outA/outB/outC/outD + GRIPPER_HOME + LOCAL_STOP`, gripper-only Diagnostic требует `outD + GRIPPER_HOME + LOCAL_STOP`, network-only Diagnostic не требует motor I/O; battery telemetry является общим обязательным I/O для всех профилей; любой physically present disabled motor дополнительно проверяется на zero-output inhibit; для scoped моторов проверяются ожидаемые `driver_name`/тип и `count_per_rot=360`;
 - выполняется короткий timing self-test критического цикла с `duty=0`/безопасным backend;
 - DNS-SD/mDNS service публикуется;
 - Quest/PC test client может выполнить `HELLO/HELLO_ACK`, `PING/PONG` и получить `TELEMETRY`;
 - падение одного процесса обнаруживается вторым по правилам безопасности.
 
-Каждый DEVICE AUTO test также имеет `introduced_at_stage`. На этапе 2 обязательны только автономный запуск, config/hash checks, обнаружение локального I/O, zero-output timing self-test, supervisor heartbeat/takeover и безопасный shutdown. DNS-SD, `HELLO/PING/TELEMETRY` и иные функции этапа 3 становятся обязательными с этапа 3; до этого они записываются как `N_A`, а не как PASS и не как пропущенная строка. DEVICE AUTO никогда не заменяется результатом PC-симулятора.
+Каждый DEVICE INTEGRATION TEST также имеет `introduced_at_stage`. На этапе 2 обязательны только автономный запуск, config/hash checks, обнаружение локального I/O, zero-output timing self-test, supervisor heartbeat/takeover и безопасный shutdown. DNS-SD, `HELLO/PING/TELEMETRY` и иные функции этапа 3 становятся обязательными с этапа 3; до этого они записываются как `N_A`, а не как PASS и не как пропущенная строка. DEVICE INTEGRATION TEST никогда не заменяется результатом PC-симулятора.
 
-EV3 stage-2 DEVICE AUTO выполняется установленным `/opt/phantom/current/bin/phantom-device-auto` с root privilege и атомарно сохраняет `/var/lib/phantom/device-auto.json`. Отчёт содержит `git_commit`, один установленный **`ev3_build_id`** текущего profile, hashes controller/safety/config, platform fingerprint, monotonic timestamp и отдельные строки минимум для artifact integrity, config, motor/sensor/battery discovery, обоих on-device self-tests, systemd startup, zero-output startup, supervisor takeover и safe restart. Stage-3 network строки присутствуют как `N_A` с `introduced_at_stage=3`.
+EV3 test выполняется установленным `/opt/phantom/current/bin/phantom-device-integration-test` с root privilege и атомарно сохраняет `/var/lib/phantom/device-integration-test.json`. Отчёт содержит `git_commit`, один установленный **`ev3_build_id`** текущего profile, hashes controller/safety/config, platform fingerprint, monotonic timestamp и отдельные строки минимум для artifact integrity, config, motor/sensor/battery discovery, обоих on-device self-tests, systemd startup, zero-output startup, supervisor takeover и safe restart. Stage-3 network строки присутствуют как `N_A` с `introduced_at_stage=3`.
 
-EV3 DEVICE runner требует успешный отдельный `START` result того же installed `ev3_build_id`.
+EV3 runner проверяет фактически active exact installed `ev3_build_id`, не читая START result.
 Он не вызывается installer’ом и сам не распаковывает package, не переключает
 `/opt/phantom/current`, не обновляет systemd units/tmpfiles и не выполняет rollback. Если
 case обнаружил runtime failure, runner сначала сохраняет первый непосредственный service
 failure и cascade relationships, затем приводит систему в заявленное safe terminal state;
 исправление/rollback выполняется последующей отдельной операцией.
 
-Начиная с EV3-side этапа 3 тот же installed runner формирует report `schema_version=2`, `gate="DEVICE AUTO"`, `stage=3` и проверяет дополнительно:
+Начиная с EV3-side этапа 3 тот же installed runner формирует report `schema_version=2`, `gate="DEVICE INTEGRATION TEST"`, `stage=3` и проверяет дополнительно:
 
 - согласованный network-only profile одновременно в runtime config и authoritative bundle, а также их manifest hashes;
 - WNA1100 по sysfs USB VID/PID `0846:9030`, загруженный `ath9k_htc` и динамически обнаруженное имя wireless interface; автоматический gate не зависит от `lsusb`, который на legacy Brick может блокироваться;
@@ -183,20 +188,20 @@ failure и cascade relationships, затем приводит систему в 
   `phantom-net` не имеет write-доступа к motor-I/O. Счётчик, который worker никогда не
   инкрементирует, не является доказательством и не принимается как evidence.
 
-Отсутствующие motor и motor-safety inputs при scope `0x00` получают `N_A` с `reason=OUT_OF_SCOPE`; battery telemetry остаётся обязательной и должна иметь `PASS`. Итоговый report записывается atomically в `/var/lib/phantom/device-auto.json`; пропуск любой применимой Stage-3 строки не считается PASS.
+Отсутствующие motor и motor-safety inputs при scope `0x00` получают `N_A` с `reason=OUT_OF_SCOPE`; battery telemetry остаётся обязательной и должна иметь `PASS`. Итоговый report записывается atomically в `/var/lib/phantom/device-integration-test.json`; пропуск любой применимой Stage-3 строки не считается PASS.
 
-On-device timing self-test выполняет не менее 250 итераций по абсолютной 20-ms сетке с безопасным backend, требует `p99 <= 25 ms`, `max < 50 ms`, нулевое число nonzero motor writes. Для `LOCAL_STOP` DEVICE AUTO без fixture проверяет discovery/текущее released состояние input и software state-transition logic через test backend, но **не выдаёт PASS физическому press/release**. Физический `LOCAL_STOP` press→BRAKE→latched STOP→release/reset проверяется только HIL AUTO с квалифицированным actuator fixture либо отдельной manual safety procedure; человеческое нажатие во время AUTO запрещено. Supervisor test при уже нулевом output посылает `SIGKILL` controller, подтверждает новый emergency event и сохранение `duty=0`, `speed=0`, `stop_action=brake`, после чего полностью перезапускает target. В network-only profile это также доказывает безопасное повторное получение освобождённого lease и смену controller boot identity, но не снимает fault/не выдаёт authority motion-capable profile. Ни один DEVICE AUTO step не выставляет ненулевой duty.
+On-device timing self-test выполняет не менее 250 итераций по абсолютной 20-ms сетке с безопасным backend, требует `p99 <= 25 ms`, `max < 50 ms`, нулевое число nonzero motor writes. Для `LOCAL_STOP` DEVICE INTEGRATION TEST без fixture проверяет discovery/текущее released состояние input и software state-transition logic через test backend, но **не выдаёт PASS физическому press/release**. Физический `LOCAL_STOP` press→BRAKE→latched STOP→release/reset проверяется только HIL с квалифицированным actuator fixture либо отдельной manual safety procedure; человеческое нажатие во время AUTO запрещено. Supervisor test при уже нулевом output посылает `SIGKILL` controller, подтверждает новый emergency event и сохранение `duty=0`, `speed=0`, `stop_action=brake`, после чего полностью перезапускает target. В network-only profile это также доказывает безопасное повторное получение освобождённого lease и смену controller boot identity, но не снимает fault/не выдаёт authority motion-capable profile. Ни один DEVICE INTEGRATION TEST step не выставляет ненулевой duty.
 
-DEVICE AUTO оценивает комплект относительно versioned profile, а не относительно будущей финальной механики. Scope-aware classification имеет `introduced_at_stage=3` (network-only) / `introduced_at_stage=4` (gripper-only); evidence более раннего stage не заменяет соответствующий новый gate, перед которым обязательно выполняется regression applicable autonomous-startup behavior. При таком regression gripper-bench report может быть `PASS` при scope `0x08`, если D/`GRIPPER_HOME`/`LOCAL_STOP` присутствуют и A/B/C явно помечены `N_A` с `reason=OUT_OF_SCOPE`; это **не** является evidence production hardware completeness. Финальный Release DEVICE AUTO всё равно требует A/B/C/D, `LOCAL_STOP` и `GRIPPER_HOME`; отсутствие любого обязательного элемента даёт `FAIL`/`NOT_RUN` без попытки движения.
+DEVICE INTEGRATION TEST оценивает комплект относительно versioned profile, а не относительно будущей финальной механики. Scope-aware classification имеет `introduced_at_stage=3` (network-only) / `introduced_at_stage=4` (gripper-only); evidence более раннего stage не заменяет соответствующий новый gate, перед которым обязательно выполняется regression applicable autonomous-startup behavior. При таком regression gripper-bench report может быть `PASS` при scope `0x08`, если D/`GRIPPER_HOME`/`LOCAL_STOP` присутствуют и A/B/C явно помечены `N_A` с `reason=OUT_OF_SCOPE`; это **не** является evidence production hardware completeness. Финальный Release DEVICE INTEGRATION TEST всё равно требует A/B/C/D, `LOCAL_STOP` и `GRIPPER_HOME`; отсутствие любого обязательного элемента даёт `FAIL`/`NOT_RUN` без попытки движения.
 
-EV3 не имеет надёжного RTC, поэтому control/watchdog/safety freshness используют только `CLOCK_MONOTONIC`. DEVICE AUTO дополнительно фиксирует wall-clock/NTP state; неверные календарные часы не ослабляют stop path, но блокируют использование отчёта как хронологического release/HIL evidence до синхронизации либо надёжной корреляции с host timestamp.
+EV3 не имеет надёжного RTC, поэтому control/watchdog/safety freshness используют только `CLOCK_MONOTONIC`. DEVICE INTEGRATION TEST дополнительно фиксирует wall-clock/NTP state; неверные календарные часы не ослабляют stop path, но блокируют использование отчёта как хронологического release/HIL evidence до синхронизации либо надёжной корреляции с host timestamp.
 
-`DEVICE AUTO` не заменяет HIL: успешный запуск процесса ещё не доказывает, что реальная передача, QR, мотор и механика работают правильно.
+`DEVICE INTEGRATION TEST` не заменяет HIL: успешный запуск процесса ещё не доказывает, что реальная передача, QR, мотор и механика работают правильно.
 
 <a id="sec-9-1-4"></a>
-### 9.1.4. Автоматизированные аппаратные тесты (`HIL AUTO`)
+### 9.1.4. Автоматизированные аппаратные тесты (`HIL`)
 
-После успешного device smoke используется сценарный HIL-исполнитель. Человек до запуска runner подготавливает безопасную зону и переводит стенд в указанную исходную конфигурацию; после старта каждый HIL AUTO **motion/stress segment** выполняется полностью автоматически и завершается не позднее `60 s`, а один логический case может агрегировать несколько таких segments без вмешательства человека либо с новым явно отдельным setup между cases:
+После успешного device smoke используется сценарный HIL-исполнитель. Человек до запуска runner подготавливает безопасную зону и переводит стенд в указанную исходную конфигурацию; после старта каждый HIL **motion/stress segment** выполняется полностью автоматически и завершается не позднее `60 s`, а один логический case может агрегировать несколько таких segments без вмешательства человека либо с новым явно отдельным setup между cases:
 
 ```text
 setup confirmed by engineer
@@ -225,7 +230,7 @@ HIL должен выдавать машинно читаемый отчёт с�
 <a id="sec-9-1-5"></a>
 ### 9.1.5. Ручные тесты готового приложения (`MANUAL ACCEPTANCE`)
 
-Ручные **функциональные и пользовательские** тесты проводятся только на установленном build, который уже прошёл `PRE-INSTALL AUTO`, `DEVICE AUTO` и обязательные для данного сценария HIL-проверки.
+Ручные **функциональные и пользовательские** тесты проводятся только на установленном build, который уже прошёл `TEST`, `DEVICE INTEGRATION TEST` и обязательные для данного сценария HIL-проверки.
 
 Именно вручную проверяются свойства, для которых нужен реальный человек или субъективная/физическая оценка:
 
@@ -263,17 +268,17 @@ HIL должен выдавать машинно читаемый отчёт с�
 
 | Раздел | Основной уровень | Дополнительный уровень |
 |---|---|---|
-| §9.2–§9.4 | `PRE-INSTALL AUTO` | — |
-| §9.5 | `PRE-INSTALL AUTO` capability/state logic | `MANUAL ACCEPTANCE` Quest lifecycle/reference-space; `Space Setup` только для scene-aware UX |
-| §9.6 | `PRE-INSTALL AUTO` для replay/alignment | `MANUAL ACCEPTANCE` на Quest 3 с пользователями |
-| §9.7 | `PRE-INSTALL AUTO` provider/remap state logic | `MANUAL ACCEPTANCE` реального `graspValue/graspReady` |
-| §9.8–§9.9 | `PRE-INSTALL AUTO` | `DEVICE AUTO`/HIL для реальной сети и EV3 |
-| §9.10 | `PRE-INSTALL AUTO` для synthetic QR geometry | HIL/ручная камера для физических QR |
-| §9.11–§9.14 | `PRE-INSTALL AUTO` для математики | `HIL AUTO` для реального робота |
+| §9.2–§9.4 | `TEST` | — |
+| §9.5 | `TEST` capability/state logic | `MANUAL ACCEPTANCE` Quest lifecycle/reference-space; `Space Setup` только для scene-aware UX |
+| §9.6 | `TEST` для replay/alignment | `MANUAL ACCEPTANCE` на Quest 3 с пользователями |
+| §9.7 | `TEST` provider/remap state logic | `MANUAL ACCEPTANCE` реального `graspValue/graspReady` |
+| §9.8–§9.9 | `TEST` | `DEVICE INTEGRATION TEST`/HIL для реальной сети и EV3 |
+| §9.10 | `TEST` для synthetic QR geometry | HIL/ручная камера для физических QR |
+| §9.11–§9.14 | `TEST` для математики | `HIL` для реального робота |
 | §9.15 | manual safety inspection + HIL | часть проверок требует физического наблюдения |
-| §9.16–§9.19 | `HIL AUTO` | отдельные опасные сценарии требуют инженера рядом с `LOCAL_STOP` |
+| §9.16–§9.19 | `HIL` | отдельные опасные сценарии требуют инженера рядом с `LOCAL_STOP` |
 | §9.20–§9.23 | `MANUAL ACCEPTANCE` | численные метрики считаются автоматически |
-| §9.24 | `PRE-INSTALL AUTO` + `DEVICE AUTO` + HIL | физический power-loss отдельно |
+| §9.24 | `TEST` + `DEVICE INTEGRATION TEST` + HIL | физический power-loss отдельно |
 | §9.25–§9.26 | отчётность/Release gate | агрегируют результаты всех уровней |
 
 <a id="sec-9-1-8"></a>
@@ -284,7 +289,7 @@ HIL должен выдавать машинно читаемый отчёт с�
 ```text
 дефект найден вручную/HIL
 → минимальный воспроизводимый сценарий
-→ по возможности PRE-INSTALL regression
+→ по возможности TEST regression
 → исправление
 → локальный набор тестов
 → полный обязательный gate
@@ -301,8 +306,8 @@ SHA-256 артефактов
 RobotGeometry hash
 DriveCalibration hash
 config hash
-результаты PRE-INSTALL AUTO
-результаты DEVICE AUTO
+результаты TEST
+результаты DEVICE INTEGRATION TEST
 результаты применимых HIL
 идентификаторы ручных приёмочных сценариев
 ```
@@ -312,7 +317,7 @@ config hash
 <a id="sec-9-2"></a>
 ## 9.2. Модульные тесты и тесты свойств кинематики
 
-**Уровень:** `PRE-INSTALL AUTO`.
+**Уровень:** `TEST`.
 
 Минимум `10 000` случайных валидных наборов:
 
@@ -346,7 +351,7 @@ q → FK → IK на фиксированной branch → q_reconstructed
 <a id="sec-9-3"></a>
 ## 9.3. Тест абсолютного отображения руки
 
-**Уровень:** `PRE-INSTALL AUTO`.
+**Уровень:** `TEST`.
 
 Для фиксированных `RobotBaseFrame`, `human_arm_reach` и заданного `HumanShoulderCenter` генерируется множество поз правой руки.
 
@@ -372,7 +377,7 @@ same(HumanWristCenter - HumanShoulderCenter)
 <a id="sec-9-4"></a>
 ## 9.4. Тесты преобразования координат
 
-**Уровень:** `PRE-INSTALL AUTO`.
+**Уровень:** `TEST`.
 
 Для заранее заданного `T_floor_base` проверяются эталонные мировые векторы `плечо → запястье`. После преобразования в `RobotBaseFrame` FK целевого робота должен давать тот же физический вектор при обратном переводе в `LOCAL_FLOOR`.
 
@@ -387,7 +392,7 @@ same(HumanWristCenter - HumanShoulderCenter)
 <a id="sec-9-5"></a>
 ## 9.5. Тесты XR readiness, Multimodal lifecycle и reference-space changes
 
-**Уровень:** `PRE-INSTALL AUTO` для capability/state logic; затем `MANUAL ACCEPTANCE` на Quest 3.
+**Уровень:** `TEST` для capability/state logic; затем `MANUAL ACCEPTANCE` на Quest 3.
 
 Проверяются сценарии:
 
@@ -406,7 +411,7 @@ Golden-vector tests отдельно проверяют OpenXR Y-up → robot Z-
 <a id="sec-9-6"></a>
 ## 9.6. P0 compatibility, Body Tracking плеча и калибровка длины руки
 
-**Уровень:** replay/time-alignment — `PRE-INSTALL AUTO`; качество реального tracking — `MANUAL ACCEPTANCE` на Quest 3.
+**Уровень:** replay/time-alignment — `TEST`; качество реального tracking — `MANUAL ACCEPTANCE` на Quest 3.
 
 Live full-arm Body/Wrist qualification и пользовательские cases этого раздела выполняются на реальном Quest 3 в штатной полной комбинации ниже. **P0 до них является scope-specific** и не обязан включать providers, помеченные `N_A(OUT_OF_SCOPE)` для `COMMISSIONING_QR`/`D_ONLY_USER`:
 
@@ -530,7 +535,7 @@ short dropped samples
 <a id="sec-9-7"></a>
 ## 9.7. Тесты сигнала сжатия кисти
 
-**Уровень:** provider/remap logic — `PRE-INSTALL AUTO`; реальный Hand Tracking — `MANUAL ACCEPTANCE`/P0 на Quest 3.
+**Уровень:** provider/remap logic — `TEST`; реальный Hand Tracking — `MANUAL ACCEPTANCE`/P0 на Quest 3.
 
 Default `OpenXrGraspProvider` проверяется так:
 
@@ -553,7 +558,7 @@ Optional `GripRemapProfile` тестируется отдельно:
 <a id="sec-9-8"></a>
 ## 9.8. Тесты DNS-SD/mDNS обнаружения
 
-**Уровень:** `PRE-INSTALL AUTO` с сетевым симулятором; `DEVICE AUTO`/HIL с реальным EV3.
+**Уровень:** `TEST` с сетевым симулятором; `DEVICE INTEGRATION TEST`/HIL с реальным EV3.
 
 Сценарии:
 
@@ -567,7 +572,7 @@ Optional `GripRemapProfile` тестируется отдельно:
 8. старый IPv4 занят другим host;
 9. сервис исчезает и появляется снова.
 10. `HELLO` retransmit с тем же nonce в retry-window возвращает тот же session id только пока исходная session/config generation остаётся authoritative; bundle/session/boot invalidation очищает HELLO cache, и повтор старого nonce не воскресит session. Competing CONTROL HELLO при свежей активной session получает rejected `HELLO_ACK(result_code=ERR_CONTROL_SESSION_BUSY, session_id=0)`; после stale/HOLD новый handshake получает новую EV3-generated session id, а старые COMMAND остаются невалидны.
-11. на реальном EV3 publisher использует Avahi D-Bus, а DEVICE AUTO посылает raw multicast DNS query и валидирует service type `_phantom-ev3._udp`, domain `local.`, IPv4 address/SRV port и TXT identity независимо от локального publisher process;
+11. на реальном EV3 publisher использует Avahi D-Bus, а DEVICE INTEGRATION TEST посылает raw multicast DNS query и валидирует service type `_phantom-ev3._udp`, domain `local.`, IPv4 address/SRV port и TXT identity независимо от локального publisher process;
 12. restart controller меняет `controller_boot_id` и приводит к перепубликации TXT; restart `phantom-mdns` временно удаляет и затем восстанавливает service;
 13. TXT не содержит credential, PSK, HMAC material или session id.
 14. Quest LAN permission denied/revoked или platform multicast prerequisite отсутствует → discovery/UDP явно unavailable, старый endpoint/session не используется; после разрешения выполняется fresh discovery.
@@ -583,7 +588,7 @@ Optional `GripRemapProfile` тестируется отдельно:
 <a id="sec-9-9"></a>
 ## 9.9. Тесты сетевого протокола и HMAC
 
-**Уровень:** `PRE-INSTALL AUTO`; performance parser/HMAC дополнительно проверяется на EV3 как `DEVICE AUTO`/HIL.
+**Уровень:** `TEST`; performance parser/HMAC дополнительно проверяется на EV3 как `DEVICE INTEGRATION TEST`/HIL.
 
 Структура каждого message type определяется одним `wire_schema.yaml`; C# и C++ production encode/decode, независимо от того generated они или hand-written, должны проходить общие golden/negative vectors. CI проверяет `protocol_schema_hash`, exact payload lengths, enum/bit values и запрещает расхождение generated constants/size maps со схемой либо production codecs с общими vectors. Отдельный schema assertion требует, чтобы `COMMAND` содержал только motion flags, абсолютные `q_target[3]`, `grip_intent` и reserved field; PWM/duty/raw motor commands в Quest→EV3 wire отсутствуют.
 
@@ -608,7 +613,7 @@ Security tests:
 | `CALIBRATION_JOG`: ACK потерян, затем session потеряна | старый JOG **не** отправляется автоматически в новой session; состояние `OUTCOME_UNKNOWN`, новый `LOCAL_COMMISSION_ARM`/session + stationary `CALIBRATION_QUERY` + QR/encoder observation предшествуют любому следующему jog |
 | `COMMISSIONING_SAMPLE` ACK потерян | exact retry в той же session возвращает тот же `CONTROL_ACK` payload/result с fresh response sequence/HMAC; journal append/sample consume выполняются ровно один раз |
 | `REFERENCE_ACK` потерян и затем session потеряна | новая session не считает старую reference подтверждённой: fresh `CALIBRATION_QUERY` + QR observation + новый `SET_JOINT_REFERENCE`; старый transaction id не replay-ится |
-| HELLO `key_slot/session_role` selector до HMAC | используется только для выбора одного preinstalled PSK; invalid HMAC не создаёт session/semantic side effect |
+| HELLO `key_slot/session_role` selector до HMAC | используется только для выбора одного test_phaseed PSK; invalid HMAC не создаёт session/semantic side effect |
 | authenticated `HELLO` при busy CONTROL / commissioning без local arm | `HELLO_ACK.session_id=0`, `result_code=ERR_CONTROL_SESSION_BUSY/ERR_COMMISSIONING_NOT_ARMED`; session owner/sequence/authority не создаются |
 | rejected authenticated `HELLO_ACK` canonical fields | `client_nonce_echo` и HMAC-validated selectors совпадают с запросом; identity/build/hash/state fields декодируются как diagnostics, но не создают authority; profile-dependent safe limits при отсутствии применимого active profile равны canonical zero; Quest **не** применяет rejected ACK как config/reference readiness |
 | successful network-only/D-only `HELLO_ACK` canonical N_A | `0x00/0x00`: отсутствующие component hashes и все reference/A-B-C limit fields canonical zero при ненулевом network-only bundle hash; `0x08/0x08`: только присутствующие gripper subset hashes/Gripper reference могут быть ненулевыми, A/B/C JointReference/JointSafeSet/limits canonical zero; `-0.0`, NaN, stale values rejected by golden/schema test |
@@ -651,7 +656,7 @@ configured rx_rate_limit_pps/rx_burst_packets при valid+invalid flood не н
 <a id="sec-9-10"></a>
 ## 9.10. Тесты QR RobotLocalization
 
-**Уровень:** synthetic geometry — `PRE-INSTALL AUTO`; реальные маркеры/камеры — HIL и `MANUAL ACCEPTANCE`.
+**Уровень:** synthetic geometry — `TEST`; реальные маркеры/камеры — HIL и `MANUAL ACCEPTANCE`.
 
 Не менее `30` независимых локализаций центра Shoulder и `RobotBaseFrame` после перемещения/повторного запуска.
 
@@ -669,14 +674,14 @@ base relocation after RobotLocalization without re-localization → A/B/C motion
 localization source = MRUK QR Trackables only
 ```
 
-Проверяются частичная окклюзия, неверный `marker_id`, два маркера с одной role/id, valid QR другого role, переставленное крепление, неверный prefix/geometry revision/encoding canonical payload, недостаточная геометрия видимых точек, слабое освещение, слишком большая дистанция и деформированный/наклонённый держатель. Отдельный PRE-INSTALL parser test round-trip-ит весь `qr_marker_manifest` и гарантирует однозначность role↔id.
+Проверяются частичная окклюзия, неверный `marker_id`, два маркера с одной role/id, valid QR другого role, переставленное крепление, неверный prefix/geometry revision/encoding canonical payload, недостаточная геометрия видимых точек, слабое освещение, слишком большая дистанция и деформированный/наклонённый держатель. Отдельный TEST parser test round-trip-ит весь `qr_marker_manifest` и гарантирует однозначность role↔id.
 
 Для каждого принятого окна после остановки дополнительно сохраняются дрожание центра маркера и robust-остаточная ошибка расчёта. измерение не принимается, если видимый набор маркеров формально достаточен, но его геометрия плохо обусловлена или центры продолжают заметно двигаться. Пороги jitter, pair baseline, conditioning и propagated angular uncertainty фиксируются по физическим тестам. `25 мм / 5°` — только coarse localization/UI gate; калибровочная/стартовая точка принимается лишь если её собственный uncertainty budget достаточно мал для критериев §9.12/§9.13. Если Quest QR stack не достигает этого бюджета, проект не ослабляет критерий молча: требуется улучшить fixtures/наблюдения или использовать отдельную более точную absolute-reference технологию в следующей revision.
 
 <a id="sec-9-11"></a>
 ## 9.11. Инженерная калибровка RobotGeometry
 
-**Уровень:** математика — `PRE-INSTALL AUTO`; физическая квалификация — `HIL AUTO`.
+**Уровень:** математика — `TEST`; физическая квалификация — `HIL`.
 
 Минимум шесть и предпочтительно больше поз, покрывающих Base/Shoulder/Elbow range.
 
@@ -702,7 +707,7 @@ FK TCP error against independent measurement p95 <= 15 mm
 
 QR hold-out точки проверяют повторяемость калибровочного sensor stack. Отдельно обязательна независимая физическая validation точности как минимум на нескольких контрольных позах с jig/угломером/линейкой либо иной метрологией известной погрешности; QR не может быть единственным «независимым» ground truth для собственной калибровки.
 
-**Уровень:** алгоритм fit/rejection — `PRE-INSTALL AUTO`; реальная процедура — `HIL AUTO`.
+**Уровень:** алгоритм fit/rejection — `TEST`; реальная процедура — `HIL`.
 
 Для каждой оси выполняется не менее `10` независимых запусков инженерной калибровки из разных допустимых исходных положений.
 
@@ -785,7 +790,7 @@ forward/reverse same-pose discrepancy p95 <= 2.0°
 <a id="sec-9-13"></a>
 ## 9.13. QR→энкодерная `JointReference` при запуске
 
-**Уровень:** protocol/state logic — `PRE-INSTALL AUTO`; реальные QR+encoder — `HIL AUTO`.
+**Уровень:** protocol/state logic — `TEST`; реальные QR+encoder — `HIL`.
 
 Не менее `30` независимых циклов запуска для каждой квалифицируемой конфигурации:
 
@@ -828,7 +833,7 @@ READY before second verification = 0/30
 <a id="sec-9-14"></a>
 ## 9.14. Калибровка и проверка захвата по QR
 
-**Уровень:** curve/rejection logic — `PRE-INSTALL AUTO`; физическая процедура — `HIL AUTO`.
+**Уровень:** curve/rejection logic — `TEST`; физическая процедура — `HIL`.
 
 Инженерная калибровка D повторяется не менее `10` раз из разных допустимых начальных раскрытий.
 
@@ -950,7 +955,7 @@ max <= 15 mm
 <a id="sec-9-15-7"></a>
 ### 9.15.7. JointSafeSet, coupled collision и проверка пути
 
-**Уровень:** `PRE-INSTALL AUTO` для генератора/математического proof, затем `HIL AUTO` на финальной механике.
+**Уровень:** `TEST` для генератора/математического proof, затем `HIL` на финальной механике.
 
 Для `EMPTY` и каждого разрешённого `PayloadProfile` проверяется:
 
@@ -968,7 +973,7 @@ max <= 15 mm
 <a id="sec-9-16"></a>
 ## 9.16. Тесты защиты моторов
 
-**Уровень:** модель fault logic — `PRE-INSTALL AUTO`; реальная защита — `HIL AUTO` под наблюдением инженера.
+**Уровень:** модель fault logic — `TEST`; реальная защита — `HIL` под наблюдением инженера.
 
 <a id="sec-9-16-1"></a>
 ### 9.16.1. Препятствие и заклинивание основных суставов
@@ -1096,7 +1101,7 @@ stall/contact incident is logged when applicable
 <a id="sec-9-17"></a>
 ## 9.17. EV3 HIL: точность, временной бюджет и ресурсы
 
-**Уровень:** `HIL AUTO` на установленном build после успешного `DEVICE AUTO`.
+**Уровень:** `HIL` на установленном build после успешного `DEVICE INTEGRATION TEST`.
 
 Конфигурация:
 
@@ -1159,7 +1164,7 @@ no position drift after repeated HOLD/TRACKING cycles without mechanical motion
 <a id="sec-9-18"></a>
 ## 9.18. Сетевые тесты отказов
 
-**Уровень:** `PRE-INSTALL AUTO` в симуляции + `HIL AUTO` на реальной сети.
+**Уровень:** `TEST` в симуляции + `HIL` на реальной сети.
 
 Сценарии:
 
@@ -1207,7 +1212,7 @@ unexpected routed/Internet-side source (lab-isolated test path)
 <a id="sec-9-19"></a>
 ## 9.19. Испытания процессов EV3
 
-**Уровень:** `DEVICE AUTO`/`HIL AUTO`.
+**Уровень:** `DEVICE INTEGRATION TEST`/`HIL`.
 
 Не менее `30` повторов каждого критического сценария:
 
@@ -1315,7 +1320,7 @@ q_target_A == q_target_B within numerical/tracking tolerance
 <a id="sec-9-21"></a>
 ## 9.21. HOLD и SAFE_HOLD
 
-**Уровень:** state machine — `PRE-INSTALL AUTO`; сквозное физическое поведение — HIL/`MANUAL ACCEPTANCE`.
+**Уровень:** state machine — `TEST`; сквозное физическое поведение — HIL/`MANUAL ACCEPTANCE`.
 
 Во время движения вызываются:
 
@@ -1350,7 +1355,7 @@ physical stop
 - только fresh telemetry текущего boot/session с `last_accepted_command_sequence >= release_off_sequence` → Quest может установить `armed=true`;
 - только последующий новый rising edge Grip → разрешён `TRACKING` к **текущей абсолютной** цели руки;
 - если при этом `PayloadState=UNKNOWN` или active PayloadProfile/JointSafeSet несовместимы, новый rising edge **не** разрешает A/B/C `TRACKING`; после valid payload confirmation требуется новый deliberate re-arm;
-- отдельный PRE-INSTALL/session test подаёт первым packet новой CONTROL session `MOTION_ENABLE=1`: EV3/controller обязан оставить `release_seen=false` и не принять moving target; отдельные lost-OFF/stale-telemetry cases доказывают, что Quest не armed до acceptance-confirmation;
+- отдельный TEST/session test подаёт первым packet новой CONTROL session `MOTION_ENABLE=1`: EV3/controller обязан оставить `release_seen=false` и не принять moving target; отдельные lost-OFF/stale-telemetry cases доказывают, что Quest не armed до acceptance-confirmation;
 - в полном `TRACKING` потерянный OFF/HOLD UDP datagram не должен нарушать `Left Grip release → HOLD p95 ≤80 мс`; отдельный stage-5 gripper qualification case проверяет тот же `≤80 мс` предел до scoped hold/inhibit без требования состояния `HOLD`.
 
 <a id="sec-9-22"></a>
@@ -1449,7 +1454,7 @@ UI показывает конкретный отсутствующий или �
 <a id="sec-9-24"></a>
 ## 9.24. Профили `Release`/`Diagnostic` и разбор инцидентов
 
-**Уровень:** `PRE-INSTALL AUTO` + `DEVICE AUTO` + HIL для реальных инцидентов.
+**Уровень:** `TEST` + `DEVICE INTEGRATION TEST` + HIL для реальных инцидентов.
 
 Оба профиля проходят одинаковые **product-mode** функциональные тесты и тесты безопасности. Diagnostic qualification-only surfaces проверяются отдельными stage/HIL cases и не засчитываются как различие product control semantics.
 
@@ -1499,7 +1504,7 @@ SIGKILL процесса phantom-controller
 <a id="sec-9-24-3"></a>
 ### 9.24.3. Конфиденциальность и права доступа журналов
 
-**Уровень:** `PRE-INSTALL AUTO` + `DEVICE AUTO` + ограниченная `MANUAL ACCEPTANCE` экспорта.
+**Уровень:** `TEST` + `DEVICE INTEGRATION TEST` + ограниченная `MANUAL ACCEPTANCE` экспорта.
 
 Проверяется:
 
@@ -1513,7 +1518,7 @@ SIGKILL процесса phantom-controller
 <a id="sec-9-24-4"></a>
 ### 9.24.4. Release artifacts, SBOM и воспроизводимость
 
-**Уровень:** `PRE-INSTALL AUTO`/CI + release review.
+**Уровень:** `TEST`/CI + release review.
 
 Checkout с зафиксированными exact source inputs обязан воспроизводимо создать release manifests/evidence, связывающие:
 
@@ -1568,9 +1573,9 @@ broken_internal_links = 0
 Перед обычным пользовательским использованием должны быть выполнены все пункты. Результаты относятся к одному и тому же Release candidate: `source_tree_hash`, `specification_sha256`, `protocol_schema_hash`, **соответствующие `quest_build_id` и `ev3_build_id`** и хэши их артефактов/конфигураций должны согласованно повторяться во всех отчётах; provenance commits могут различаться при byte-identical inputs, а Quest/EV3 build IDs не сравниваются между собой на равенство.
 
 ```text
-[ ] PRE-INSTALL AUTO полностью пройден на конкретных Quest/EV3 build artifacts до DEVICE/HIL/Release qualification
-[ ] DEVICE AUTO пройден после установки именно соответствующих `quest_build_id` и `ev3_build_id` на Quest и EV3
-[ ] обязательные HIL AUTO сценарии пройдены и имеют машинно читаемые отчёты
+[ ] TEST полностью пройден на конкретных Quest/EV3 build artifacts до DEVICE/HIL/Release qualification
+[ ] DEVICE INTEGRATION TEST пройден после установки именно соответствующих `quest_build_id` и `ev3_build_id` на Quest и EV3
+[ ] обязательные HIL сценарии пройдены и имеют машинно читаемые отчёты
 [ ] ручная функциональная/UX-приёмка выполнялась на том же Release candidate, а не на отдельном development build
 [ ] ранняя manual safety inspection механики пройдена до первого автоматического движения
 [ ] RobotGeometry измерена, сохранена и имеет хэш

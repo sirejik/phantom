@@ -3,11 +3,10 @@ Description=PHANTOM reconnect provisioned Wi-Fi profile
 Requires=connman.service
 After=connman.service
 Before=phantom-controller.service phantom-network.service phantom-mdns.service
-PartOf=phantom.target
 
 [Service]
 Type=oneshot
-ExecStart=/opt/phantom/current/bin/phantom-wifi-autoconnect
+ExecStart=/usr/local/libexec/phantom-maintenance/wifi-autoconnect
 RemainAfterExit=yes
 # Must exceed the helper's own bounded retry budget (worst case 80 s).
 TimeoutStartSec=90
@@ -17,4 +16,4 @@ ProtectHome=true
 PrivateTmp=true
 
 [Install]
-WantedBy=phantom.target
+WantedBy=multi-user.target

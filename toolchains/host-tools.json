@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "description": "Declared host tooling for PHANTOM builds and PRE-INSTALL AUTO. Every entry has an environment override so a workstation with a different layout needs no script edits. The Unity version itself is pinned by PhantomQuest/ProjectSettings/ProjectVersion.txt, never here.",
+  "description": "Declared host tooling for PHANTOM TEST and BUILD phases. Every entry has an environment override so a workstation with a different layout needs no script edits. The Unity version itself is pinned by PhantomQuest/ProjectSettings/ProjectVersion.txt, never here.",
   "unity": {
     "override_environment_variable": "PHANTOM_UNITY_ROOT",
     "search_paths": [

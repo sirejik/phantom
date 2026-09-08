@@ -1,0 +1,30 @@
+#!/bin/sh
+# One-time EV3 platform bootstrap. Explicit PROVISION phase only.
+set -eu
+
+test "$(id -u)" = 0 || { echo "root required" >&2; exit 1; }
+source_dir=${1:?provisioning payload directory required}
+maintenance=/usr/local/libexec/phantom-maintenance
+
+for group in phantom-ipc phantom-safety-ipc phantom-motor; do
+  getent group "$group" >/dev/null 2>&1 || addgroup --system "$group"
+done
+for user in phantom-ctrl phantom-net phantom-mdns; do
+  getent group "$user" >/dev/null 2>&1 || addgroup --system "$user"
+  getent passwd "$user" >/dev/null 2>&1 || adduser --system --ingroup "$user" --home /var/lib/phantom --no-create-home --disabled-password --shell /usr/sbin/nologin "$user"
+done
+adduser phantom-ctrl phantom-motor >/dev/null 2>&1 || true
+adduser phantom-ctrl phantom-ipc >/dev/null 2>&1 || true
+adduser phantom-ctrl phantom-safety-ipc >/dev/null 2>&1 || true
+adduser phantom-net phantom-ipc >/dev/null 2>&1 || true
+getent group ev3dev >/dev/null 2>&1 && adduser phantom-ctrl ev3dev >/dev/null 2>&1 || true
+
+install -d -m 0755 "$maintenance" /var/lib/phantom /var/lib/phantom/staging
+for helper in install-release start-release run-device-integration-test rollback-release wifi-autoconnect; do
+  install -m 0755 "$source_dir/$helper" "$maintenance/$helper"
+done
+install -m 0644 "$source_dir/phantom-wifi-autoconnect.service" /etc/systemd/system/phantom-wifi-autoconnect.service
+systemctl daemon-reload
+systemctl enable phantom-wifi-autoconnect.service
+
+echo "EV3 PROVISION: PASS maintenance tooling installed; credentials and Wi-Fi profile unchanged"

@@ -17,7 +17,7 @@ manifest = (androidlib / "AndroidManifest.xml").read_text(encoding="utf-8")
 credential_java = (androidlib / "src/main/java/dev/phantom/security/PhantomCredentialStore.java").read_text(encoding="utf-8")
 credential_csharp = (root / "PhantomQuest/Assets/Phantom/Networking/ControlCredentials.cs").read_text(encoding="utf-8")
 runtime_csharp = (root / "PhantomQuest/Assets/Phantom/PhantomRuntime.cs").read_text(encoding="utf-8")
-device_auto_csharp = (root / "PhantomQuest/Assets/Phantom/Diagnostics/QuestDeviceAuto.cs").read_text(encoding="utf-8")
+device_integration_csharp = (root / "PhantomQuest/Assets/Phantom/Diagnostics/QuestDeviceIntegrationTest.cs").read_text(encoding="utf-8")
 provisioning_script = (root / "scripts/quest-provision-credential.ps1").read_text(encoding="utf-8")
 
 REQUIRED = [
@@ -61,8 +61,8 @@ REQUIRED = [
     ("runtime wiring", runtime_csharp, (
         "TryImportProvisioningDrop", "ControlCredentialProvisioned", "control_credential",
     )),
-    ("device evidence", device_auto_csharp, (
-        "quest-control-credential-present", "quest-log-storage-healthy",
+    ("device evidence", device_integration_csharp, (
+        "quest-control-credential-ready", "quest-log-storage-healthy",
     )),
     ("host provisioning path", provisioning_script, (
         "phantom-provisioning", "adb", "Diagnostic",

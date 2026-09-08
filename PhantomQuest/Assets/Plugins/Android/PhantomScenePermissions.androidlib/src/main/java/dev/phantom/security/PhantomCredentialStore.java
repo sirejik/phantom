@@ -63,6 +63,20 @@ public final class PhantomCredentialStore {
         }
     }
 
+    /** 1=ready, 0=absent, -1=present but unreadable/corrupt. Never returns key material. */
+    public static synchronized int status(Context context, String keyId) {
+        if (!validKeyId(keyId)) return -1;
+        try {
+            if (preferences(context).getString(keyId, null) == null) return 0;
+            byte[] clear = load(context, keyId);
+            if (clear == null) return -1;
+            Arrays.fill(clear, (byte) 0);
+            return 1;
+        } catch (Exception ignored) {
+            return -1;
+        }
+    }
+
     /**
      * One-shot engineering import of a CONTROL PSK delivered outside the runtime
      * protocol.

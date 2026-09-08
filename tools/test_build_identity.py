@@ -12,6 +12,7 @@ class BuildIdentityTests(unittest.TestCase):
         self.assertNotIn("git_commit",obj)
         self.assertNotEqual(digest,identity("QUEST","Release",*args)[0])
         self.assertNotEqual(digest,identity("EV3","Diagnostic",*args)[0])
+        self.assertNotEqual(digest,identity("EV3","DeepDebug",*args)[0])
 
     def test_rejects_noncanonical_hex(self):
         with self.assertRaises(ValueError):identity("EV3","Release","A"*64,*(["0"*64]*4))

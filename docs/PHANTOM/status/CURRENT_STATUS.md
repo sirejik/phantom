@@ -1,45 +1,48 @@
 # Текущее состояние реализации PHANTOM
 
-> **Ревизия состояния:** 2026-09-08.
+> **Ревизия состояния:** 2026-09-09.
 > **Тип:** ненормативное summary. Источником PASS/FAIL является опубликованный immutable
 > machine-readable report с candidate/artifact hashes; локальный `results/**` не является
 > долговечным хранилищем и не коммитится.
 
-## Build/evidence workflow
+## Lifecycle/build state
 
-В рабочем дереве выполняется переход на `PHANTOM-BUILD-V2`:
+Lifecycle переведён на явные независимо запускаемые фазы:
 
-- `build_id` является content-addressed identity по component/profile и точным
-  source/spec/protocol/config/toolchain inputs;
-- Git commit и dirty-state остаются только provenance и не меняют `build_id`;
-- BUILD, TRANSFER, INSTALL и START не читают локальные отчёты предыдущих фаз;
-- INSTALL проверяет выбранный artifact/sidecar/embedded hashes и оставляет EV3 runtime
-  остановленным;
-- PRE-INSTALL остаётся обязательным для DEVICE/HIL/Release qualification exact artifact
-  bytes, но не блокирует инженерную установку;
-- локальные runner outputs пишутся в игнорируемый Git каталог `results/**`, а долговечное
-  evidence публикуется отдельно.
+```text
+TEST → BUILD → PROVISION → TRANSFER → INSTALL → START → DEBUG
+     → DEVICE INTEGRATION TEST → HIL → MANUAL ACCEPTANCE → RECOVERY
+```
 
-После завершения этой правки требуется собрать новые Quest/EV3 artifacts: старые manifests
-используют `PHANTOM-BUILD-V1` и несовместимы с новым validation contract.
+- `PHANTOM-BUILD-V2` вычисляет component/profile-specific `build_id` из точных входов;
+- Git commit/dirty state остаются provenance и не меняют identity bytes;
+- BUILD, TRANSFER, INSTALL, START и DEVICE INTEGRATION TEST не читают отчёты предыдущих фаз;
+- INSTALL проверяет выбранные bytes и embedded identity, но не строит и не тестирует;
+- START запускает уже установленное и не выполняет provisioning/recovery;
+- `build/**` и `results/**` являются удаляемыми локальными outputs;
+- долговечное qualification evidence публикуется отдельно как immutable artifact.
+
+Применимый off-hardware regression завершён. Diagnostic BUILD обоих компонентов и
+reproducibility TEST выполнены; итоговые артефакты готовы к явным TRANSFER/INSTALL после
+подключения устройств. EV3 package воспроизводится побайтово. Quest сохраняет одинаковый
+content-derived `build_id`, но Unity меняет per-build GUID metadata; точные различия фиксирует
+reproducibility report и они не скрываются как равенство APK bytes.
 
 ## Stage 3
 
-Stage 3 остаётся **NOT COMPLETE**. Для текущего дерева отсутствует опубликованный exact
-candidate PRE-INSTALL/DEVICE/HIL evidence. Предыдущие локальные отчёты удалены по новой
-retention policy и не переносятся на новый build.
+Stage 3 остаётся **NOT COMPLETE**. DEVICE INTEGRATION TEST, real Quest↔EV3 integration, HIL и
+manual acceptance для нового lifecycle не запускались и имеют статус `NOT_RUN`.
 
-После готовности устройств требуется выполнить раздельно:
+После успешной off-hardware подготовки и явного подключения устройств порядок следующий:
 
 ```text
-BUILD
-→ PRE-INSTALL AUTO exact artifacts
-→ Quest INSTALL / EV3 TRANSFER + INSTALL
-→ START
-→ DEVICE AUTO
+PROVISION (только если состояние отсутствует/повреждено)
+→ EV3 TRANSFER + INSTALL / Quest INSTALL
+→ START либо DEBUG START
+→ DEVICE INTEGRATION TEST
 → применимые hardware acceptance cases
 ```
 
-Отсутствие motor A допустимо только для Stage-3 network-only profile с authoritative
-`actuator_scope_mask=safety_observation_mask=0x00`; hardware PASS из source review или
-simulation не выводится.
+Отсутствие motor A допустимо для Stage-3 network-only Diagnostic profile с authoritative
+`actuator_scope_mask=safety_observation_mask=0x00`. Hardware PASS из source review,
+симуляции, BUILD или TEST не выводится.

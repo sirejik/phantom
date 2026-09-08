@@ -1,5 +1,6 @@
 using System;
 using System.Linq;
+using System.IO;
 using System.Net;
 using System.Security.Cryptography;
 using System.Threading;
@@ -39,8 +40,27 @@ internal static class Stage3CoreTests
 
     public static int Main()
     {
-        DiscoveryHandshakeRetryAndIdentity();RejectedHelloAckSemantics();PingTelemetryAndFreshness();PingTimeoutIsBounded();EndpointBootAndServiceRecovery();ParserAndBindingRejections();LifecycleAndBounds();TransportRestartConcurrencyIsBounded();
+        CredentialStateClassification();DiscoveryHandshakeRetryAndIdentity();RejectedHelloAckSemantics();PingTelemetryAndFreshness();PingTimeoutIsBounded();EndpointBootAndServiceRecovery();ParserAndBindingRejections();LifecycleAndBounds();TransportRestartConcurrencyIsBounded();
         Console.WriteLine("PASS: Quest Stage-3 core "+_checks+" checks (discovery, HELLO retry, HMAC, session, PING/PONG, telemetry, recovery, lifecycle)");return 0;
+    }
+
+    static void CredentialStateClassification()
+    {
+        var root=Path.Combine(Path.GetTempPath(),"phantom-credential-test-"+Guid.NewGuid().ToString("N"));
+        var secrets=Path.Combine(root,"phantom-secrets");Directory.CreateDirectory(secrets);
+        try
+        {
+            using(var store=new AndroidPrivateControlCredentialStore(root))
+            {
+                Check(store.GetStatus("control")==CredentialStoreStatus.Absent,"missing credential not classified absent");
+                File.WriteAllBytes(Path.Combine(secrets,"control.psk"),new byte[]{1,2,3});
+                Check(store.GetStatus("control")==CredentialStoreStatus.Corrupt,"unreadable credential collapsed to absent");
+                File.WriteAllBytes(Path.Combine(secrets,"control.psk"),Key);
+                byte[] loaded=null;Check(store.GetStatus("control")==CredentialStoreStatus.Ready&&store.TryLoad("control",out loaded),"valid credential not ready");
+                if(loaded!=null)Array.Clear(loaded,0,loaded.Length);
+            }
+        }
+        finally{if(Directory.Exists(root))Directory.Delete(root,true);}
     }
 
     static void DiscoveryHandshakeRetryAndIdentity()

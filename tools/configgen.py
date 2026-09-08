@@ -32,7 +32,7 @@ def require(obj,keys,label):
 def validate_schema(value,schema,path="$",root_schema=None):
     """Validate the dependency-free JSON-Schema subset used by config/schema.
 
-    Keeping this tiny validator in-tree makes PRE-INSTALL reproducible on the
+    Keeping this tiny validator in-tree makes TEST and BUILD validation reproducible on the
     legacy EV3 toolchain. Unknown schema keywords fail closed instead of being
     silently ignored by the authoring pipeline.
     """

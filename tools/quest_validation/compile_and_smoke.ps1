@@ -15,7 +15,7 @@ New-Item -ItemType Directory -Force -Path $outDir | Out-Null
 # A `#if UNITY_*` block does not make a file Unity-dependent: csc simply drops it.
 $assetRoot=(Resolve-Path "PhantomQuest/Assets/Phantom").Path
 $unityDependent=@(
-  "Diagnostics\QuestDeviceAuto.cs",          # UnityEngine.Application/SystemInfo probes
+  "Diagnostics\QuestDeviceIntegrationTest.cs", # UnityEngine.Application/SystemInfo probes
   "Editor\PhantomBuild.cs",                  # UnityEditor build pipeline
   "Editor\PhantomMrSceneBuilder.cs",         # UnityEditor scene authoring
   "Experiments\QuestValidationRunner.cs",    # MonoBehaviour harness

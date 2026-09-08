@@ -21,7 +21,7 @@ outside the repository (the ignored .secrets/ directory is the usual place).
 param(
     [Parameter(Mandatory=$true)][string]$KeyFile,
     [string]$KeyId="phantom01-control",
-    [string]$Package="dev.phantom.questprototype",
+    [string]$Package="dev.phantom.questprototype",[string]$Destination='results/quest/provision',
     [switch]$VerifyOnly
 )
 $ErrorActionPreference="Stop"
@@ -43,7 +43,7 @@ if($VerifyOnly)
 {
     $listing=(@(& $adb -s $serial shell "if [ -f '$remotePath' ]; then echo pending; else echo none; fi")-join'').Trim()
     Write-Output "provisioning drop: $listing"
-    Write-Output "Run the Diagnostic app once, then confirm 'quest-control-credential-present' in the DEVICE AUTO report."
+    Write-Output "Run the Diagnostic app once; START will report ready, PROVISION_REQUIRED or PROVISION_CORRUPT without exposing the key."
     exit 0
 }
 
@@ -63,6 +63,8 @@ $listing=(@(& $adb -s $serial shell "if [ -f '$remotePath' ]; then echo present;
 if($listing-ne'present'){throw "Provisioning drop was not created on the device"}
 
 Write-Output "CONTROL credential staged for key_id=$KeyId (contents not shown)."
-Write-Output "Next: run scripts/quest-start.ps1 once. The app imports the key into the Android Keystore-wrapped"
-Write-Output "store and shreds the plaintext drop. Then run scripts/quest-device-auto.ps1 and confirm"
-Write-Output "'quest-control-credential-present' is PASS."
+Write-Output "Next: run scripts/quest-start.ps1. The app imports the key into the Android Keystore-wrapped"
+Write-Output "store, shreds the plaintext drop, and START verifies the resulting readiness state."
+$report=[ordered]@{schema_version=1;phase='PROVISION';status='PASS';component='QUEST';operation='CONTROL_CREDENTIAL_STAGED';key_id=$KeyId;secret_material_logged=$false;finished_at=(Get-Date).ToUniversalTime().ToString('o')}
+New-Item -ItemType Directory -Force -Path $Destination|Out-Null
+[IO.File]::WriteAllText((Join-Path ([IO.Path]::GetFullPath($Destination)) 'control-credential.json'),($report|ConvertTo-Json -Depth 5)+"`n",[Text.UTF8Encoding]::new($false))
