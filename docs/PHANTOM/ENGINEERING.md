@@ -15,10 +15,8 @@
 ```text
 phantom/
 ├── AGENTS.md                       # правила для AI-агентов (canonical)
-├── CLAUDE.md                       # указатель на AGENTS.md для Claude Code
 ├── ARCHITECTURE.md
-├── .agents/skills/                 # repo skills (Codex-совместимое размещение)
-├── .claude/skills/                 # те же skills для Claude Code
+├── .agents/skills/                 # canonical repo skills
 ├── PhantomQuest/                   # Unity-проект Quest
 │   └── Assets/Plugins/Android/     # androidlib: NSD bridge + credential store
 ├── ev3/
@@ -49,7 +47,7 @@ phantom/
 │   ├── ev3dev-stretch.lock.json     # pinned cross image/compiler
 │   └── host-tools.json              # объявленные host-инструменты и override-переменные
 ├── mechanical/                      # BOM, сборка, safety inspection
-├── results/                         # machine-readable evidence реально выполненных gates
+├── results/                         # локальные runner outputs; Git-ignored
 ├── docs/
 │   ├── PHANTOM_SPECIFICATION.md     # generated spec-set manifest
 │   └── PHANTOM/
@@ -87,10 +85,10 @@ DEVICE/HIL evidence production-сборки. `deploy/scripts/install-release` у
 не удалось убрать: NOPASSWD root на writable для `robot` путь обходит разделение
 `phantom-ctrl`/`phantom-net`, на котором построена часть safety-аргументации §7.2.2.
 
-`results/**` хранит machine-readable evidence реально выполненных gates:
-`results/pre-install/report.json` (schema `config/schema/pre_install_report.schema.json`),
-`results/quest/device-auto/<quest_build_id>/`, `results/ev3/**` и краткие summaries.
-`status/**` только суммирует эти файлы и никогда не заменяет их.
+`results/**` является локальным/CI workspace для machine-readable runner outputs и полностью
+игнорируется Git. Требуемое долговечное PRE-INSTALL/DEVICE/HIL/release evidence публикуется
+как immutable CI/release artifact; status/release record хранит его URI, SHA-256 и candidate
+identity, но не копирует raw logs в историю исходников.
 
 <a id="sec-8-1-1"></a>
 ### 8.1.1. Среда разработчика
@@ -169,21 +167,26 @@ flowchart LR
   Commit[Commit] --> Fast[Быстрые проверки<br/>schema / unit / protocol]
   Fast --> Build[Финальная сборка<br/>signed Quest APK + EV3 package]
   Build --> Gate[PRE-INSTALL AUTO<br/>по финальным неизменяемым bytes]
-  Gate -->|FAIL| Block[Не публиковать<br/>не устанавливать]
+  Gate -->|FAIL| Block[Не публиковать<br/>не квалифицировать]
   Gate -->|PASS| Publish[Опубликовать без repack/resign<br/>build_id + SHA-256 + provenance]
-  Publish --> Transfer[TRANSFER<br/>копирование без преобразования]
+  Build --> Transfer[TRANSFER<br/>копирование без преобразования]
   Transfer --> Install[INSTALL<br/>атомарное размещение]
   Install --> Start[START<br/>bounded activation]
-  Start --> Device[DEVICE AUTO<br/>отдельный явный gate]
+  Start --> Device[DEVICE AUTO<br/>требует exact PRE-INSTALL PASS]
+  Publish --> Device
 ```
 
-До и во время сборки выполняются быстрые проверки, чтобы раньше обнаруживать ошибки. После сборки обязательный `PRE-INSTALL AUTO` повторно выполняет весь набор, необходимый для допуска конкретного `build_id` к установке.
+До и во время сборки выполняются быстрые проверки, чтобы раньше обнаруживать ошибки. После
+сборки `PRE-INSTALL AUTO` повторно выполняет набор, необходимый для публикации и qualification
+конкретных artifact bytes. BUILD, TRANSFER и INSTALL не читают предыдущие result-файлы:
+инженер может установить явно выбранный артефакт для диагностики, но такая установка сама по
+себе не создаёт DEVICE/HIL/Release evidence и не расширяет motor authority.
 
 Соотношение двух исполнителей зафиксировано явно, иначе «CI зелёный» и «установка разрешена»
 означают разное:
 
 - **`scripts/pre-install-auto.ps1`** — полный gate на рабочей станции разработчика/релиза. Он
-  единственный авторизует установку (`install_authorized`), и потому обязан включать проверки
+  авторизует публикацию и последующую qualification, и потому обязан включать проверки
   актуальности specification manifest и section index (`specgen --check`, `docindex --check`,
   `doclint`). Без них отчёт мог бы объявить `specification_sha256`, который фактически не
   покрывает текущие нормативные документы. Требует Unity, Docker и WSL на рабочей станции,
@@ -218,7 +221,10 @@ flowchart LR
 - проверку, что сгенерированные файлы соответствуют источникам;
 - проверку метаданных, архитектуры, обязательных файлов и SHA-256 готовых артефактов.
 
-CI сохраняет отчёт `PRE-INSTALL AUTO` вместе с `commit SHA`, component/profile-specific `build_id` и SHA-256 артефактов. Без успешного отчёта штатный deployment job не должен принимать этот build.
+CI публикует отчёт `PRE-INSTALL AUTO` как отдельный immutable artifact вместе с provenance
+commit, component/profile-specific `build_id` и SHA-256 артефактов. Без успешного отчёта build
+не допускается к DEVICE/HIL/Release qualification, однако это не блокирует явную инженерную
+установку при остановленном runtime.
 
 После PASS байты проверенных APK/EV3 package являются immutable для данного evidence: последующая подпись, repack, изменение manifest внутри артефакта или иная byte-level модификация требует нового `build_id`/artifact SHA-256 и повторного PRE-INSTALL. Post-gate разрешено только публиковать внешние provenance/signature metadata, которые не меняют проверенный artifact.
 
@@ -226,15 +232,16 @@ CI сохраняет отчёт `PRE-INSTALL AUTO` вместе с `commit SHA`
 ### 8.5.1. Границы фаз и место выполнения инструментов
 
 Каждая фаза имеет одного владельца результата и не запускает предыдущую или следующую фазу
-неявно. Отсутствующий либо устаревший prerequisite означает быстрый `FAIL` с указанием
-требуемой команды, а не автоматическую пересборку, установку или квалификацию.
+неявно. Фаза проверяет фактический input/device state, а не наличие result-файла предыдущей
+фазы. Отсутствующий артефакт, staging directory или установленный runtime означает быстрый
+`FAIL`, а не автоматическую пересборку, установку или квалификацию.
 
 | Фаза | Где выполняется | Разрешённая работа | Запрещённая скрытая работа |
 |---|---|---|---|
 | `BUILD` | PC/CI | компиляция, подпись, упаковка; создание immutable APK/EV3 package и manifest | доступ к устройствам, установка, DEVICE/HIL |
 | `PRE-INSTALL AUTO` | PC/CI | тесты и admission уже созданных final bytes; отчёт с identity/hashes | пересборка, resign/repack, ADB/SSH deployment |
 | `TRANSFER` | PC→устройство | копирование во staging и сверка end-to-end SHA-256 | распаковка/activation, запуск services/app, тесты |
-| `INSTALL` | устройство | admission, атомарное размещение и выбор версии при запрещённом motion | build, host tests, runtime activation, DEVICE AUTO |
+| `INSTALL` | устройство | hash/schema validation, атомарное размещение и выбор версии при запрещённом motion | чтение PRE-INSTALL/TRANSFER reports, build, host tests, runtime activation, DEVICE AUTO |
 | `START` | устройство | bounded запуск уже установленной версии и readiness каждого runtime component | установка, fault injection, полный test suite |
 | `DEVICE AUTO` | устройство + host orchestrator | проверки exact installed build, restart/fault cases и machine-readable evidence | сборка, установка, смена artifact bytes, неявный rollback |
 | `HIL AUTO` / manual acceptance | реальное оборудование | только явно выбранные hardware/user cases после DEVICE PASS | компенсация пропущенных предыдущих gates |
@@ -251,7 +258,7 @@ tool на Brick. Installer не устанавливает и не обновл�
 а совместимость фактического device runtime — в bounded `START`/`DEVICE AUTO` checks.
 
 Все hardware-side фазы обязаны иметь отдельный declared deadline, выдавать progress не реже
-границ внутренних steps и сохранять machine-readable result с `build_id`, artifact SHA-256,
+границ внутренних steps и сохранять в локальный `results/**` machine-readable result с `build_id`, artifact SHA-256,
 start/end/duration, step durations, первым непосредственным отказом и terminal safe state.
 Общий wrapper может последовательно вызвать фазы только по явному списку пользователя и
 должен показывать начало/окончание каждой; имя `install` не может означать весь pipeline.
@@ -297,10 +304,9 @@ required flags: -march=armv5te -mfloat-abi=soft
 
 ```json
 {
-  "schema": "PHANTOM-BUILD-V1",
+  "schema": "PHANTOM-BUILD-V2",
   "component_id": "<EV3|QUEST>",
   "build_profile": "<Release|Diagnostic>",
-  "git_commit": "<40-hex>",
   "source_tree_hash": "<64-hex>",
   "specification_sha256": "<64-hex>",
   "protocol_schema_hash": "<64-hex>",
@@ -313,7 +319,7 @@ required flags: -march=armv5te -mfloat-abi=soft
 build_id = SHA-256(JCS_UTF8(build_identity_object))
 ```
 
-Имена полей, отсутствие лишних полей и lowercase hex encoding нормативны; string concatenation/разделители/implementation-specific dictionary order для вычисления identity запрещены. `component_id` как минимум различает `EV3` и `QUEST`; `build_profile` различает `Release`/`Diagnostic`. Вычисление identity централизовано в детерминированном host build tooling и покрывается golden vectors; C++/C# runtime не реализуют независимый JCS/hash алгоритм, а валидируют/передают уже вычисленный 64-hex `build_id`, что исключает расхождение трёх реализаций canonicalization. `source_tree_hash` вычисляется только по tracked source inputs clean worktree; для явно помеченной непубликуемой audit-snapshot сборки допустим hash точных текущих source inputs при `worktree_dirty=true`. `component_config_hash` считается по semantic authored/generated config **до** добавления build identity/provenance; build outputs, generated manifest с самим `build_id`, signatures и timestamps исключены из обоих hash inputs. Hash финального `.tar.gz`/APK, signing fingerprint и wall-clock timestamp **не входят** в `build_id`, иначе возникает self/provenance cycle. Один публикуемый PRE-INSTALL/HIL release candidate связывает несколько component build IDs общим clean `git_commit`/spec/protocol revision, но не требует равенства `quest_build_id == ev3_build_id`.
+Имена полей, отсутствие лишних полей и lowercase hex encoding нормативны; string concatenation/разделители/implementation-specific dictionary order для вычисления identity запрещены. `component_id` как минимум различает `EV3` и `QUEST`; `build_profile` различает `Release`/`Diagnostic`. Вычисление identity централизовано в детерминированном host build tooling и покрывается golden vectors; C++/C# runtime не реализуют независимый JCS/hash алгоритм, а валидируют/передают уже вычисленный 64-hex `build_id`. `source_tree_hash` вычисляется по точным bytes объявленных component source inputs независимо от их Git status; локальные `results/**`, build outputs и прочие не-входы исключены. `git_commit` и `worktree_dirty` допускаются только как provenance-поля внешнего/embedded manifest и не входят в `build_id`. `component_config_hash` считается по semantic authored/generated config **до** добавления build identity/provenance; generated manifest с самим `build_id`, signatures и timestamps исключены из hash inputs. Hash финального `.tar.gz`/APK, signing fingerprint и wall-clock timestamp также не входят в `build_id`, иначе возникает self/provenance cycle. Один публикуемый PRE-INSTALL/HIL release candidate связывает component build IDs общими spec/protocol/config identities и точными artifact hashes, но не требует общего commit либо равенства `quest_build_id == ev3_build_id`.
 
 Артефакт включает:
 
@@ -334,6 +340,7 @@ tmpfiles.d policy
 
 ```text
 component: EV3
+build_identity_schema: PHANTOM-BUILD-V2
 build_id
 git_commit
 source_tree_hash / worktree_dirty
@@ -360,16 +367,23 @@ powershell -NoProfile -ExecutionPolicy Bypass -File scripts/ev3-package.ps1
 powershell -NoProfile -ExecutionPolicy Bypass -File scripts/pre-install-auto.ps1
 ```
 
-Перед `pre-install-auto.ps1` уже должны существовать **финальные** EV3 package artifacts и Quest Release/Diagnostic APK того же clean commit согласно §8.8; gate записывает отдельные `ev3_build_id`/`quest_build_id` для каждого profile и вычисляет/проверяет их внешние SHA-256. Старый APK либо repack после gate делает общий report неприменимым и требует новый PRE-INSTALL. ARMEL build и упаковка разрешены только из clean committed worktree. Упаковщик повторно проверяет внутренние hashes, нормализует modes и создаёт `.tar.gz` с детерминированными owner/group, порядком файлов, mtime и gzip header. Release и Diagnostic упаковываются раздельно и не могут разделять один `build_id`.
+Перед `pre-install-auto.ps1` уже должны существовать **финальные** EV3 package artifacts и Quest Release/Diagnostic APK согласно §8.8; gate записывает отдельные `ev3_build_id`/`quest_build_id` для каждого profile и вычисляет/проверяет их внешние SHA-256. Старый APK либо repack после gate делает report неприменимым и требует новый PRE-INSTALL. BUILD и упаковка разрешены из любого checkout, если `source_tree_hash` вычислен по точным текущим входам; provenance commit/dirty-state не даёт и не отнимает qualification. Упаковщик повторно проверяет внутренние hashes, нормализует modes и создаёт `.tar.gz` с детерминированными owner/group, порядком файлов, mtime и gzip header. Release и Diagnostic упаковываются раздельно и не могут разделять один `build_id`.
 
 <a id="sec-8-7"></a>
 ## 8.7. Развёртывание EV3
 
-Штатное развёртывание принимает только артефакт, для которого сохранён успешный `PRE-INSTALL AUTO` отчёт §9.1.2 и совпадают `build_id`/SHA-256. Локальная инженерная установка непроверенного build допускается только как явно помеченная отладочная операция и не может участвовать в приёмке.
+Развёртывание принимает явно выбранный артефакт без чтения предыдущих report-файлов.
+TRANSFER/INSTALL проверяют sidecar, внешний SHA-256, embedded manifest и внутренний
+`SHA256SUMS`; установка непроверенного PRE-INSTALL build не может участвовать в DEVICE/HIL или
+Release-приёмке и сама по себе не расширяет motor authority.
 
 Installer работает с root privilege. Runtime identities разделены: `phantom-ctrl` (controller + motor-I/O group), `phantom-net` (UDP/HMAC + credential read), `phantom-mdns` (public identity only), dedicated `phantom-ipc`/`phantom-safety-ipc` groups; `phantom-safety` работает как root только для supervisor/takeover I/O. `/run/phantom` и его subdirectories создаются через совместимую с systemd 232 `tmpfiles.d` policy с минимальными owner/group/mode для каждого endpoint, а `/var/lib/phantom/secrets` недоступен controller/mDNS. Общая writable `phantom:phantom` область, которая одновременно даёт network и motor authority, запрещена. Общий unrestricted passwordless sudo для пользователя `robot` запрещён; maintenance harness получает только явно перечисленную команду, а production install требует отдельного контролируемого root/sudo шага.
 
-До распаковки проверяются безопасный release id и отсутствие absolute/`..` members. Внутри распакованного release выполняется `sha256sum -c SHA256SUMS`; PRE-INSTALL report обязан перечислять этот `build_id`, совпавшие `specification_sha256`/`protocol_schema_hash` и SHA-256 обоих production ELF. Совпадения одного только `git_commit` недостаточно.
+До распаковки проверяются отсутствие absolute/`..` members, sidecar hash финального архива и
+hash embedded manifest. Внутри распакованного release выполняется `sha256sum -c SHA256SUMS`,
+а безопасный release id выводится только из валидного 64-hex `build_id`. PRE-INSTALL
+проверяет эти же exact bytes отдельно перед qualification; commit не используется как
+artifact admission key.
 
 Каталоги:
 
@@ -393,7 +407,7 @@ installer’а.
 `INSTALL` выполняется атомарно при запрещённом motion:
 
 ```text
-проверить PRE-INSTALL admission и внешний SHA-256 staging package
+проверить sidecar/embedded manifest и внешний SHA-256 staging package
 → безопасно распаковать новый release directory
 → проверить schema/config hash
 → проверить inventory, внутренние SHA-256, modes и runtime prerequisites
@@ -468,14 +482,13 @@ failed upgrade он возвращается на `previous`; неуспешно
 <a id="sec-8-8"></a>
 ## 8.8. Сборка Quest
 
-Quest также имеет два build profile. APK разрешается устанавливать в рамках штатного
-тестового/Release-конвейера только после успешного `PRE-INSTALL AUTO` §9.1.2 для **его
-`quest_build_id`** и SHA-256. Quest `TRANSFER/INSTALL` ограничен admission и `adb install`
+Quest также имеет два build profile. Явно выбранный APK разрешается устанавливать независимо
+от наличия предыдущего PRE-INSTALL report. Quest `TRANSFER/INSTALL` ограничен проверкой sidecar/hash и `adb install`
 уже собранного APK с последующей проверкой installed package/version/hash identity; он не
 запускает Unity, не собирает APK и не выполняет app test suite. `START` отдельно запускает
 установленное приложение с bounded process/readiness check. `DEVICE AUTO` §9.1.3 затем
-отдельно выполняет launch/relaunch/config/platform checks exact installed build; только его
-PASS допускает build к HIL и ручной приёмке.
+отдельно требует exact PRE-INSTALL artifact PASS и выполняет launch/relaunch/config/platform
+checks exact installed build; только его PASS допускает build к HIL и ручной приёмке.
 
 Штатные Quest-команды также разделены:
 

@@ -28,7 +28,7 @@ $configManifest=Get-Content config\generated\config-manifest.json -Raw|ConvertFr
 $env:PHANTOM_BUNDLE_HASH=if($Profile -eq "Diagnostic"){$configManifest.artifact_hashes.'commissioning_bundle-network-only'}else{$configManifest.artifact_hashes.commissioning_bundle}
 $env:PHANTOM_PACKAGE_LOCK_SHA256=(Get-FileHash PhantomQuest\Packages\packages-lock.json -Algorithm SHA256).Hash.ToLower()
 $env:PHANTOM_SOURCE_TREE_HASH=(python tools\source_hash.py PhantomQuest\Assets\Phantom PhantomQuest\Assets\Plugins PhantomQuest\Packages PhantomQuest\ProjectSettings).Trim()
-$env:PHANTOM_BUILD_ID=(python tools\build_identity.py --component QUEST --profile $Profile --git-commit $env:PHANTOM_GIT_COMMIT --source-tree-hash $env:PHANTOM_SOURCE_TREE_HASH --specification-sha256 $env:PHANTOM_SPECIFICATION_SHA256 --protocol-schema-hash $env:PHANTOM_PROTOCOL_SCHEMA_HASH --component-config-hash $env:PHANTOM_CONFIG_HASH --toolchain-or-package-lock-hash $env:PHANTOM_PACKAGE_LOCK_SHA256).Trim()
+$env:PHANTOM_BUILD_ID=(python tools\build_identity.py --component QUEST --profile $Profile --source-tree-hash $env:PHANTOM_SOURCE_TREE_HASH --specification-sha256 $env:PHANTOM_SPECIFICATION_SHA256 --protocol-schema-hash $env:PHANTOM_PROTOCOL_SCHEMA_HASH --component-config-hash $env:PHANTOM_CONFIG_HASH --toolchain-or-package-lock-hash $env:PHANTOM_PACKAGE_LOCK_SHA256).Trim()
 # Android Gradle Prefab corrupts non-ASCII Windows profile paths in generated
 # batch files. Keep its cache in the ASCII-only workspace path.
 $env:GRADLE_USER_HOME=[System.IO.Path]::GetFullPath(".gradle-quest")

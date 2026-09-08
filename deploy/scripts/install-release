@@ -1,9 +1,9 @@
 #!/bin/sh
-# INSTALL phase only: admit and atomically select an EV3 release while runtime stays stopped.
+# INSTALL phase only: validate and atomically select an EV3 release while runtime stays stopped.
 set -eu
 
 archive=${1:?release archive required}
-gate=${2:?PRE-INSTALL report required}
+sidecar=${2:?package build manifest required}
 root=/opt/phantom
 result=/var/lib/phantom/install-result.json
 units="phantom-controller.service phantom-safety.service phantom-network.service phantom-mdns.service phantom-wifi-autoconnect.service phantom.target"
@@ -193,40 +193,38 @@ python3 -c 'import sys; raise SystemExit(0 if sys.version_info[:2] >= (3, 5) els
 mkdir -p "$root/releases" /var/lib/phantom
 staging=$(mktemp -d "$root/releases/.staging.XXXXXX")
 
-next_step archive-admission
+next_step artifact-validation
 tar -tzf "$archive" | while IFS= read -r member; do
   case "$member" in /*|../*|*/../*|*/..) echo "unsafe archive member: $member" >&2; exit 1;; esac
 done
-mkdir "$staging"
 tar -xzf "$archive" -C "$staging"
 (cd "$staging" && sha256sum -c SHA256SUMS)
-build_id=$(python3 - "$gate" "$staging/build-manifest.json" "$archive" <<'PY'
+build_id=$(python3 - "$sidecar" "$staging/build-manifest.json" "$archive" <<'PY'
 import hashlib, json, sys
 with open(sys.argv[1], encoding="utf-8-sig") as stream:
-    report = json.load(stream)
+    package = json.load(stream)
 with open(sys.argv[2], encoding="utf-8-sig") as stream:
     manifest = json.load(stream)
-if report.get("gate") != "PRE-INSTALL AUTO" or report.get("status") != "PASS" or report.get("worktree_dirty") is not False:
-    raise SystemExit("PRE-INSTALL gate is not a clean PASS")
-if report.get("git_commit") != manifest.get("git_commit") or manifest.get("worktree_dirty") is not False:
-    raise SystemExit("PRE-INSTALL/build manifest source mismatch")
-if manifest.get("build_id") not in report.get("build_ids", []):
-    raise SystemExit("installed build_id is absent from PRE-INSTALL report")
-if report.get("specification_sha256") != manifest.get("specification_sha256") or report.get("protocol_schema_hash") != manifest.get("protocol_schema_hash"):
-    raise SystemExit("PRE-INSTALL/build contract hash mismatch")
-reported = {item.get("sha256") for item in report.get("artifacts", []) if isinstance(item, dict)}
 with open(sys.argv[3], "rb") as stream:
     archive_hash = hashlib.sha256(stream.read()).hexdigest()
-if archive_hash not in reported:
-    raise SystemExit("EV3 package SHA-256 is absent from PRE-INSTALL artifact evidence")
-for field in ("controller_sha256", "safety_sha256"):
-    if manifest.get(field) not in reported:
-        raise SystemExit(field + " is absent from PRE-INSTALL artifact evidence")
+if package.get("schema_version") != 2 or package.get("component") != "EV3":
+    raise SystemExit("invalid EV3 package sidecar")
+if manifest.get("schema_version") != 3 or manifest.get("build_identity_schema") != "PHANTOM-BUILD-V2" or manifest.get("component") != "EV3":
+    raise SystemExit("invalid embedded EV3 build manifest")
+if package.get("artifact_sha256") != archive_hash:
+    raise SystemExit("EV3 package SHA-256 mismatch")
+with open(sys.argv[2], "rb") as stream:
+    embedded_hash = hashlib.sha256(stream.read()).hexdigest()
+if package.get("embedded_identity_sha256") != embedded_hash:
+    raise SystemExit("embedded EV3 build manifest SHA-256 mismatch")
+for field in ("build_id", "build_profile", "source_tree_hash"):
+    if package.get(field) != manifest.get(field):
+        raise SystemExit("EV3 package/embedded manifest mismatch: " + field)
 print(manifest["build_id"])
 PY
-) || fail "artifact admission failed"
-case "$build_id" in ''|*[!0-9a-f]*) fail "artifact admission returned invalid build_id";; esac
-test "${#build_id}" = 64 || fail "artifact admission returned invalid build_id length"
+) || fail "artifact validation failed"
+case "$build_id" in ''|*[!0-9a-f]*) fail "artifact validation returned invalid build_id";; esac
+test "${#build_id}" = 64 || fail "artifact validation returned invalid build_id length"
 release_id="phantom-$build_id"
 dest="$root/releases/$release_id"
 test ! -e "$dest" || fail "release already exists: $dest"

@@ -76,7 +76,8 @@ Generated files являются результатами, а не конкур�
 - Task-specific execution plans: `docs/PHANTOM/exec-plans/`
 - Текущее состояние: `docs/PHANTOM/status/CURRENT_STATUS.md`
 - Карта `требование → этап → статус → verification`: `docs/PHANTOM/implementation-map.json`
-- Evidence реально выполненных gates: `results/**`
+- Локальные отчёты gate runners: игнорируемый `results/**`; долговечное release/qualification
+  evidence: неизменяемое внешнее artifact storage с URI и SHA-256
 
 `ev3/bench/` — инженерный характеризационный harness вне production и вне safety-периметра;
 его разводка портов, привилегии и результаты не описывают собранного робота.

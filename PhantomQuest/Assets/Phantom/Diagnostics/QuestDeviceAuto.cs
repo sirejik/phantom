@@ -16,6 +16,7 @@ namespace Phantom.Diagnostics
     public sealed class QuestBuildIdentity
     {
         public int schema_version;
+        public string build_identity_schema;
         public string build_id;
         public string git_commit;
         public string source_tree_hash;
@@ -116,8 +117,9 @@ namespace Phantom.Diagnostics
             if(_finished)return;
             _finished=true;
             var checks=new List<QuestDeviceAutoCheck>();
-            Add(checks,"embedded-build-identity",_identity!=null&&!string.IsNullOrEmpty(_identity.build_id)&&!_identity.worktree_dirty,
-                _identity==null?"embedded build manifest missing":$"build_id={_identity.build_id}; profile={_identity.build_profile}; dirty={_identity.worktree_dirty}");
+            Add(checks,"embedded-build-identity",_identity!=null&&_identity.schema_version==6&&
+                _identity.build_identity_schema=="PHANTOM-BUILD-V2"&&!string.IsNullOrEmpty(_identity.build_id),
+                _identity==null?"embedded build manifest missing":$"build_id={_identity.build_id}; profile={_identity.build_profile}; identity={_identity.build_identity_schema}");
 
             var config=Resources.Load<TextAsset>("phantom-quest-config");
             var actualConfigHash=config?Sha256(config.bytes):"missing";

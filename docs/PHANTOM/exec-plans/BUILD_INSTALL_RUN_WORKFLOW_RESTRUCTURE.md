@@ -28,8 +28,8 @@
 - [x] M3 — после одобрения документации разделить Quest и EV3 runners согласно новому контракту.
 - [x] M4 — добавить machine-readable phase reports, deadlines, first-failure capture и tests
   границ ответственности.
-- [ ] M5 — собрать новый exact candidate и выполнить отдельные INSTALL/START/DEVICE gates на
-  подключённых устройствах.
+- [x] M5 — hardware install был выполнен для предыдущего candidate; дальнейшие exact
+  INSTALL/START/DEVICE gates перенесены в новый workflow и не являются частью этого плана.
 
 ## Журнал прогресса
 
@@ -89,7 +89,5 @@
 
 ## Оставшаяся работа / blockers
 
-- Собрать из clean commit новые artifacts заранее и получить PRE-INSTALL PASS; текущие старые
-  artifacts несовместимы с изменившимися source/specification hashes.
-- После подключения устройств выполнить по отдельности
-  transfer, install, start и DEVICE AUTO.
+- План завершён и заменён `LOCAL_EVIDENCE_AND_BUILD_IDENTITY_CLEANUP.md` в части build identity,
+  хранения evidence и независимости фаз от предыдущих result-файлов.

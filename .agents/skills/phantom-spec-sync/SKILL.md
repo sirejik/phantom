@@ -13,7 +13,8 @@ description: Синхронизировать или реструктуриро�
    - определение development stage/gate → `docs/PHANTOM/IMPLEMENTATION_STAGES.md`;
    - task-local plan/progress → `docs/PHANTOM/exec-plans/`;
    - current implementation summary → `docs/PHANTOM/status/CURRENT_STATUS.md`;
-   - реально выполненный automated/device/HIL report → repository `results/**`;
+   - реально выполненный automated/device/HIL report → локальный Git-ignored `results/**`,
+     затем immutable CI/release artifact для долговечного evidence;
    - долговечный rationale → ADR;
    - unresolved exposure/disposition → risk;
    - наблюдаемый test result → evidence/report, а не requirement prose.

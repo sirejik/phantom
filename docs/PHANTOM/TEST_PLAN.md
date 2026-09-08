@@ -41,8 +41,8 @@
 ```mermaid
 flowchart TD
   C[Изменение кода] --> B[Сборка Quest APK<br/>и EV3 binaries]
-  B --> A[PRE-INSTALL AUTO<br/>тесты до установки]
-  A -->|FAIL| X[Артефакт заблокирован<br/>не устанавливать]
+  B --> A[PRE-INSTALL AUTO<br/>post-build gate перед qualification]
+  A -->|FAIL| X[Артефакт заблокирован<br/>не квалифицировать/не публиковать]
   A -->|PASS| P[Опубликовать без изменения bytes<br/>build_id + hashes]
   P --> T[TRANSFER<br/>копирование + hash]
   T --> D[INSTALL<br/>размещение без запуска тестов]
@@ -56,12 +56,12 @@ flowchart TD
   M -->|PASS| R[Release candidate]
 ```
 
-Быстрые статические проверки и часть модульных тестов могут выполняться до или параллельно компиляции, но **после успешной сборки существует отдельный обязательный `PRE-INSTALL` gate**. Он привязан к конкретным `commit`, `build_id` и хэшам артефактов. Нельзя считать достаточным ситуацию, когда тесты прошли для исходников, а устанавливается другой APK или другой EV3 binary. Границы `TRANSFER`/`INSTALL`/`START` нормативно определены в §8.5.1 и §8.7; успешная установка файлов сама по себе не является DEVICE PASS.
+Быстрые статические проверки и часть модульных тестов могут выполняться до или параллельно компиляции, но **после успешной сборки существует отдельный обязательный `PRE-INSTALL` gate перед qualification/Release**. Он привязан к конкретным `build_id` и хэшам артефактов; commit хранится только как provenance. Нельзя считать достаточным ситуацию, когда тесты прошли для исходников, а квалифицируется другой APK или другой EV3 binary. Границы `TRANSFER`/`INSTALL`/`START` нормативно определены в §8.5.1 и §8.7; эти операции не читают предыдущие result-файлы, а успешная установка сама по себе не является DEVICE PASS.
 
 <a id="sec-9-1-2"></a>
 ### 9.1.2. Автоматические тесты до установки (`PRE-INSTALL AUTO`)
 
-Эти тесты выполняются на PC/CI непосредственно после получения сборочных артефактов и **до** `adb install` на Quest и до копирования бинарных файлов на EV3.
+Эти тесты выполняются на PC/CI после получения сборочных артефактов и **до** DEVICE/HIL/Release qualification. Инженерные TRANSFER/INSTALL могут быть выполнены раньше для диагностики: это не переносит и не создаёт PRE-INSTALL PASS.
 
 `PRE-INSTALL AUTO` принимает уже существующие финальные artifact bytes как input. Runner не
 вызывает production build, не переподписывает/переупаковывает артефакт и не обращается к
@@ -98,7 +98,7 @@ Quest and EV3 build_id recorded
 artifact SHA-256 recorded
 ```
 
-Отчёт имеет versioned machine-readable schema и для каждого нормативного test id хранит как минимум `status`, `introduced_at_stage`, `applicable_to_stage`, команду/runner и ссылку на evidence. Допустимые статусы: `PASS`, `FAIL`, `NOT_RUN`, `N_A`. `N_A` разрешён только если тест ещё не применим к проверяемому этапу и содержит нормативную причину; отсутствие строки или неожиданный `NOT_RUN` эквивалентны FAIL. Итоговый `PASS` запрещён для dirty worktree и обязан содержать `git_commit`, `source_tree_hash`, `specification_sha256`, `protocol_schema_hash`, **все применимые component/profile-specific `quest_build_id`/`ev3_build_id`**, а также SHA-256 каждого проверенного артефакта. Локальный отчёт dirty checkout является только диагностическим и не разрешает установку.
+Отчёт имеет versioned machine-readable schema и для каждого нормативного test id хранит как минимум `status`, `introduced_at_stage`, `applicable_to_stage`, команду/runner и ссылку на evidence. Допустимые статусы: `PASS`, `FAIL`, `NOT_RUN`, `N_A`. `N_A` разрешён только если тест ещё не применим к проверяемому этапу и содержит нормативную причину; отсутствие строки или неожиданный `NOT_RUN` эквивалентны FAIL. Итоговый `PASS` обязан содержать `source_tree_hash`, `specification_sha256`, `protocol_schema_hash`, **все применимые component/profile-specific `quest_build_id`/`ev3_build_id`**, а также SHA-256 каждого проверенного артефакта. `git_commit` и `worktree_dirty` разрешены только как provenance и не влияют на `build_id` либо статус gate. Локальный report пишется в игнорируемый `results/**`; долговечное evidence публикуется неизменяемым CI/release artifact с URI и SHA-256.
 
 Минимальный набор этапа 1 включает schemas/generated-file checks, protocol/golden/HMAC/parser tests, Quest pure logic и synthetic adapters, EV3 host core/MockMotorBackend, simulator/replay, secret scan и host sanitizers. На этапе 2 дополнительно обязательны Unity EditMode/PlayMode и доступные XR/MRUK simulation tests, Release/Diagnostic APK audit, pinned ARMv5TEJ cross-build, artifact manifests/hashes и автономные startup/self-test сценарии. Проверки функций, впервые вводимых этапом 3+, могут иметь `N_A` до своего этапа, но не должны молча исчезать из отчёта.
 
@@ -107,7 +107,8 @@ artifact SHA-256 recorded
 <a id="sec-9-1-3"></a>
 ### 9.1.3. Автоматические тесты после установки (`DEVICE AUTO`)
 
-Установка разрешена только после успешного `PRE-INSTALL AUTO`. `DEVICE AUTO` является
+Явная инженерная установка разрешена без `PRE-INSTALL AUTO`, но не является qualification.
+`DEVICE AUTO` требует успешный PRE-INSTALL report для exact artifact bytes и является
 отдельной явно запускаемой фазой над уже установленным и успешно активированным exact build.
 Его runner не выполняет build, transfer, package installation, смену active release или
 rollback. Он может перезапускать процессы только внутри явно перечисленных test cases и после
@@ -124,9 +125,9 @@ rollback. Он может перезапускать процессы тольк
 - Release не содержит включённых инженерных механизмов, которые должны быть Diagnostic-only.
 
 Штатный Quest stage-2 DEVICE runner — `scripts/quest-device-auto.ps1`. Он принимает только
-уже установленный APK со смежным build manifest и существующим
-`results/pre-install/report.json` со статусом `PASS`, содержащим тот же
-`quest_build_id`; проверяет единственный авторизованный ADB target `Quest 3/eureka` и identity
+уже установленный APK со смежным build manifest и явно указанный PRE-INSTALL report со
+статусом `PASS`, содержащим тот же `quest_build_id` и artifact SHA-256; локальный путь по
+умолчанию — `results/pre-install/report.json`. Runner проверяет единственный авторизованный ADB target `Quest 3/eureka` и identity
 установленного package. `adb install -r -g` относится к отдельному Quest INSTALL runner и не
 выполняется DEVICE runner’ом. DEVICE runner выполняет первый bounded запуск, `force-stop` и
 повторный bounded запуск. Запуск через ADB не использует неограниченный `am start -W`: runner
@@ -1514,9 +1515,9 @@ SIGKILL процесса phantom-controller
 
 **Уровень:** `PRE-INSTALL AUTO`/CI + release review.
 
-Чистый checkout обязан воспроизводимо создать release manifests/evidence, связывающие:
+Checkout с зафиксированными exact source inputs обязан воспроизводимо создать release manifests/evidence, связывающие:
 
-- source commit, `specification_sha256`, `protocol_schema_hash`, отдельные `quest_build_id`/`ev3_build_id` и SHA-256 фактических APK/EV3 artifacts;
+- `source_tree_hash`, provenance source commit, `specification_sha256`, `protocol_schema_hash`, отдельные `quest_build_id`/`ev3_build_id` и SHA-256 фактических APK/EV3 artifacts; изменение только commit при неизменных input bytes не меняет `build_id`;
 - exact EV3 base image/toolchain/container hashes, SBOM и vulnerability/risk record для legacy/EOL компонентов; известная vulnerability без documented disposition/mitigation блокирует Release;
 - versioned LEGO Studio/CAD artifact/hash той mechanical revision, на которую ссылаются `RobotGeometry`, QR mounts и cable routing;
 - Quest Unity/Meta XR Core/Movement SDK/provider/MRUK/OpenXR versions, tested Horizon OS/runtime, `apk_sha256` и применимые P0 reports; изменение platform matrix инвалидирует старый P0;
@@ -1564,10 +1565,10 @@ broken_internal_links = 0
 <a id="sec-9-26"></a>
 ## 9.26. Итоговый критерий готовности
 
-Перед обычным пользовательским использованием должны быть выполнены все пункты. Результаты относятся к одному и тому же Release candidate: `commit`, `specification_sha256`, `protocol_schema_hash`, **соответствующие `quest_build_id` и `ev3_build_id`** и хэши их артефактов/конфигураций должны согласованно повторяться во всех отчётах; Quest/EV3 build IDs не сравниваются между собой на равенство.
+Перед обычным пользовательским использованием должны быть выполнены все пункты. Результаты относятся к одному и тому же Release candidate: `source_tree_hash`, `specification_sha256`, `protocol_schema_hash`, **соответствующие `quest_build_id` и `ev3_build_id`** и хэши их артефактов/конфигураций должны согласованно повторяться во всех отчётах; provenance commits могут различаться при byte-identical inputs, а Quest/EV3 build IDs не сравниваются между собой на равенство.
 
 ```text
-[ ] PRE-INSTALL AUTO полностью пройден на конкретных Quest/EV3 build artifacts до их установки
+[ ] PRE-INSTALL AUTO полностью пройден на конкретных Quest/EV3 build artifacts до DEVICE/HIL/Release qualification
 [ ] DEVICE AUTO пройден после установки именно соответствующих `quest_build_id` и `ev3_build_id` на Quest и EV3
 [ ] обязательные HIL AUTO сценарии пройдены и имеют машинно читаемые отчёты
 [ ] ручная функциональная/UX-приёмка выполнялась на том же Release candidate, а не на отдельном development build

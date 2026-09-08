@@ -2,7 +2,6 @@ param(
     [string]$Apk='build/quest/PhantomQuest-diagnostic.apk',
     [string]$Package='dev.phantom.questprototype',
     [ValidateRange(1,60)][int]$TimeoutSeconds=15,
-    [string]$InstallEvidence='results/quest/install',
     [string]$Destination='results/quest/start'
 )
 $ErrorActionPreference='Stop'
@@ -31,10 +30,7 @@ $apkPath=[System.IO.Path]::GetFullPath($Apk)
 $manifest=Get-Content -LiteralPath ($apkPath+'.build-manifest.json') -Encoding UTF8 -Raw|ConvertFrom-Json
 $apkHash=(Get-FileHash -LiteralPath $apkPath -Algorithm SHA256).Hash.ToLowerInvariant()
 if($apkHash-ne$manifest.apk_sha256){throw 'APK hash does not match build manifest'}
-$installPath=Join-Path ([System.IO.Path]::GetFullPath($InstallEvidence)) "$($manifest.build_id)/quest-install.json"
-if(!(Test-Path -LiteralPath $installPath -PathType Leaf)){throw "Matching Quest INSTALL report is missing: $installPath"}
-$install=Get-Content -LiteralPath $installPath -Encoding UTF8 -Raw|ConvertFrom-Json
-if($install.phase-ne'INSTALL' -or $install.status-ne'PASS' -or $install.build_id-ne$manifest.build_id -or $install.apk_sha256-ne$manifest.apk_sha256 -or $install.package-ne$Package){throw 'Matching Quest INSTALL PASS is required'}
+if($manifest.schema_version-ne 6 -or $manifest.build_identity_schema-ne'PHANTOM-BUILD-V2' -or $manifest.component-ne'QUEST' -or $manifest.build_id-notmatch'^[0-9a-f]{64}$'){throw 'Invalid Quest build manifest'}
 $devices=@(& $adb devices|Select-Object -Skip 1|Where-Object {$_-match'\sdevice$'})
 if($devices.Count-ne 1){throw "Exactly one authorized ADB device is required; found $($devices.Count)"}
 $serial=($devices[0]-split'\s+')[0]
@@ -43,7 +39,11 @@ $device=(@(& $adb -s $serial shell getprop ro.product.device)-join'').Trim()
 if($model-ne'Quest 3' -or $device-ne'eureka'){throw "Physical Quest 3 required; found model=$model device=$device"}
 $sha=[System.Security.Cryptography.SHA256]::Create()
 try{$deviceIdHash=([BitConverter]::ToString($sha.ComputeHash([System.Text.Encoding]::UTF8.GetBytes($serial)))).Replace('-','').ToLowerInvariant().Substring(0,16)}finally{$sha.Dispose()}
-if($install.device.anonymized_id-ne$deviceIdHash){throw 'Quest START device does not match INSTALL evidence'}
+$installedPath=(@(& $adb -s $serial shell pm path $Package|Where-Object {$_-match'^package:'}|Select-Object -First 1)-join'').Trim()
+if($LASTEXITCODE-ne 0 -or $installedPath-notmatch'^package:'){throw "Installed package was not found: $Package"}
+$installedApk=$installedPath.Substring(8)
+$installedHash=(@(& $adb -s $serial shell toybox sha256sum $installedApk)-join'').Trim().Split()[0].ToLowerInvariant()
+if($LASTEXITCODE-ne 0 -or $installedHash-ne$apkHash){throw "Installed APK hash mismatch: expected=$apkHash actual=$installedHash"}
 $activity=(@(& $adb -s $serial shell cmd package resolve-activity --brief $Package)|Select-Object -Last 1)-join''
 $activity=$activity.Trim()
 if(!$activity -or $activity-match'No activity'){throw "Launch activity was not resolved for $Package"}
@@ -63,7 +63,7 @@ while((Get-Date)-lt$deadline)
 }
 if(!$pid){throw "Quest START did not create a process within $TimeoutSeconds seconds"}
 $finished=(Get-Date).ToUniversalTime()
-$report=[ordered]@{schema_version=1;phase='START';status='PASS';build_id=$manifest.build_id;apk_sha256=$manifest.apk_sha256;package=$Package;device=[ordered]@{model=$model;device=$device;anonymized_id=$deviceIdHash};started_at=$started.ToString('o');finished_at=$finished.ToString('o');duration_ms=[long]($finished-$started).TotalMilliseconds;steps=@([ordered]@{step='app-process-readiness';status='PASS';duration_ms=[long]($finished-$launchStarted).TotalMilliseconds;deadline_seconds=$TimeoutSeconds});terminal_state='APP_PROCESS_RUNNING'}
+$report=[ordered]@{schema_version=1;phase='START';status='PASS';build_id=$manifest.build_id;apk_sha256=$manifest.apk_sha256;installed_apk_sha256=$installedHash;package=$Package;device=[ordered]@{model=$model;device=$device;anonymized_id=$deviceIdHash};started_at=$started.ToString('o');finished_at=$finished.ToString('o');duration_ms=[long]($finished-$started).TotalMilliseconds;steps=@([ordered]@{step='installed-apk-hash';status='PASS';duration_ms=0},[ordered]@{step='app-process-readiness';status='PASS';duration_ms=[long]($finished-$launchStarted).TotalMilliseconds;deadline_seconds=$TimeoutSeconds});terminal_state='APP_PROCESS_RUNNING_EXACT_BYTES'}
 $runDirectory=Join-Path ([System.IO.Path]::GetFullPath($Destination)) $manifest.build_id
 New-Item -ItemType Directory -Force -Path $runDirectory|Out-Null
 $reportPath=Join-Path $runDirectory 'quest-start.json'

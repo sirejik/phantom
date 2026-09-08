@@ -30,7 +30,7 @@ implementation stage definitions вынесены в `IMPLEMENTATION_STAGES.md`;
 
 ## 2026-09-07 — remediation независимого аудита
 
-Закрыты findings из `docs/AUDIT_REPORT.md`. Нормативные изменения:
+Закрыты findings независимого audit snapshot. Нормативные изменения:
 
 - §7.21 и §5.19 больше не содержат конкурирующую структуру конфигурации: schema/source
   объявлены единственным владельцем структуры, prose описывает смысл, поля будущих этапов
@@ -53,6 +53,15 @@ implementation stage definitions вынесены в `IMPLEMENTATION_STAGES.md`;
 Изменение wire schema (новый bitfield) дало новый `protocol_schema_hash`; все зависимые
 generated артефакты, config hashes и `specification_sha256` перегенерированы. Предыдущие
 build/PASS identities остаются только provenance.
+
+## 2026-09-08 — content-addressed build identity и локальное evidence
+
+`PHANTOM-BUILD-V2` исключил Git commit из build identity: commit/dirty-state сохранены только
+как provenance, а `build_id` зависит от точных component source/spec/protocol/config/toolchain
+inputs. BUILD, TRANSFER, INSTALL и START больше не используют result-файлы предыдущих фаз как
+управляющее состояние; PRE-INSTALL остаётся отдельным exact-artifact gate перед
+DEVICE/HIL/Release qualification. `results/**` переведён в локальное/CI Git-ignored workspace,
+а долговечное evidence публикуется как immutable artifact с URI и SHA-256.
 
 ## 2026-09-06 — software/build audit Stage 1–3 завершён
 

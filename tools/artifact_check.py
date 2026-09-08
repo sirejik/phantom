@@ -16,9 +16,8 @@ def compiler_matches(expected,facts):
     """
     parts=expected.split()
     return len(parts)>=2 and facts.split()[0]==parts[0] and parts[-1] in facts
-def ev3_package_name(build_id,allow_dirty):
-    prefix="phantom-audit-snapshot" if allow_dirty else "phantom"
-    return f"{prefix}-{build_id}.tar.gz"
+def ev3_package_name(build_id):
+    return f"phantom-{build_id}.tar.gz"
 def verify_checksum_manifest(directory):
     manifest_path=directory/"SHA256SUMS"
     require(manifest_path.is_file(),f"SHA256SUMS missing: {directory}")
@@ -69,15 +68,11 @@ def verify_quest_embedded_identity(apk,manifest):
 def sha_bytes(data):return hashlib.sha256(data).hexdigest()
 def main():
     quest_only="--quest-only" in sys.argv[1:]
-    allow_dirty="--allow-dirty-snapshot" in sys.argv[1:]
     skip_ev3_package="--skip-ev3-package" in sys.argv[1:]
-    unknown=[arg for arg in sys.argv[1:] if arg not in ("--quest-only","--allow-dirty-snapshot","--skip-ev3-package")]
+    unknown=[arg for arg in sys.argv[1:] if arg not in ("--quest-only","--skip-ev3-package")]
     require(not unknown,"unknown arguments: "+", ".join(unknown))
     protocol=(ROOT/"protocol/generated/schema.sha256").read_text().split()[0]
     specification=sha(ROOT/"docs/PHANTOM_SPECIFICATION.md")
-    commit=subprocess.check_output(["git","rev-parse","HEAD"],cwd=ROOT,text=True).strip()
-    current_dirty=bool(subprocess.check_output(["git","status","--porcelain"],cwd=ROOT,text=True).strip())
-    expected_dirty=current_dirty if allow_dirty else False
     lock=None if quest_only else load(ROOT/"toolchains/ev3dev-stretch.lock.json")
     if lock is not None:require(lock["cross_image_digest"]=="sha256:819ea7442bbe109d2b39c6c7766e7d1fe635bb98b86c4f6c3b636c0ce176a29f","cross image digest not pinned")
     package_manifest=load(ROOT/"PhantomQuest/Packages/manifest.json")
@@ -98,9 +93,8 @@ def main():
         apk=ROOT/f"build/quest/PhantomQuest-{profile}.apk";manifest_path=pathlib.Path(str(apk)+".build-manifest.json")
         require(apk.is_file() and manifest_path.is_file(),"Quest artifact missing: "+profile)
         manifest=load(manifest_path)
-        require(manifest.get("schema_version")==5 and manifest.get("component")=="QUEST","Quest build manifest schema mismatch")
+        require(manifest.get("schema_version")==6 and manifest.get("build_identity_schema")=="PHANTOM-BUILD-V2" and manifest.get("component")=="QUEST","Quest build manifest schema mismatch")
         require(manifest["build_profile"].lower()==profile,"Quest profile mismatch")
-        require(manifest["git_commit"]==commit and manifest.get("worktree_dirty") is expected_dirty,"Quest artifact source/dirty state mismatch")
         require(manifest["apk_sha256"]==sha(apk),"Quest APK hash mismatch")
         require(manifest["protocol_schema_hash"]==protocol and manifest["specification_sha256"]==specification,"Quest source hash mismatch")
         require(manifest["config_hash"]==expected_config["quest"][profile],"Quest config hash mismatch")
@@ -108,7 +102,7 @@ def main():
         require(manifest["source_tree_hash"]==expected_source["quest"],"Quest artifact was not built from current sources")
         require(manifest["package_lock_sha256"]==sha(ROOT/"PhantomQuest/Packages/packages-lock.json"),"Quest package lock hash mismatch")
         require(manifest.get("toolchain_or_package_lock_hash")==manifest["package_lock_sha256"],"Quest identity lock hash mismatch")
-        expected_build_id,_=identity("QUEST",manifest["build_profile"],commit,expected_source["quest"],specification,protocol,
+        expected_build_id,_=identity("QUEST",manifest["build_profile"],expected_source["quest"],specification,protocol,
                                      expected_config["quest"][profile],manifest["package_lock_sha256"])
         require(manifest.get("build_id")==expected_build_id,"Quest build_id mismatch")
         require(re.fullmatch(r"[0-9a-f]{64}",manifest.get("embedded_identity_sha256","")) is not None,"Quest embedded identity hash missing")
@@ -133,15 +127,14 @@ def main():
         for family in (() if quest_only else ("ev3-host","ev3-armel")):
             directory=ROOT/f"build/{family}-{profile}" if family=="ev3-host" else ROOT/f"build/{family}/{profile}"
             manifest=load(directory/"build-manifest.json")
-            require(manifest.get("schema_version")==2 and manifest.get("component")=="EV3",f"{family} build manifest schema mismatch")
+            require(manifest.get("schema_version")==3 and manifest.get("build_identity_schema")=="PHANTOM-BUILD-V2" and manifest.get("component")=="EV3",f"{family} build manifest schema mismatch")
             require(manifest["build_profile"].lower()==profile,f"{family} profile mismatch")
-            require(manifest["git_commit"]==commit and manifest.get("worktree_dirty") is expected_dirty,f"{family} artifact source/dirty state mismatch")
             require(manifest["protocol_schema_hash"]==protocol and manifest["specification_sha256"]==specification,f"{family} source hash mismatch")
             require(manifest["config_hash"]==expected_config["ev3"][profile],f"{family} config hash mismatch")
             require(manifest.get("commissioning_bundle_hash")==expected_bundle[profile],f"{family} bundle hash mismatch")
             require(manifest["source_tree_hash"]==expected_source["ev3"],f"{family} artifact was not built from current sources")
             require(manifest.get("toolchain_or_package_lock_hash")==sha(ROOT/"toolchains/ev3dev-stretch.lock.json"),f"{family} identity lock hash mismatch")
-            expected_build_id,_=identity("EV3",manifest["build_profile"],commit,expected_source["ev3"],specification,protocol,
+            expected_build_id,_=identity("EV3",manifest["build_profile"],expected_source["ev3"],specification,protocol,
                                          expected_config["ev3"][profile],manifest["toolchain_or_package_lock_hash"])
             require(manifest.get("build_id")==expected_build_id,f"{family} build_id mismatch")
             verify_checksum_manifest(directory)
@@ -153,16 +146,15 @@ def main():
                 require(manifest["safety_sha256"]==sha(directory/"bin/phantom-safety"),"safety hash mismatch")
     if not quest_only and not skip_ev3_package:
         ev3_manifest=load(ROOT/"build/ev3-armel/diagnostic/build-manifest.json")
-        package=ROOT/"build/ev3-packages"/ev3_package_name(ev3_manifest["build_id"],allow_dirty)
+        package=ROOT/"build/ev3-packages"/ev3_package_name(ev3_manifest["build_id"])
         provenance=pathlib.Path(str(package)+".build-manifest.json")
         require(package.is_file() and provenance.is_file(),"EV3 Diagnostic package/provenance missing")
         package_manifest=load(provenance)
         require(package_manifest.get("component")=="EV3" and package_manifest.get("build_profile")=="Diagnostic","EV3 package profile mismatch")
         require(package_manifest.get("build_id")==ev3_manifest["build_id"],"EV3 package build_id mismatch")
-        require(package_manifest.get("worktree_dirty") is expected_dirty,"EV3 package dirty-state mismatch")
-        require(package_manifest.get("install_authorized") is (not expected_dirty),"EV3 package install authorization mismatch")
+        require(package_manifest.get("source_tree_hash")==ev3_manifest["source_tree_hash"],"EV3 package source hash mismatch")
         require(package_manifest.get("artifact_sha256")==sha(package),"EV3 package SHA-256 mismatch")
-    print(("audit-snapshot artifact validation PASS: " if allow_dirty else "artifact gate PASS: ")+("Quest package locks, profiles, hashes, metadata" if quest_only else "package locks, profiles, hashes, metadata, pinned armel image"))
+    print("artifact gate PASS: "+("Quest package locks, profiles, hashes, metadata" if quest_only else "package locks, profiles, hashes, metadata, pinned armel image"))
 if __name__=="__main__":
     try:main()
     except Exception as error:print("artifact gate FAIL:",error,file=sys.stderr);sys.exit(1)

@@ -3,8 +3,6 @@ param(
     [string]$Package="dev.phantom.questprototype",
     [string]$PreInstallReport="results/pre-install/report.json",
     [string]$Destination="results/quest/device-auto",
-    [string]$InstallEvidence="results/quest/install",
-    [string]$StartEvidence="results/quest/start",
     [int]$ReportTimeoutSeconds=35
 )
 $ErrorActionPreference="Stop"
@@ -41,16 +39,16 @@ if(!(Test-Path -LiteralPath $apkPath) -or !(Test-Path -LiteralPath $manifestPath
 $manifest=Get-Content -LiteralPath $manifestPath -Encoding UTF8 -Raw|ConvertFrom-Json
 $actualApkHash=(Get-FileHash -LiteralPath $apkPath -Algorithm SHA256).Hash.ToLowerInvariant()
 if($actualApkHash-ne$manifest.apk_sha256){throw "APK hash does not match build manifest"}
+if($manifest.schema_version-ne 6 -or $manifest.build_identity_schema-ne"PHANTOM-BUILD-V2" -or $manifest.component-ne"QUEST" -or $manifest.build_id-notmatch'^[0-9a-f]{64}$'){throw "Invalid Quest build manifest"}
 $preInstallPath=[System.IO.Path]::GetFullPath($PreInstallReport)
 if(!(Test-Path -LiteralPath $preInstallPath)){throw "PRE-INSTALL report is missing"}
 $preInstall=Get-Content -LiteralPath $preInstallPath -Encoding UTF8 -Raw|ConvertFrom-Json
 $artifactMatches=@($preInstall.artifacts|Where-Object {$_.sha256-eq$actualApkHash})
 $preInstallMatch=$preInstall.gate-eq"PRE-INSTALL AUTO" -and $preInstall.status-eq"PASS" -and
-    $preInstall.install_authorized-eq$true -and $preInstall.worktree_dirty-eq$false -and
-    $preInstall.build_ids-contains$manifest.build_id -and $preInstall.git_commit-eq$manifest.git_commit -and
+    $preInstall.build_ids-contains$manifest.build_id -and
     $preInstall.specification_sha256-eq$manifest.specification_sha256 -and
     $preInstall.protocol_schema_hash-eq$manifest.protocol_schema_hash -and $artifactMatches.Count-eq 1
-if(!$preInstallMatch){throw "A matching clean Quest PRE-INSTALL PASS with exact artifact and contract identity is required before DEVICE AUTO"}
+if(!$preInstallMatch){throw "A matching Quest PRE-INSTALL PASS with exact artifact and contract identity is required before DEVICE AUTO"}
 
 $devices=@(& $adb devices|Select-Object -Skip 1|Where-Object {$_-match "\sdevice$"})
 if($devices.Count-ne 1){throw "Exactly one authorized ADB device is required; found $($devices.Count)"}
@@ -65,15 +63,11 @@ $serialBytes=[System.Text.Encoding]::UTF8.GetBytes($serial)
 $sha=[System.Security.Cryptography.SHA256]::Create()
 try{$deviceIdHash=([BitConverter]::ToString($sha.ComputeHash($serialBytes))).Replace("-","").ToLowerInvariant().Substring(0,16)}finally{$sha.Dispose()}
 
-$installPath=Join-Path ([System.IO.Path]::GetFullPath($InstallEvidence)) "$($manifest.build_id)/quest-install.json"
-$startPath=Join-Path ([System.IO.Path]::GetFullPath($StartEvidence)) "$($manifest.build_id)/quest-start.json"
-if(!(Test-Path -LiteralPath $installPath -PathType Leaf)){throw "Matching Quest INSTALL report is missing: $installPath"}
-if(!(Test-Path -LiteralPath $startPath -PathType Leaf)){throw "Matching Quest START report is missing: $startPath"}
-$install=Get-Content -LiteralPath $installPath -Encoding UTF8 -Raw|ConvertFrom-Json
-$start=Get-Content -LiteralPath $startPath -Encoding UTF8 -Raw|ConvertFrom-Json
-$installMatch=$install.phase-eq"INSTALL" -and $install.status-eq"PASS" -and $install.build_id-eq$manifest.build_id -and $install.apk_sha256-eq$actualApkHash -and $install.package-eq$Package -and $install.device.anonymized_id-eq$deviceIdHash
-$startMatch=$start.phase-eq"START" -and $start.status-eq"PASS" -and $start.build_id-eq$manifest.build_id -and $start.apk_sha256-eq$actualApkHash -and $start.package-eq$Package -and $start.device.anonymized_id-eq$deviceIdHash
-if(!$installMatch -or !$startMatch){throw "Matching Quest INSTALL and START PASS are required before DEVICE AUTO"}
+$installedPath=(@(& $adb -s $serial shell pm path $Package|Where-Object {$_-match'^package:'}|Select-Object -First 1)-join'').Trim()
+if($LASTEXITCODE-ne 0 -or $installedPath-notmatch'^package:'){throw "Installed package was not found: $Package"}
+$installedApk=$installedPath.Substring(8)
+$installedHash=(@(& $adb -s $serial shell toybox sha256sum $installedApk)-join'').Trim().Split()[0].ToLowerInvariant()
+if($LASTEXITCODE-ne 0 -or $installedHash-ne$actualApkHash){throw "Installed APK hash mismatch: expected=$actualApkHash actual=$installedHash"}
 
 New-Item -ItemType Directory -Force -Path $Destination|Out-Null
 $safeBuildId=$manifest.build_id-replace'[^A-Za-z0-9._-]','_'
@@ -154,8 +148,8 @@ $secondCrash=($secondLogcat-join"`n")-match$crashPattern
 $identityMatch=$appReport.build_id-eq$manifest.build_id
 $hostChecks=@(
     [ordered]@{test_id="pre-install-admission";status="PASS";detail="matching Quest PRE-INSTALL PASS";duration_ms=0},
-    [ordered]@{test_id="install-admission";status="PASS";detail="matching Quest INSTALL PASS; sha256=$actualApkHash";duration_ms=0},
-    [ordered]@{test_id="start-admission";status="PASS";detail="matching Quest START PASS";duration_ms=0},
+    [ordered]@{test_id="installed-package-exact-bytes";status="PASS";detail="sha256=$installedHash";duration_ms=0},
+    [ordered]@{test_id="current-run-readiness";status="PASS";detail="app produced exact-build device report";duration_ms=0},
     [ordered]@{test_id="build-id";status=$(if($identityMatch){"PASS"}else{"FAIL"});detail="expected=$($manifest.build_id); actual=$($appReport.build_id)";duration_ms=0},
     [ordered]@{test_id="first-launch";status=$(if($firstPid-and!$firstCrash){"PASS"}else{"FAIL"});detail="pid_present=$([bool]$firstPid); crash=$firstCrash";duration_ms=$firstDurationMs},
     [ordered]@{test_id="force-stop-relaunch";status=$(if($secondPid-and!$secondCrash){"PASS"}else{"FAIL"});detail="pid_present=$([bool]$secondPid); crash=$secondCrash";duration_ms=$secondDurationMs}

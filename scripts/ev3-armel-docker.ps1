@@ -37,9 +37,9 @@ foreach($profile in @("Release","Diagnostic")){
   Copy-Item deploy/systemd "$profileOut/systemd" -Recurse -Force
   Copy-Item deploy/tmpfiles "$profileOut/tmpfiles" -Recurse -Force
   $profileConfigHash=(Get-FileHash $configSource -Algorithm SHA256).Hash.ToLower()
-  $buildId=(python tools/build_identity.py --component EV3 --profile $profile --git-commit $commit --source-tree-hash $sourceHash --specification-sha256 $specHash --protocol-schema-hash $protocolHash --component-config-hash $profileConfigHash --toolchain-or-package-lock-hash $toolchainLockHash).Trim()
+  $buildId=(python tools/build_identity.py --component EV3 --profile $profile --source-tree-hash $sourceHash --specification-sha256 $specHash --protocol-schema-hash $protocolHash --component-config-hash $profileConfigHash --toolchain-or-package-lock-hash $toolchainLockHash).Trim()
   $manifest=[ordered]@{
-    schema_version=2;component="EV3";build_id=$buildId;git_commit=$commit;source_tree_hash=$sourceHash;worktree_dirty=$dirty;target="ARMv5TEJ-armel-gnueabi";build_profile=$profile
+    schema_version=3;build_identity_schema="PHANTOM-BUILD-V2";component="EV3";build_id=$buildId;git_commit=$commit;source_tree_hash=$sourceHash;worktree_dirty=$dirty;target="ARMv5TEJ-armel-gnueabi";build_profile=$profile
     protocol_version=1;specification_sha256=$specHash;protocol_schema_hash=$protocolHash;config_hash=$profileConfigHash;commissioning_bundle_hash=if($profile -eq "Diagnostic"){(Get-Content config/generated/config-manifest.json -Raw|ConvertFrom-Json).artifact_hashes.'commissioning_bundle-network-only'}else{(Get-Content config/generated/config-manifest.json -Raw|ConvertFrom-Json).artifact_hashes.commissioning_bundle}
     cross_image=$image;toolchain_facts=($facts -join " | ")
     toolchain_or_package_lock_hash=$toolchainLockHash;source_date_epoch_or_reproducible_epoch=0

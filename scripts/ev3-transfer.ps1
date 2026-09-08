@@ -1,7 +1,6 @@
 param(
     [Parameter(Mandatory=$true)][string]$Address,
     [Parameter(Mandatory=$true)][string]$Package,
-    [string]$PreInstallReport='results/pre-install/report.json',
     [string]$User='root',
     [string]$KeyPath='.ev3-ssh/id_ed25519',
     [ValidateRange(1,900)][int]$TimeoutSeconds=180,
@@ -12,24 +11,13 @@ $ErrorActionPreference='Stop'
 Assert-PhantomEv3ConnectionInput $Address $User
 $key=Get-PhantomEv3Key $KeyPath
 $packagePath=[System.IO.Path]::GetFullPath($Package)
-$gatePath=[System.IO.Path]::GetFullPath($PreInstallReport)
 if(!(Test-Path -LiteralPath $packagePath -PathType Leaf)){throw "EV3 package is missing: $packagePath"}
-if(!(Test-Path -LiteralPath $gatePath -PathType Leaf)){throw "PRE-INSTALL report is missing: $gatePath"}
 $sidecar=$packagePath+'.build-manifest.json'
 if(!(Test-Path -LiteralPath $sidecar -PathType Leaf)){throw "EV3 package sidecar is missing: $sidecar"}
 $manifest=Get-Content -LiteralPath $sidecar -Raw -Encoding UTF8|ConvertFrom-Json
-$gate=Get-Content -LiteralPath $gatePath -Raw -Encoding UTF8|ConvertFrom-Json
 $actualHash=(Get-FileHash -LiteralPath $packagePath -Algorithm SHA256).Hash.ToLowerInvariant()
-if($manifest.build_id-notmatch'^[0-9a-f]{64}$'){throw "Invalid EV3 build_id"}
+if($manifest.schema_version-ne 2 -or $manifest.component-ne'EV3' -or $manifest.build_id-notmatch'^[0-9a-f]{64}$'){throw "Invalid EV3 package sidecar"}
 if($manifest.artifact_sha256-ne$actualHash){throw "EV3 package hash does not match its sidecar"}
-if($gate.gate-ne'PRE-INSTALL AUTO' -or $gate.status-ne'PASS' -or $gate.build_ids-notcontains$manifest.build_id){throw "Matching PRE-INSTALL PASS is required"}
-if(@($gate.artifacts|Where-Object sha256 -eq $actualHash).Count-ne 1){throw "EV3 package hash is absent or ambiguous in PRE-INSTALL evidence"}
-foreach($name in @('install-release','start-release','run-device-auto','rollback-release'))
-{
-    $tool=Join-Path $PSScriptRoot "../deploy/scripts/$name"
-    $toolHash=(Get-FileHash -LiteralPath $tool -Algorithm SHA256).Hash.ToLowerInvariant()
-    if(@($gate.artifacts|Where-Object sha256 -eq $toolHash).Count-ne 1){throw "Deployment tool $name is absent or ambiguous in PRE-INSTALL evidence"}
-}
 
 $started=(Get-Date).ToUniversalTime()
 $tempRoot=[System.IO.Path]::GetFullPath([System.IO.Path]::GetTempPath()).TrimEnd('\')+'\'
@@ -39,7 +27,7 @@ New-Item -ItemType Directory -Path $stage|Out-Null
 try
 {
     Copy-Item -LiteralPath $packagePath -Destination (Join-Path $stage 'package.tar.gz')
-    Copy-Item -LiteralPath $gatePath -Destination (Join-Path $stage 'pre-install-report.json')
+    Copy-Item -LiteralPath $sidecar -Destination (Join-Path $stage 'package.build-manifest.json')
     foreach($name in @('install-release','start-release','run-device-auto','rollback-release'))
     {
         Copy-Item -LiteralPath (Join-Path $PSScriptRoot "../deploy/scripts/$name") -Destination (Join-Path $stage $name)

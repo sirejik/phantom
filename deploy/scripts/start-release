@@ -3,8 +3,6 @@
 set -eu
 
 root=/opt/phantom/current
-install_result=/var/lib/phantom/install-result.json
-recovery_result=/var/lib/phantom/recovery-result.json
 result=/var/lib/phantom/start-result.json
 start_order="phantom-safety.service phantom-controller.service phantom-wifi-autoconnect.service phantom-network.service phantom-mdns.service"
 stop_order="phantom-mdns.service phantom-network.service phantom-controller.service phantom-wifi-autoconnect.service phantom-safety.service phantom.target"
@@ -134,24 +132,17 @@ test "$(id -u)" = 0 || { echo "root required" >&2; exit 1; }
 case "$step_timeout" in ''|*[!0-9]*) echo "PHANTOM_START_STEP_TIMEOUT_SECONDS must be a positive integer" >&2; exit 1;; esac
 test "$step_timeout" -gt 0 || { echo "PHANTOM_START_STEP_TIMEOUT_SECONDS must be positive" >&2; exit 1; }
 test -L "$root" && test -f "$root/build-manifest.json" || fail_start start-admission "installed current release is missing"
-build_id=$(python3 - "$root/build-manifest.json" "$install_result" "$recovery_result" <<'PY'
-import json, sys
+(cd "$root" && sha256sum -c SHA256SUMS >/dev/null) || fail_start start-admission "installed release integrity check failed"
+build_id=$(python3 - "$root/build-manifest.json" <<'PY'
+import json, re, sys
 with open(sys.argv[1], encoding="utf-8-sig") as stream:
     manifest = json.load(stream)
 build_id = manifest.get("build_id")
-matched = False
-for path, phase in ((sys.argv[2], "INSTALL"), (sys.argv[3], "RECOVERY")):
-    try:
-        with open(path, encoding="utf-8-sig") as stream:
-            result = json.load(stream)
-    except (OSError, ValueError):
-        continue
-    matched = matched or (result.get("phase") == phase and result.get("status") == "PASS" and result.get("build_id") == build_id)
-if not matched:
-    raise SystemExit("matching INSTALL or RECOVERY PASS is required")
+if manifest.get("component") != "EV3" or not isinstance(build_id, str) or not re.fullmatch(r"[0-9a-f]{64}", build_id):
+    raise SystemExit("installed build manifest is invalid")
 print(build_id)
 PY
-) || fail_start start-admission "matching INSTALL or RECOVERY PASS is required"
+) || fail_start start-admission "installed build manifest is invalid"
 
 stop_runtime || fail_start pre-start-stop "existing runtime could not be stopped cleanly"
 force_and_verify_zero_output || fail_start pre-start-safe-state "could not establish zero-output before activation"

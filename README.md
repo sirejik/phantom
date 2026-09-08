@@ -20,7 +20,6 @@ python tools/doclint.py
 python tools/protocolgen.py --check
 python tools/configgen.py --check
 python tools/implementation_map_check.py
-python tools/skills_sync.py --check
 python tools/test_jcs.py
 python tools/test_ipc_contract.py
 python tools/test_configgen.py
@@ -36,7 +35,9 @@ powershell -File scripts/ev3-package.ps1
 powershell -File scripts/pre-install-auto.ps1
 ```
 
-После PRE-INSTALL PASS физические операции запускаются отдельно и не пересобирают artifacts:
+Физические операции запускаются отдельно и не пересобирают artifacts. INSTALL проверяет
+выбранные bytes и не требует предыдущих локальных reports; DEVICE AUTO требует exact
+PRE-INSTALL PASS:
 
 ```powershell
 powershell -File scripts/quest-install.ps1 -Apk <artifact.apk>

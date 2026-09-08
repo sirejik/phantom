@@ -56,16 +56,18 @@ FR/NFR, safety invariants и cross-component architecture contracts.
 
 - `exec-plans/**` — task-specific implementation plans, progress и локальные решения;
 - `status/**` — краткое текущее состояние реализации;
-- `results/**` — machine-readable test/build/device evidence и отчёты реально выполненных gates;
+- локальный `results/**` — игнорируемое Git workspace для machine-readable test/build/device
+  evidence; долговечные отчёты публикуются как immutable CI/release artifacts;
 - `decisions/**` — rationale/history архитектурных решений;
 - `risks/**` — отслеживание открытых рисков и disposition;
 - `CHANGELOG.md` — revision provenance;
 - `REFERENCES.md` — трассировка внешних источников.
 
 Status, execution plan, machine-readable result/evidence, ADR, risk record, внешний источник
-или текущее поведение кода никогда не переопределяют нормативный набор. `results/**`
-доказывает, что конкретный gate действительно выполнялся для зафиксированного candidate
-identity; `status/**` только кратко суммирует это evidence.
+или текущее поведение кода никогда не переопределяют нормативный набор. Долговечный
+опубликованный report с artifact URI/SHA-256 доказывает, что конкретный gate действительно
+выполнялся для зафиксированного candidate identity; локальный `results/**` является только
+рабочим каталогом runner, а `status/**` кратко суммирует опубликованное evidence.
 
 ## 4. Разрешение конфликтов
 
@@ -97,7 +99,8 @@ Legacy identifiers вида `§x.y` сохраняются при разбиен
 - Нормативные определения stages/gates хранятся в `IMPLEMENTATION_STAGES.md`.
 - Task-specific work order/progress хранится в `exec-plans/`.
 - Текущее состояние реализации хранится в `status/`; подробные реально выполненные
-  automated/device/HIL reports остаются в repository `results/**` и не копируются в normative prose.
+  automated/device/HIL reports публикуются как immutable CI/release artifacts и не
+  копируются в normative prose либо историю Git.
 - Exact wire tables/constants/size maps должны происходить из `protocol/wire_schema.yaml`, а не поддерживаться вручную в нескольких prose files. Production codecs могут быть hand-written, но обязаны проходить общие golden/negative vectors и не становятся source of truth.
 - Secrets и credentials никогда не находятся в specifications, status, plans, source
   fixtures, build manifests или обычных logs.

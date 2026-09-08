@@ -20,8 +20,8 @@ if(!(Test-Path -LiteralPath $androidJar)){
 }
 $sources=Get-ChildItem "PhantomQuest/Assets/Plugins/Android/PhantomScenePermissions.androidlib/src" -Recurse -Filter "*.java"|Select-Object -ExpandProperty FullName
 if($sources.Count -eq 0){throw "no androidlib sources found"}
-# Class files are build output, not evidence: results/** holds machine-readable
-# reports of executed gates, and build/ is the ignored artifact tree.
+# Class files are build output, not runner reports: results/** is a local
+# Git-ignored evidence workspace, and build/ is the ignored artifact tree.
 $out=[System.IO.Path]::GetFullPath("build/quest/androidlib-classes")
 New-Item -ItemType Directory -Force -Path $out|Out-Null
 & $javac -nowarn -Xlint:none -bootclasspath $androidJar -source 8 -target 8 -d $out @sources

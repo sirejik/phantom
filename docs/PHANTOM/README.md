@@ -28,7 +28,8 @@
 | внешние технические источники | `REFERENCES.md` |
 | task-specific многосоставная работа | `exec-plans/` |
 | текущий прогресс / blockers | `status/CURRENT_STATUS.md` |
-| реально выполненные test/build/device reports | repository `results/**` |
+| локальные test/build/device reports | игнорируемый Git `results/**` |
+| долговечное release/qualification evidence | внешний immutable artifact store; URI + SHA-256 в status/release record |
 | архитектурные решения и rationale | `decisions/` |
 | открытые риски | `risks/` |
 

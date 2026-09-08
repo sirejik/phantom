@@ -1,7 +1,6 @@
 param(
     [string]$Apk='build/quest/PhantomQuest-diagnostic.apk',
     [string]$Package='dev.phantom.questprototype',
-    [string]$PreInstallReport='results/pre-install/report.json',
     [ValidateRange(1,600)][int]$TimeoutSeconds=180,
     [string]$Destination='results/quest/install'
 )
@@ -33,16 +32,7 @@ if(!(Test-Path -LiteralPath $apkPath -PathType Leaf) -or !(Test-Path -LiteralPat
 $manifest=Get-Content -LiteralPath $manifestPath -Encoding UTF8 -Raw|ConvertFrom-Json
 $apkHash=(Get-FileHash -LiteralPath $apkPath -Algorithm SHA256).Hash.ToLowerInvariant()
 if($apkHash-ne$manifest.apk_sha256){throw 'APK hash does not match build manifest'}
-$preInstallPath=[System.IO.Path]::GetFullPath($PreInstallReport)
-if(!(Test-Path -LiteralPath $preInstallPath -PathType Leaf)){throw 'Quest PRE-INSTALL report is missing'}
-$preInstall=Get-Content -LiteralPath $preInstallPath -Encoding UTF8 -Raw|ConvertFrom-Json
-$artifactMatches=@($preInstall.artifacts|Where-Object {$_.sha256-eq$apkHash})
-$preInstallMatch=$preInstall.gate-eq'PRE-INSTALL AUTO' -and $preInstall.status-eq'PASS' -and
-    $preInstall.install_authorized-eq$true -and $preInstall.worktree_dirty-eq$false -and
-    $preInstall.build_ids-contains$manifest.build_id -and $preInstall.git_commit-eq$manifest.git_commit -and
-    $preInstall.specification_sha256-eq$manifest.specification_sha256 -and
-    $preInstall.protocol_schema_hash-eq$manifest.protocol_schema_hash -and $artifactMatches.Count-eq 1
-if(!$preInstallMatch){throw 'Matching clean Quest PRE-INSTALL PASS with exact artifact and contract identity is required'}
+if($manifest.schema_version-ne 6 -or $manifest.build_identity_schema-ne'PHANTOM-BUILD-V2' -or $manifest.component-ne'QUEST' -or $manifest.build_id-notmatch'^[0-9a-f]{64}$'){throw 'Invalid Quest build manifest'}
 $devices=@(& $adb devices|Select-Object -Skip 1|Where-Object {$_-match'\sdevice$'})
 if($devices.Count-ne 1){throw "Exactly one authorized ADB device is required; found $($devices.Count)"}
 $serial=($devices[0]-split'\s+')[0]
@@ -70,10 +60,14 @@ $installExitCode=$installProcess.ExitCode
 if($installExitCode-ne 0){throw "adb install failed with exit $installExitCode"}
 $phaseTerminal='APK_INSTALLED_IDENTITY_UNVERIFIED'
 $installDurationMs=[long]((Get-Date).ToUniversalTime()-$installStarted).TotalMilliseconds
-$installedPath=(@(& $adb -s $serial shell pm path $Package)-join'').Trim()
+$installedPath=(@(& $adb -s $serial shell pm path $Package|Where-Object {$_-match'^package:'}|Select-Object -First 1)-join'').Trim()
 if($LASTEXITCODE-ne 0 -or $installedPath-notmatch'^package:'){throw "Installed package was not found: $Package"}
+$installedApk=$installedPath.Substring(8)
+$installedHash=(@(& $adb -s $serial shell toybox sha256sum $installedApk)-join'').Trim().Split()[0].ToLowerInvariant()
+if($LASTEXITCODE-ne 0 -or $installedHash-ne$apkHash){throw "Installed APK hash mismatch: expected=$apkHash actual=$installedHash"}
+$phaseTerminal='APK_INSTALLED_EXACT_BYTES_APP_NOT_STARTED'
 $finished=(Get-Date).ToUniversalTime()
-$report=[ordered]@{schema_version=1;phase='INSTALL';status='PASS';build_id=$manifest.build_id;apk_sha256=$apkHash;package=$Package;device=[ordered]@{model=$model;device=$device;anonymized_id=$deviceIdHash};started_at=$started.ToString('o');finished_at=$finished.ToString('o');duration_ms=[long]($finished-$started).TotalMilliseconds;steps=@([ordered]@{step='adb-install';status='PASS';duration_ms=$installDurationMs});terminal_state='APK_INSTALLED_APP_NOT_STARTED'}
+$report=[ordered]@{schema_version=1;phase='INSTALL';status='PASS';build_id=$manifest.build_id;apk_sha256=$apkHash;installed_apk_sha256=$installedHash;package=$Package;device=[ordered]@{model=$model;device=$device;anonymized_id=$deviceIdHash};started_at=$started.ToString('o');finished_at=$finished.ToString('o');duration_ms=[long]($finished-$started).TotalMilliseconds;steps=@([ordered]@{step='adb-install';status='PASS';duration_ms=$installDurationMs},[ordered]@{step='installed-apk-hash';status='PASS';duration_ms=0});terminal_state='APK_INSTALLED_EXACT_BYTES_APP_NOT_STARTED'}
 $runDirectory=Join-Path ([System.IO.Path]::GetFullPath($Destination)) $manifest.build_id
 New-Item -ItemType Directory -Force -Path $runDirectory|Out-Null
 $reportPath=Join-Path $runDirectory 'quest-install.json'

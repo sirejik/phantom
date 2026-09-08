@@ -1,6 +1,5 @@
 param(
   [switch]$SkipUnity,
-  [switch]$AllowDirtyAuditSnapshot,
   [ValidateRange(1,7)][int]$Stage=3
 )
 $ErrorActionPreference="Stop"
@@ -25,7 +24,6 @@ Run-Check "specification-manifest-generated" 1 {python tools/specgen.py --check}
 Run-Check "section-index-generated" 1 {python tools/docindex.py --check}
 Run-Check "documentation-lint" 1 {python tools/doclint.py}
 Run-Check "implementation-map" 1 {python tools/implementation_map_check.py}
-Run-Check "agent-skills-mirror" 1 {python tools/skills_sync.py --check}
 Run-Check "protocol-schema-generated" 1 {python tools/protocolgen.py --check}
 Run-Check "canonicalization-rfc8785" 1 {python tools/test_jcs.py}
 Run-Check "ipc-contract-cross-implementation" 3 {python tools/test_ipc_contract.py}
@@ -64,8 +62,7 @@ Run-Check "ev3-host-diagnostic" 1 {powershell -NoProfile -ExecutionPolicy Bypass
 Run-Check "ev3-host-asan-ubsan" 1 {wsl.exe -d $wslDistro -- bash -lc "rm -rf /tmp/phantom-ev3-sanitize && cmake -S '$wslEv3Source' -B /tmp/phantom-ev3-sanitize -G Ninja -DCMAKE_BUILD_TYPE=Debug -DCMAKE_CXX_FLAGS='-fsanitize=address,undefined -fno-omit-frame-pointer' && cmake --build /tmp/phantom-ev3-sanitize && ASAN_OPTIONS=detect_leaks=1 ctest --test-dir /tmp/phantom-ev3-sanitize --output-on-failure"}
 if($SkipUnity){$checks+=@{test_id="unity-editmode";introduced_at_stage=2;applicable_to_stage=$Stage;status="NOT_RUN";runner="scripts/quest-test.ps1";detail="explicit -SkipUnity"}}else{Run-Check "unity-editmode" 2 {powershell -NoProfile -ExecutionPolicy Bypass -File scripts/quest-test.ps1}}
 Run-Check "post-build-artifacts" 2 {
-  if($AllowDirtyAuditSnapshot){python tools/artifact_check.py --allow-dirty-snapshot}
-  else{python tools/artifact_check.py}
+  python tools/artifact_check.py
 }
 $mandatoryIncomplete=$checks|Where-Object status -ne "PASS"
 $status=if($mandatoryIncomplete){"INCOMPLETE"}else{"PASS"}
@@ -74,7 +71,6 @@ $dirty=((git status --porcelain).Count -gt 0)
 $sourceTreeHash=(python tools/source_hash.py PhantomQuest/Assets/Phantom PhantomQuest/Assets/Plugins PhantomQuest/Packages PhantomQuest/ProjectSettings ev3 protocol config tools scripts sim deploy).Trim()
 $specificationHash=(Get-FileHash docs/PHANTOM_SPECIFICATION.md -Algorithm SHA256).Hash.ToLower()
 $protocolHash=(Get-Content protocol/generated/schema.sha256).Split()[0]
-if($dirty -and !$AllowDirtyAuditSnapshot){$status="INCOMPLETE";$checks+=@{test_id="clean-worktree";introduced_at_stage=1;applicable_to_stage=$Stage;status="FAIL";runner="git status --porcelain";detail="PRE-INSTALL PASS requires a clean committed source tree"}}
 $artifacts=@()
 $currentEv3BuildIds=@(Get-ChildItem build\ev3-armel\*\build-manifest.json -File -ErrorAction SilentlyContinue|ForEach-Object{(Get-Content $_.FullName -Raw|ConvertFrom-Json).build_id})
 $artifactFiles=@(
@@ -86,8 +82,7 @@ $artifactFiles=@(
 )
 $artifactFiles|Sort-Object FullName -Unique|ForEach-Object{$artifacts+=@{path=$_.FullName.Substring((Resolve-Path .).Path.Length+1);sha256=(Get-FileHash $_.FullName -Algorithm SHA256).Hash.ToLower()}}
 $buildIds=@();$artifactFiles|Where-Object Name -eq "build-manifest.json"|ForEach-Object{$buildIds+=(Get-Content $_.FullName -Raw|ConvertFrom-Json).build_id};$artifactFiles|Where-Object Name -like "*.build-manifest.json"|ForEach-Object{$buildIds+=(Get-Content $_.FullName -Raw|ConvertFrom-Json).build_id};$buildIds=@($buildIds|Sort-Object -Unique)
-$gateName=if($AllowDirtyAuditSnapshot){"PRE-INSTALL AUTO AUDIT SNAPSHOT"}else{"PRE-INSTALL AUTO"}
-$report=[ordered]@{schema_version=2;gate=$gateName;stage=$Stage;status=$status;install_authorized=(!$dirty -and !$AllowDirtyAuditSnapshot);git_commit=$commit;build_ids=$buildIds;source_tree_hash=$sourceTreeHash;worktree_dirty=$dirty;specification_sha256=$specificationHash;protocol_schema_hash=$protocolHash;started_at=$started.ToString('o');finished_at=(Get-Date).ToUniversalTime().ToString('o');checks=$checks;artifacts=$artifacts}
+$report=[ordered]@{schema_version=3;gate="PRE-INSTALL AUTO";stage=$Stage;status=$status;git_commit=$commit;build_ids=$buildIds;source_tree_hash=$sourceTreeHash;worktree_dirty=$dirty;specification_sha256=$specificationHash;protocol_schema_hash=$protocolHash;started_at=$started.ToString('o');finished_at=(Get-Date).ToUniversalTime().ToString('o');checks=$checks;artifacts=$artifacts}
 New-Item -ItemType Directory -Force results\pre-install|Out-Null
 $report|ConvertTo-Json -Depth 8|Set-Content results\pre-install\report.json -Encoding UTF8
 Write-Output "PRE-INSTALL AUTO: $status"

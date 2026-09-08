@@ -10,7 +10,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - name: Specification identity and documentation lint
-        run: python3 tools/specgen.py --check && python3 tools/docindex.py --check && python3 tools/doclint.py && python3 tools/implementation_map_check.py && python3 tools/skills_sync.py --check
+        run: python3 tools/specgen.py --check && python3 tools/docindex.py --check && python3 tools/doclint.py && python3 tools/implementation_map_check.py
       - name: Generated protocol, IPC and configuration artifacts
         run: python3 tools/protocolgen.py --check && python3 tools/spec_contract_check.py && python3 tools/configgen.py --check
       - name: Canonicalization, protocol and identity regressions

@@ -9,7 +9,7 @@
     "protocol_schema_hash", "started_at", "finished_at", "checks", "artifacts"
   ],
   "properties": {
-    "schema_version": {"const": 2},
+    "schema_version": {"const": 3},
     "gate": {"const": "PRE-INSTALL AUTO"},
     "stage": {"type": "integer", "minimum": 1, "maximum": 7},
     "status": {"enum": ["PASS", "INCOMPLETE"]},

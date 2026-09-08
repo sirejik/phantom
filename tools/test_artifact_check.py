@@ -15,13 +15,8 @@ class CompilerFactTests(unittest.TestCase):
 
 
 class PackageNameTests(unittest.TestCase):
-    def test_clean_package_is_installable_name(self):
-        self.assertEqual(ev3_package_name("abc",False),"phantom-abc.tar.gz")
-
-    def test_dirty_package_is_visibly_audit_only(self):
-        self.assertEqual(
-            ev3_package_name("abc",True),"phantom-audit-snapshot-abc.tar.gz"
-        )
+    def test_content_addressed_package_name(self):
+        self.assertEqual(ev3_package_name("abc"),"phantom-abc.tar.gz")
 
 
 if __name__=="__main__":unittest.main()

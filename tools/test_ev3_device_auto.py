@@ -186,6 +186,8 @@ class DeploymentRegressionTests(unittest.TestCase):
         self.assertIn("network_group=$(sed -n 's/^Group=//p'", installer)
         self.assertIn('chown "root:$network_group"', installer)
         self.assertIn("! -name motor-control.lock", installer)
+        self.assertNotIn("PRE-INSTALL", installer)
+        self.assertIn("package build manifest required", installer)
 
     def test_start_stops_at_first_failure_and_captures_systemd_cause(self):
         starter = (ROOT / "deploy" / "scripts" / "start-release").read_text(encoding="utf-8")
@@ -196,6 +198,8 @@ class DeploymentRegressionTests(unittest.TestCase):
         self.assertIn("fail_start \"$unit\"", starter)
         self.assertNotIn("phantom-device-auto", starter)
         self.assertNotIn("install -m 0644", starter)
+        self.assertNotIn("matching INSTALL or RECOVERY PASS", starter)
+        self.assertIn("sha256sum -c SHA256SUMS", starter)
 
     def test_recovery_restores_without_hidden_restart_or_candidate_delete(self):
         recovery = (ROOT / "deploy" / "scripts" / "rollback-release").read_text(encoding="utf-8")
@@ -225,11 +229,12 @@ class DeploymentRegressionTests(unittest.TestCase):
         self.assertNotIn("install-release", source)
         self.assertNotIn("rollback-release", source)
 
-    def test_ev3_transfer_is_idempotent_and_admits_deployment_tool_hashes(self):
+    def test_ev3_transfer_is_idempotent_and_needs_no_prior_evidence(self):
         source = (ROOT / "scripts" / "ev3-transfer.ps1").read_text(encoding="utf-8")
         self.assertIn("phantom-upload-", source)
         self.assertIn("mv '$remoteUpload' '$remote'", source)
-        self.assertIn("Deployment tool $name is absent or ambiguous", source)
+        self.assertNotIn("PRE-INSTALL", source)
+        self.assertIn("package.build-manifest.json", source)
         self.assertIn("WaitForExit($TimeoutSeconds*1000)", source)
         self.assertIn("[System.Diagnostics.Process]::Start", source)
         self.assertNotIn("Start-Process", source)
@@ -244,13 +249,15 @@ class DeploymentRegressionTests(unittest.TestCase):
         self.assertIn("am start", starter)
         self.assertNotIn("install -r -g", starter)
         self.assertNotIn("install -r -g", device)
-        self.assertIn("Matching Quest INSTALL and START PASS", device)
         self.assertFalse((ROOT / "scripts" / "quest-pre-install-auto.ps1").exists())
-        self.assertIn("results/pre-install/report.json", installer)
+        self.assertNotIn("PRE-INSTALL", installer)
         self.assertIn("results/pre-install/report.json", device)
-        self.assertIn("install_authorized-eq$true", installer)
-        self.assertIn("worktree_dirty-eq$false", installer)
-        self.assertIn("artifactMatches.Count-eq 1", installer)
+        self.assertNotIn("InstallEvidence", starter)
+        self.assertNotIn("InstallEvidence", device)
+        self.assertNotIn("StartEvidence", device)
+        self.assertIn("toybox sha256sum", installer)
+        self.assertIn("toybox sha256sum", starter)
+        self.assertIn("toybox sha256sum", device)
         self.assertIn("APK_INSTALL_STARTED_RESULT_UNKNOWN", installer)
         self.assertIn("[System.Diagnostics.Process]::Start", installer)
         self.assertNotIn("Start-Process", installer)
@@ -258,6 +265,27 @@ class DeploymentRegressionTests(unittest.TestCase):
         self.assertLess(starter.index("APP_LAUNCH_REQUESTED_READINESS_UNVERIFIED"),
                         starter.index("shell am start"))
         self.assertIn('$p0PrerequisiteFailed=$status-ne"PASS"', device)
+
+    def test_build_and_install_do_not_use_repository_results_as_state(self):
+        build_identity = (ROOT / "tools" / "build_identity.py").read_text(encoding="utf-8")
+        artifact_check = (ROOT / "tools" / "artifact_check.py").read_text(encoding="utf-8")
+        package = (ROOT / "scripts" / "ev3-package.ps1").read_text(encoding="utf-8")
+        preinstall = (ROOT / "scripts" / "pre-install-auto.ps1").read_text(encoding="utf-8")
+        ev3_install = (ROOT / "scripts" / "ev3-install.ps1").read_text(encoding="utf-8")
+        ev3_device = (ROOT / "scripts" / "ev3-device-auto.ps1").read_text(encoding="utf-8")
+        quest_install = (ROOT / "scripts" / "quest-install.ps1").read_text(encoding="utf-8")
+        gitignore = (ROOT / ".gitignore").read_text(encoding="utf-8")
+        self.assertIn('"PHANTOM-BUILD-V2"', build_identity)
+        self.assertNotIn('"git_commit"', build_identity)
+        self.assertNotIn("git status", artifact_check)
+        self.assertNotIn("git status", package)
+        self.assertNotIn("clean-worktree", preinstall)
+        self.assertNotIn("TransferEvidence", ev3_install)
+        self.assertNotIn("PreInstallReport", quest_install)
+        self.assertIn("Matching EV3 PRE-INSTALL PASS is required before DEVICE AUTO", ev3_device)
+        self.assertIn("/results/", gitignore.splitlines())
+        for path in ("scripts/quest-build.ps1", "scripts/ev3-host-build.ps1", "scripts/ev3-armel-docker.ps1"):
+            self.assertNotIn("--git-commit", (ROOT / path).read_text(encoding="utf-8"), path)
 
     def test_runner_does_not_probe_network_after_systemd_prerequisite_failure(self):
         source = (ROOT / "deploy" / "scripts" / "device-auto.py").read_text(encoding="utf-8")

@@ -11,7 +11,7 @@ description: Запустить или подготовить real PHANTOM Quest
 1. Найди нужный stage в `docs/PHANTOM/IMPLEMENTATION_STAGES.md`, затем прочитай только
    применимые разделы `docs/PHANTOM/TEST_PLAN.md`, `docs/PHANTOM/SAFETY.md` и involved
    component specs.
-2. Сначала зафиксируй exact candidate identity: clean source identity,
+2. Сначала зафиксируй exact candidate identity: content-addressed source identity,
    `specification_sha256`, `protocol_schema_hash`, component/profile `build_id`,
    config/bundle hashes и artifact SHA-256.
 3. Не переноси PASS с другой build/spec/platform matrix.
@@ -30,6 +30,7 @@ description: Запустить или подготовить real PHANTOM Quest
    hardware PASS.
 9. При failure сначала переведи систему в безопасное состояние и сохрани evidence; если
    возможна детерминированная off-hardware репродукция, добавь regression coverage.
-10. Сохраняй подробный machine-readable result/evidence в repository `results/**`, а
-    `CURRENT_STATUS.md` обновляй только как summary этого evidence. Никогда не ослабляй
-    требование, чтобы превратить device failure в PASS.
+10. Сохраняй подробный machine-readable result/evidence в локальный Git-ignored `results/**`,
+    а требуемое долговечное evidence публикуй как immutable CI/release artifact с URI и
+    SHA-256. `CURRENT_STATUS.md` обновляй только как summary опубликованного evidence. Никогда
+    не ослабляй требование, чтобы превратить device failure в PASS.
