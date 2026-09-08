@@ -190,13 +190,8 @@ install_runtime_metadata() {
 
 test "$(id -u)" = 0 || fail "root required"
 python3 -c 'import sys; raise SystemExit(0 if sys.version_info[:2] >= (3, 5) else 1)' || fail "Python 3.5+ runtime prerequisite is unavailable"
-release_id=$(basename "$archive" .tar.gz)
-case "$release_id" in ''|.|..|*[!A-Za-z0-9._-]*) fail "unsafe release id";; esac
-dest="$root/releases/$release_id"
-test ! -e "$dest" || fail "release already exists: $dest"
 mkdir -p "$root/releases" /var/lib/phantom
-staging="$root/releases/.staging-$release_id-$$"
-test ! -e "$staging" || fail "staging path already exists"
+staging=$(mktemp -d "$root/releases/.staging.XXXXXX")
 
 next_step archive-admission
 tar -tzf "$archive" | while IFS= read -r member; do
@@ -230,6 +225,11 @@ for field in ("controller_sha256", "safety_sha256"):
 print(manifest["build_id"])
 PY
 ) || fail "artifact admission failed"
+case "$build_id" in ''|*[!0-9a-f]*) fail "artifact admission returned invalid build_id";; esac
+test "${#build_id}" = 64 || fail "artifact admission returned invalid build_id length"
+release_id="phantom-$build_id"
+dest="$root/releases/$release_id"
+test ! -e "$dest" || fail "release already exists: $dest"
 
 next_step runtime-identities
 for group in phantom-ipc phantom-safety-ipc phantom-motor; do

@@ -1,0 +1,18 @@
+{
+    "schema_version":  1,
+    "phase":  "TRANSFER",
+    "status":  "PASS",
+    "build_id":  "4cb90d7e98db52c7abd2fc2810aa4fcc1020591caa3f86b7de19f65ee395e3f2",
+    "artifact_sha256":  "b9d3aa07db65dc5c618e5e258050e0bbb13e2dfef660919edb693aa9d3ac4d62",
+    "remote_staging":  "/tmp/phantom-transfer-4cb90d7e98db52c7abd2fc2810aa4fcc1020591caa3f86b7de19f65ee395e3f2",
+    "started_at":  "2026-09-08T02:57:36.0479691Z",
+    "finished_at":  "2026-09-08T02:58:11.2179088Z",
+    "duration_ms":  35170,
+    "steps":  [
+                  {
+                      "step":  "copy-and-remote-sha256",
+                      "status":  "PASS",
+                      "duration_ms":  35170
+                  }
+              ]
+}

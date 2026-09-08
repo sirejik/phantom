@@ -181,6 +181,8 @@ class DeploymentRegressionTests(unittest.TestCase):
         self.assertNotIn("restore_metadata || true", installer)
         self.assertIn('test "$symlink_restored" = 1', installer)
         self.assertIn('"phase": "INSTALL"', installer)
+        self.assertIn('release_id="phantom-$build_id"', installer)
+        self.assertNotIn('release_id=$(basename "$archive" .tar.gz)', installer)
         self.assertIn("network_group=$(sed -n 's/^Group=//p'", installer)
         self.assertIn('chown "root:$network_group"', installer)
         self.assertIn("! -name motor-control.lock", installer)

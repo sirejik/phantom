@@ -1,0 +1,41 @@
+{
+    "build_id":  "4cb90d7e98db52c7abd2fc2810aa4fcc1020591caa3f86b7de19f65ee395e3f2",
+    "detail":  "release installed; runtime intentionally remains stopped",
+    "duration_seconds":  126,
+    "finished_at":  "2026-09-07T16:58:12Z",
+    "installed_path":  "/opt/phantom/releases/package",
+    "phase":  "INSTALL",
+    "previous_release":  "/opt/phantom/releases/phantom-70c5f541b910-diagnostic-armel",
+    "release_id":  "package",
+    "schema_version":  1,
+    "started_at":  "2026-09-07T16:56:06Z",
+    "status":  "PASS",
+    "steps":  [
+                  {
+                      "duration_seconds":  8,
+                      "status":  "PASS",
+                      "step":  "prerequisites"
+                  },
+                  {
+                      "duration_seconds":  14,
+                      "status":  "PASS",
+                      "step":  "archive-admission"
+                  },
+                  {
+                      "duration_seconds":  71,
+                      "status":  "PASS",
+                      "step":  "runtime-identities"
+                  },
+                  {
+                      "duration_seconds":  21,
+                      "status":  "PASS",
+                      "step":  "stop-and-safe"
+                  },
+                  {
+                      "duration_seconds":  12,
+                      "status":  "PASS",
+                      "step":  "transaction"
+                  }
+              ],
+    "terminal_state":  "RUNTIME_STOPPED_ZERO_OUTPUT"
+}
