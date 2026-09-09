@@ -167,7 +167,7 @@ internal static class Stage3CoreTests
     static DiscoveredRobot Robot(string key,string host,int port,byte[] boot,string robot="phantom01")=>new DiscoveredRobot{ServiceKey=key,InstanceName="PHANTOM-"+robot,ServiceType="_phantom-ev3._udp",RobotId=robot,ProtocolMajor=1,ControllerBootId=boot,BuildId=BuildId,Endpoint=new IPEndPoint(IPAddress.Parse(host),port)};
     static byte[] Ack(byte[] hello,byte[] session,byte[] boot,byte[] bundle=null,string robot="phantom01",ushort result=0)
     {
-        DecodedDatagram request;Check(ProtocolCodec.TryDecode(hello,Key,out request),"HELLO parse for ACK");var p=new byte[364];Buffer.BlockCopy(request.Payload,36,p,0,16);PutId(p,16,robot);Buffer.BlockCopy(Hex(BuildId),0,p,48,32);PutU16(p,80,0);p[82]=0;p[83]=0;Buffer.BlockCopy(Hex(WireV1.ProtocolSchemaSha256),0,p,116,32);Buffer.BlockCopy(bundle??Bundle,0,p,148,32);PutU16(p,308,3);p[312]=1;PutU16(p,314,result);return ProtocolCodec.Encode(WireV1.MessageType.HelloAck,p,Key,session,boot,0,0);
+        DecodedDatagram request;Check(ProtocolCodec.TryDecode(hello,Key,out request),"HELLO parse for ACK");var p=new byte[364];Buffer.BlockCopy(request.Payload,36,p,0,16);PutId(p,16,robot);Buffer.BlockCopy(Hex(BuildId),0,p,48,32);PutU16(p,80,0);p[82]=0;p[83]=0;Buffer.BlockCopy(Hex(WireV1.ProtocolContractSha256),0,p,116,32);Buffer.BlockCopy(bundle??Bundle,0,p,148,32);PutU16(p,308,3);p[312]=1;PutU16(p,314,result);return ProtocolCodec.Encode(WireV1.MessageType.HelloAck,p,Key,session,boot,0,0);
     }
     static byte[] Telemetry(byte[] session,byte[] boot,ulong sequence)
     {

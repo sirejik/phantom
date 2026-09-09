@@ -31,6 +31,7 @@ function Invoke-One([string]$label)
 $a=Invoke-One 'a';$b=Invoke-One 'b'
 if($a.BuildId-ne$b.BuildId){throw "Reproducibility FAIL: build_id differs: $($a.BuildId) / $($b.BuildId)"}
 $byteReproducible=$a.ArtifactSha256-eq$b.ArtifactSha256
+$differenceClass=if($byteReproducible){'BYTE_IDENTICAL'}elseif($Component-eq'QUEST'){'BYTE_DIFFERENCE_REVIEW_REQUIRED'}else{'UNEXPECTED_BYTE_DIFFERENCE'}
 $questDifference=$null
 if($Component-eq'QUEST' -and !$byteReproducible)
 {
@@ -38,8 +39,8 @@ if($Component-eq'QUEST' -and !$byteReproducible)
     if($LASTEXITCODE-ne 0){throw 'Quest APK reproducibility difference analysis failed'}
     $questDifference=$differenceJson|ConvertFrom-Json
 }
-$report=[ordered]@{schema_version=1;phase='TEST';test_id='build-reproducibility';status=if($Component-eq'EV3' -and !$byteReproducible){'FAIL'}else{'PASS'};component=$Component;profile=$Profile;build_id=$a.BuildId;artifact_a_sha256=$a.ArtifactSha256;artifact_b_sha256=$b.ArtifactSha256;byte_reproducible=$byteReproducible;quest_nondeterminism_requires_review=($Component-eq'QUEST' -and !$byteReproducible);quest_difference=$questDifference}
+$report=[ordered]@{schema_version=2;phase='TEST';test_id='build-reproducibility';status=if($Component-eq'EV3' -and !$byteReproducible){'FAIL'}else{'PASS'};component=$Component;profile=$Profile;build_id=$a.BuildId;build_identity_stable=$true;artifact_a_sha256=$a.ArtifactSha256;artifact_b_sha256=$b.ArtifactSha256;artifact_byte_reproducible=$byteReproducible;difference_class=$differenceClass;difference_requires_review=($Component-eq'QUEST' -and !$byteReproducible);quest_difference=$questDifference}
 $path=Join-Path $root "$($Component.ToLowerInvariant())-$($Profile.ToLowerInvariant())-report.json"
 [IO.File]::WriteAllText($path,($report|ConvertTo-Json -Depth 5)+"`n",[Text.UTF8Encoding]::new($false))
 if($report.status-ne'PASS'){throw "Reproducibility FAIL: EV3 package SHA-256 differs; report=$path"}
-Write-Output "Reproducibility: PASS component=$Component build_id=$($a.BuildId) byte_reproducible=$byteReproducible report=$path"
+Write-Output "Reproducibility: PASS component=$Component build_identity_stable=true artifact_byte_reproducible=$byteReproducible difference_class=$differenceClass report=$path"

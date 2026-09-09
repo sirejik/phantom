@@ -32,7 +32,11 @@ find "$stage" -type f -exec chmod 0644 {} +
 chmod 0755 "$stage/bin/phantom-controller" "$stage/bin/phantom-safety" "$stage/bin/phantom-network" "$stage/bin/phantom-mdns" "$stage/bin/phantom-device-integration-test"
 cd "$stage"
 sha256sum -c SHA256SUMS
-tar --sort=name --mtime='UTC 1970-01-01' --owner=0 --group=0 --numeric-owner -cf - . | gzip -n > /packages/__ARCHIVE__
+# List every payload member explicitly. Archiving `.` adds a standalone root
+# member, which the fail-closed on-device installer intentionally rejects.
+find "$stage" -mindepth 1 -printf '%P\0' | sort -z |
+  tar --null --no-recursion --sort=name --mtime='UTC 1970-01-01' --owner=0 --group=0 --numeric-owner -C "$stage" -T - -cf - |
+  gzip -n > /packages/__ARCHIVE__
 tar -tzf /packages/__ARCHIVE__ >/dev/null
 '@
   $command=$command.Replace('__ARCHIVE__',$archiveName)
@@ -42,7 +46,7 @@ tar -tzf /packages/__ARCHIVE__ >/dev/null
   $artifactHash=(Get-FileHash $archivePath -Algorithm SHA256).Hash.ToLower()
   $provenance=[ordered]@{schema_version=2;component="EV3";build_id=$manifest.build_id;build_profile=$name;source_tree_hash=$manifest.source_tree_hash;artifact_sha256=$artifactHash;embedded_identity_sha256=(Get-FileHash (Join-Path $source "build-manifest.json") -Algorithm SHA256).Hash.ToLower();created_at=(Get-Date).ToUniversalTime().ToString('o')}
   $provenance|ConvertTo-Json|Set-Content "$archivePath.build-manifest.json" -Encoding UTF8
-  $buildResult=[ordered]@{schema_version=1;phase='BUILD';status='PASS';component='EV3';profile=$name;qualification_eligible=($name-ne'DeepDebug');build_id=$manifest.build_id;artifact_path=$archivePath;artifact_sha256=$artifactHash;config_hash=$manifest.config_hash;specification_sha256=$manifest.specification_sha256;protocol_schema_hash=$manifest.protocol_schema_hash}
+  $buildResult=[ordered]@{schema_version=1;phase='BUILD';status='PASS';component='EV3';profile=$name;qualification_eligible=($name-ne'DeepDebug');build_id=$manifest.build_id;artifact_path=$archivePath;artifact_sha256=$artifactHash;config_hash=$manifest.config_hash;specification_sha256=$manifest.specification_sha256;protocol_schema_hash=$manifest.protocol_schema_hash;protocol_semantics_hash=$manifest.protocol_semantics_hash;protocol_contract_hash=$manifest.protocol_contract_hash}
   [System.IO.File]::WriteAllText("$archivePath.build-result.json",($buildResult|ConvertTo-Json -Depth 5)+"`n",[System.Text.UTF8Encoding]::new($false))
   Write-Output "$archiveName $artifactHash"
 }

@@ -100,7 +100,7 @@ flowchart TD
 С этапа 1 действуют проверки протокола, парсинга, математических контрактов, ограниченности
 очередей/буферов и отсутствия секретов в артефактах. Изменение semantic wire schema после
 закрытия этапа требует migration regression codecs/generated schema/hash/golden vectors
-текущего build; старый PASS не доказывает новый `protocol_schema_hash`.
+текущего build; старый PASS не доказывает новый `protocol_contract_hash` либо его schema/semantics constituents.
 
 **Этап считается выполненным, если:** чистый checkout воспроизводимо собирается; применимый
 `TEST` проходит; Quest способен работать с симулятором EV3, EV3 controller — с
@@ -134,7 +134,7 @@ fault; ни startup, ни shutdown не создают ненулевой motor 
 
 При изменении DNS-SD/IPC/wire semantics после любого предыдущего evidence code/build,
 заявляющий соответствие текущей specification revision, обязан regenerate canonical schema,
-generated constants/size maps, `protocol_schema_hash` и golden vectors, повторно проверить
+generated constants/size maps, все три protocol hashes и golden vectors, повторно проверить
 production serializers/deserializers общими cross-codec/negative vectors и затем повторить
 затронутые migration regressions. Старый PASS другой schema/build не переносится.
 
@@ -328,7 +328,7 @@ Gripper channel продолжает использовать проверенн
 5. HOLD/SAFE_HOLD, tracking loss, network loss, stale command, `LOCAL_STOP`, stall/contact и process failure работают безопасно;
 6. payload transitions `EMPTY → contact → UNKNOWN → LOADED` и `LOADED/UNKNOWN → release → UNKNOWN → EMPTY` проходят без продолжения старой A/B/C trajectory; в qualification они выполняются оставаясь в `COMMISSIONING`, в production smoke — через `HOLD`; смена profile/reboot также даёт `UNKNOWN` до явного подтверждения;
 7. робот не выходит из `JointSafeSet` и independent bounds;
-8. 50-Hz EV3/XR budgets выполняются;
+8. выполняются раздельные budgets: authoritative EV3 control loop 50 Hz, Quest XR rendering/tracking около частоты дисплея (целевой baseline ~60 Hz), network telemetry nominal 20 Hz; ни один из них не подменяет другой;
 9. target/actual/incident telemetry достаточна для разбора отказа;
 10. после успешной qualification сформирован PASS `QualificationEvidenceManifest`; из неизменившегося component set создан/установлен complete production bundle `qualification_only=false`, `0x0F/0x0F`, его evidence hash проверен обеими сторонами, после нового startup product `READY/TRACKING` проходит отдельный финальный smoke/end-to-end case.
 

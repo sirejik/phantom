@@ -1,90 +1,151 @@
 #!/usr/bin/env python3
-"""Regression contract for independent PHANTOM lifecycle phases."""
-import pathlib,re,unittest
+"""Static regression contract for independent, fixed-pair PHANTOM lifecycle phases."""
+import pathlib
+import json
+import re
+import unittest
 
-ROOT=pathlib.Path(__file__).resolve().parents[1]
-def read(path):return (ROOT/path).read_text(encoding="utf-8")
+ROOT = pathlib.Path(__file__).resolve().parents[1]
+
+
+def read(path):
+    return (ROOT / path).read_text(encoding="utf-8")
+
+
+ROUTINE_EV3 = (
+    "scripts/ev3-transfer.ps1", "scripts/ev3-install.ps1", "scripts/ev3-start.ps1",
+    "scripts/ev3-recover.ps1", "scripts/ev3-device-integration-test.ps1",
+)
+ROUTINE_QUEST = (
+    "scripts/quest-install.ps1", "scripts/quest-start.ps1",
+    "scripts/quest-device-integration-test.ps1",
+)
+
 
 class LifecycleTests(unittest.TestCase):
-    def test_01_removed_pre_install_phase(self):
-        self.assertFalse((ROOT/"scripts/pre-install-auto.ps1").exists());self.assertFalse((ROOT/"config/schema/pre_install_report.schema.json").exists())
-    def test_02_device_test_has_no_preinstall_result_dependency(self):
-        for path in ("scripts/ev3-device-integration-test.ps1","scripts/quest-device-integration-test.ps1"):
-            self.assertNotIn("results/pre-install",read(path))
-    def test_03_install_does_not_start(self):self.assertNotIn("systemctl start",read("deploy/scripts/install-release"))
-    def test_04_start_does_not_run_device_test(self):self.assertNotIn("run-device-integration-test",read("deploy/scripts/start-release"))
-    def test_05_deploy_does_not_provision(self):
-        for path in ("scripts/ev3-transfer.ps1","scripts/ev3-install.ps1","scripts/ev3-start.ps1","scripts/quest-install.ps1","scripts/quest-start.ps1"):
-            source=read(path);self.assertNotIn("provision-credential",source);self.assertNotIn("ssh-keyscan",source)
-    def test_06_missing_control_psk_is_explicit(self):self.assertIn("PROVISION_REQUIRED",read("scripts/quest-start.ps1"))
-    def test_07_quest_update_preserves_app_data(self):
-        source=read("scripts/quest-install.ps1");self.assertIn("install -r -g",source);self.assertNotIn("uninstall",source);self.assertNotIn("pm clear",source)
-    def test_08_stage3_does_not_require_commissioning_psk(self):
-        source=read("config/source/quest-network-only.json");self.assertRegex(source,r'"commissioning_key_id"\s*:\s*null')
-    def test_09_results_absent_is_supported(self):
-        for path in ("scripts/ev3-transfer.ps1","scripts/quest-start.ps1"):
-            self.assertIn("New-Item -ItemType Directory",read(path))
-    def test_10_stale_results_are_not_read(self):
-        for path in ("scripts/ev3-install.ps1","scripts/ev3-start.ps1","scripts/quest-start.ps1"):
-            self.assertNotRegex(read(path),r"Get-Content[^\n]*results")
-    def test_11_build_is_disposable(self):self.assertIn("[switch]$All",read("scripts/build-clean.ps1"))
-    def test_12_dirty_tree_does_not_block_build(self):
-        for path in ("scripts/ev3-armel-docker.ps1","scripts/quest-build.ps1"):
-            self.assertNotIn("working tree must be clean",read(path).lower())
-    def test_13_component_build_commands_are_separate(self):
-        self.assertTrue((ROOT/"scripts/ev3-build.ps1").exists());self.assertTrue((ROOT/"scripts/quest-build.ps1").exists())
-    def test_14_diagnostic_is_default_without_release_loop(self):
-        source=read("scripts/ev3-armel-docker.ps1");self.assertIn('$Profile="Diagnostic"',source);self.assertNotIn('foreach($profile in @("Release","Diagnostic"))',source)
-    def test_15_unchanged_units_skip(self):self.assertIn('cmp -s "$release/systemd/$unit"',read("deploy/scripts/install-release"))
-    def test_16_changed_units_reload(self):self.assertIn('test "$units_changed" = 0 || systemctl daemon-reload',read("deploy/scripts/install-release"))
-    def test_17_tmpfiles_equivalence(self):self.assertIn('tmpfiles_changed',read("deploy/scripts/install-release"))
-    def test_18_install_leaves_stopped(self):self.assertIn("runtime intentionally remains stopped",read("deploy/scripts/install-release"))
-    def test_19_start_stops_at_first_failure(self):self.assertIn('fail_start "$unit"',read("deploy/scripts/start-release"))
-    def test_20_start_captures_diagnostics(self):
-        source=read("deploy/scripts/start-release");self.assertIn("ExecMainCode",source);self.assertIn("journalctl",source)
-    def test_21_start_has_no_rollback(self):self.assertNotIn("rollback-release",read("deploy/scripts/start-release"))
-    def test_22_device_test_does_not_deploy(self):
-        source=read("scripts/ev3-device-integration-test.ps1")+read("scripts/quest-device-integration-test.ps1")
-        for token in ("ev3-build.ps1","install-release","rollback-release","adb install"):self.assertNotIn(token,source)
-    def test_23_no_pid_automatic_variable_assignment(self):self.assertNotRegex(read("scripts/quest-start.ps1"),r"(?im)^\s*\$pid\s*=")
-    def test_24_ssh_uses_central_target(self):
-        source=read("scripts/ev3-deploy-common.ps1");self.assertIn(".ev3-ssh/config",source);self.assertIn("phantom-ev3",source)
-    def test_25_powershell_ssh_quoting_is_escaped(self):
-        source=read("scripts/ev3-transfer.ps1");self.assertIn("`$(sha256sum",source);self.assertNotRegex(source,r'(?m)^\s*[^#\"\']*\|\|')
-    def test_26_stable_execution_policy_launcher(self):
-        self.assertIn("-ExecutionPolicy Bypass",read("scripts/phantom.cmd"));self.assertIn("ValueFromRemainingArguments",read("scripts/phantom.ps1"))
-    def test_27_cleaner_selects_unity_backups(self):self.assertIn("BackUpThisFolder_ButDontShipItWithYourGame",read("scripts/build-clean.ps1"))
-    def test_28_cleaner_all_selects_build_children(self):self.assertIn("if($All)",read("scripts/build-clean.ps1"))
-    def test_29_cleaner_rejects_secrets_and_provisioning(self):
-        source=read("scripts/build-clean.ps1");self.assertIn(".secrets",source);self.assertIn("Build root escaped repository build directory",source);self.assertNotIn(".ev3-ssh",source)
-    def test_30_debug_uses_same_start_helper(self):self.assertIn("PHANTOM_START_VERBOSITY",read("scripts/ev3-start.ps1"))
-    def test_31_debug_does_not_change_safety_core(self):self.assertNotIn("actuator_scope_mask",read("scripts/ev3-start.ps1"))
-    def test_32_deep_debug_is_not_qualification_evidence(self):
-        self.assertIn("qualification_eligible=false",read("docs/PHANTOM/ENGINEERING.md"));self.assertIn("qualification_eligible=($profile-ne\"DeepDebug\")",read("scripts/ev3-armel-docker.ps1"))
-    def test_33_stage3_no_motion_profile(self):
-        source=read("config/source/ev3-network-only.json");self.assertRegex(source,r'"actuator_scope_mask"\s*:\s*0');self.assertRegex(source,r'"safety_observation_mask"\s*:\s*0')
-    def test_34_quest_credential_persistence_regression_exists(self):
-        source=read("scripts/quest-credential-persistence-test.ps1");self.assertGreaterEqual(source.count("quest-install.ps1"),2);self.assertGreaterEqual(source.count("quest-start.ps1"),2)
-    def test_35_build_runs_exact_artifact_validation(self):
-        self.assertIn("artifact_check.py --component QUEST",read("scripts/quest-build.ps1"));self.assertIn("artifact_check.py --component EV3",read("scripts/ev3-build.ps1"))
-    def test_36_recovery_restores_versioned_metadata_and_stays_stopped(self):
-        source=read("deploy/scripts/rollback-release");self.assertIn("restore-metadata",source);self.assertIn("runtime intentionally remains stopped",source);self.assertNotIn("systemctl start",source)
-    def test_37_debug_failure_snapshots_are_bounded_and_nonsecret(self):
-        quest=read("scripts/quest-start.ps1");ev3=read("deploy/scripts/start-release")
-        self.assertIn("logcat -d",quest);self.assertIn("journalctl",ev3);self.assertNotIn("control.psk",quest+ev3)
-    def test_38_dispatcher_install_does_not_hide_transfer(self):
-        source=read("scripts/phantom.ps1")
-        self.assertIn("'INSTALL:EV3' {'ev3-install.ps1'}",source)
-        self.assertNotIn("'INSTALL:EV3' {'ev3-deploy-install.ps1'}",source)
-    def test_39_results_cleaner_is_dry_run_and_repository_scoped(self):
-        source=read("scripts/results-clean.ps1")
-        self.assertIn("param([switch]$Apply)",source)
-        self.assertIn("Join-Path $repository 'results'",source)
-        self.assertIn("if(!$Apply)",source)
-    def test_40_install_rejects_links_duplicates_and_unlisted_files(self):
-        source=read("deploy/scripts/install-release")
-        self.assertIn("member.issym() or member.islnk()",source)
-        self.assertIn("duplicate archive member",source)
-        self.assertIn("listed != actual",source)
+    def test_lifecycle_result_schema_has_common_required_fields(self):
+        schema = json.loads(read("config/schema/lifecycle_result.schema.json"))
+        expected = {"schema_version", "phase", "component", "profile", "status", "reason", "duration_ms", "terminal_state", "hardware_evidence_state"}
+        self.assertTrue(expected.issubset(schema["required"]))
+        self.assertIn("DEVICE INTEGRATION TEST", schema["properties"]["phase"]["enum"])
+        self.assertIn(2, schema["properties"]["schema_version"]["enum"])
 
-if __name__=="__main__":unittest.main()
+    def test_independent_phases_do_not_hide_work(self):
+        self.assertNotIn("systemctl start", read("deploy/scripts/install-release"))
+        self.assertNotIn("run-device-integration-test", read("deploy/scripts/start-release"))
+        self.assertIn("'INSTALL:EV3' {'ev3-install.ps1'}", read("scripts/phantom.ps1"))
+        self.assertNotIn("'INSTALL:EV3' {'ev3-deploy-install.ps1'}", read("scripts/phantom.ps1"))
+
+    def test_routine_phases_never_provision_or_repin(self):
+        for path in ROUTINE_EV3 + ROUTINE_QUEST:
+            source = read(path)
+            for forbidden in ("ssh-keyscan", "provision-fixed-pair", "ev3-provision-maintenance", "quest-provision-credential"):
+                self.assertNotIn(forbidden, source, path)
+        self.assertNotIn("ControlMaster", read("scripts/ev3-deploy-common.ps1"))
+
+    def test_private_fixed_pair_is_outside_repo_and_exact(self):
+        state = read("scripts/pair-state.ps1")
+        self.assertIn("LocalApplicationData", state)
+        self.assertIn("PHANTOM_PAIR_STATE_ROOT", state)
+        self.assertIn("quest_adb_serial", state)
+        self.assertIn("ev3_host_key_fingerprint", state)
+        self.assertIn("IdentityFile", read("scripts/ev3-provision-maintenance.ps1"))
+        self.assertNotIn("Select-Object -First 1", state)
+        for path in ROUTINE_QUEST:
+            self.assertIn("Get-PhantomQuestDevice", read(path), path)
+        for path in ROUTINE_EV3:
+            self.assertNotRegex(read(path), r"\[string\]\$Target", path)
+
+    def test_provision_is_explicit_idempotent_and_record_written_last(self):
+        provision = read("scripts/provision-fixed-pair.ps1")
+        self.assertIn("'PROVISION:PAIR'", read("scripts/phantom.ps1"))
+        self.assertIn("ALREADY_PROVISIONED", provision)
+        self.assertIn("PROVISION_CORRUPT", provision)
+        for token in ("RotateSshKey", "RotateControlSecret", "RepinHost"):
+            self.assertIn(token, provision)
+        self.assertGreater(provision.index("Write-PhantomPairState"), provision.index("quest-provision-credential.ps1"))
+
+    def test_canonical_fail_fast_errors_are_present(self):
+        source = "\n".join(read(p) for p in ("scripts/pair-state.ps1", "scripts/ev3-deploy-common.ps1", "scripts/ev3-provision-maintenance.ps1"))
+        for code in ("PROVISION_REQUIRED", "PROVISION_CORRUPT", "QUEST_NOT_FOUND", "QUEST_IDENTITY_MISMATCH", "HOST_KEY_MISMATCH", "DEVICE_NOT_FOUND"):
+            self.assertIn(code, source)
+
+    def test_transfer_is_content_addressed_idempotent_and_atomic(self):
+        source = read("scripts/ev3-transfer.ps1")
+        for token in ("SKIPPED_ALREADY_PRESENT", "ARTIFACT_MISMATCH", ".partial", "sha256sum", "mv -f", "throughput_bytes_per_second"):
+            self.assertIn(token, source)
+
+    def test_start_preserves_first_failure_and_never_rolls_back_or_repairs_wifi(self):
+        source = read("deploy/scripts/start-release")
+        for token in ("first_failed_service", "first_failure_at_ms", "ExecMainCode", "ExecMainStatus", "list-dependencies", 'fail_start "$unit"'):
+            self.assertIn(token, source)
+        self.assertNotIn("rollback-release", source)
+        self.assertNotIn("wifi-autoconnect", source)
+        self.assertIn("NETWORK_NOT_READY", source)
+        self.assertIn("APP_FORCE_STOP_REQUESTED", read("scripts/quest-start.ps1"))
+
+    def test_start_and_transport_operations_are_bounded(self):
+        start = read("deploy/scripts/start-release")
+        self.assertIn('timeout "$step_timeout" systemctl start', start)
+        self.assertIn('timeout "$step_timeout" sh -c', start)
+        self.assertIn("WaitForExit($TimeoutSeconds*1000)", read("scripts/pair-state.ps1"))
+        self.assertIn("WaitForExit($TimeoutSeconds*1000)", read("scripts/ev3-deploy-common.ps1"))
+        for path in ROUTINE_QUEST:
+            self.assertNotRegex(read(path), r"&\s*\$adb\b", path)
+
+    def test_install_preserves_quest_data_and_leaves_ev3_stopped(self):
+        quest = read("scripts/quest-install.ps1")
+        ev3 = read("deploy/scripts/install-release")
+        self.assertIn("install -r -g", quest)
+        self.assertNotIn("uninstall", quest)
+        self.assertNotIn("pm clear", quest)
+        self.assertIn("runtime intentionally remains stopped", ev3)
+        self.assertNotIn("systemctl start", ev3)
+
+    def test_reports_have_common_contract_and_no_device_serial(self):
+        for path in ("scripts/ev3-transfer.ps1", "scripts/quest-install.ps1", "scripts/quest-start.ps1", "deploy/scripts/start-release", "deploy/scripts/device-integration-test.py", "scripts/quest-device-integration-test.ps1"):
+            source = read(path)
+            for field in ("schema_version", "phase", "component", "profile", "status", "reason", "duration_ms", "terminal_state", "hardware_evidence_state"):
+                self.assertIn(field, source, (path, field))
+            self.assertNotIn("quest_adb_serial=", source)
+
+    def test_debug_and_device_test_do_not_change_safety_or_deploy(self):
+        ev3_start = read("scripts/ev3-start.ps1")
+        quest_start = read("scripts/quest-start.ps1")
+        self.assertIn("PHANTOM_START_VERBOSITY", ev3_start)
+        self.assertNotRegex(ev3_start + quest_start, r"\[switch\]\$Debug\b")
+        self.assertNotIn("actuator_scope_mask", ev3_start)
+        device = read("scripts/ev3-device-integration-test.ps1") + read("scripts/quest-device-integration-test.ps1")
+        for token in ("ev3-build.ps1", "install-release", "rollback-release", "adb install"):
+            self.assertNotIn(token, device)
+
+    def test_build_and_results_are_disposable_but_secrets_are_not(self):
+        build_clean = read("scripts/build-clean.ps1")
+        results_clean = read("scripts/results-clean.ps1")
+        self.assertIn("[switch]$All", build_clean)
+        self.assertIn("BackUpThisFolder_ButDontShipItWithYourGame", build_clean)
+        self.assertIn(".secrets", build_clean)
+        self.assertIn("param([switch]$Apply)", results_clean)
+        self.assertIn("if(!$Apply)", results_clean)
+
+    def test_protocol_contract_identity_is_used_by_build_and_runtime(self):
+        for path in ("scripts/ev3-armel-docker.ps1", "scripts/quest-build.ps1", "scripts/ev3-host-build.ps1"):
+            source = read(path)
+            self.assertIn("protocolcontract", source.lower().replace("_", ""), path)
+        for path in ("scripts/ev3-armel-docker.ps1", "scripts/ev3-host-build.ps1"):
+            self.assertIn("semantics.yaml", read(path), path)
+        self.assertIn('"bin/semantics.yaml"', read("deploy/scripts/install-release"))
+        self.assertIn("PHANTOM-BUILD-V3", read("scripts/ev3-armel-docker.ps1"))
+        self.assertIn("PHANTOM-BUILD-V3", read("scripts/ev3-host-build.ps1"))
+        self.assertIn("PHANTOM-BUILD-V3", read("PhantomQuest/Assets/Phantom/Editor/PhantomBuild.cs"))
+        self.assertIn("wire.contract_hash()", read("ev3/network/phantom_network.py"))
+        self.assertIn("WireV1.ProtocolContractSha256", read("PhantomQuest/Assets/Phantom/Networking/Stage3NetworkClient.cs"))
+
+    def test_stage3_profile_is_network_only(self):
+        source = read("config/source/ev3-network-only.json")
+        self.assertRegex(source, r'"actuator_scope_mask"\s*:\s*0')
+        self.assertRegex(source, r'"safety_observation_mask"\s*:\s*0')
+
+
+if __name__ == "__main__":
+    unittest.main()

@@ -1,6 +1,6 @@
 # Текущее состояние реализации PHANTOM
 
-> **Ревизия состояния:** 2026-09-09.
+> **Ревизия состояния:** 2026-09-10.
 > **Тип:** ненормативное summary. Источником PASS/FAIL является опубликованный immutable
 > machine-readable report с candidate/artifact hashes; локальный `results/**` не является
 > долговечным хранилищем и не коммитится.
@@ -14,19 +14,24 @@ TEST → BUILD → PROVISION → TRANSFER → INSTALL → START → DEBUG
      → DEVICE INTEGRATION TEST → HIL → MANUAL ACCEPTANCE → RECOVERY
 ```
 
-- `PHANTOM-BUILD-V2` вычисляет component/profile-specific `build_id` из точных входов;
+- `PHANTOM-BUILD-V3` вычисляет component/profile-specific `build_id` из точных входов и compatibility `protocol_contract_hash`;
+- текущие generated protocol identities: schema `bbb1e01b…`, semantics `f0500563…`,
+  contract `73829128…`; normative specification identity `03b05e82…`;
 - Git commit/dirty state остаются provenance и не меняют identity bytes;
 - BUILD, TRANSFER, INSTALL, START и DEVICE INTEGRATION TEST не читают отчёты предыдущих фаз;
 - INSTALL проверяет выбранные bytes и embedded identity, но не строит и не тестирует;
 - START запускает уже установленное и не выполняет provisioning/recovery;
+- единственный назначенный EV3 обслуживается напрямую через `ev3dev.local` с pinned SSH
+  fingerprint; отдельный alias и сохранённый IP штатному deploy не нужны;
 - `build/**` и `results/**` являются удаляемыми локальными outputs;
 - долговечное qualification evidence публикуется отдельно как immutable artifact.
 
-Применимый off-hardware regression завершён. Diagnostic BUILD обоих компонентов и
-reproducibility TEST выполнены; итоговые артефакты готовы к явным TRANSFER/INSTALL после
-подключения устройств. EV3 package воспроизводится побайтово. Quest сохраняет одинаковый
-content-derived `build_id`, но Unity меняет per-build GUID metadata; точные различия фиксирует
-reproducibility report и они не скрываются как равенство APK bytes.
+Исторические Diagnostic BUILD/reproducibility results относятся к предыдущей protocol/build
+identity и не являются artifacts текущей миграции. В текущей задаче BUILD Quest и EV3 —
+`NOT_RUN`; TRANSFER, INSTALL, START, DEBUG START, DEVICE INTEGRATION TEST, HIL, MANUAL
+ACCEPTANCE и RECOVERY — `NOT_RUN`. После изменения protocol contract новых installable
+artifacts пока нет. Выполнены только off-hardware source/generator/unit/security/doc checks,
+перечисленные в active execution plan.
 
 ## Stage 3
 

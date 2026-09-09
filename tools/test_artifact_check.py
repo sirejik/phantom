@@ -27,8 +27,17 @@ class PackageNameTests(unittest.TestCase):
             with self.assertRaisesRegex(ValueError,"unsafe EV3 archive path"):
                 verify_ev3_archive(path)
 
+    def test_archive_root_member_is_rejected(self):
+        with tempfile.TemporaryDirectory() as directory:
+            path=pathlib.Path(directory)/"root-member.tar.gz"
+            with tarfile.open(path,"w:gz") as archive:
+                info=tarfile.TarInfo(".");info.type=tarfile.DIRTYPE
+                archive.addfile(info)
+            with self.assertRaisesRegex(ValueError,r"unsafe EV3 archive path: \."):
+                verify_ev3_archive(path)
+
     def test_required_executable_mode_is_checked(self):
-        required=("./build-manifest.json","./SHA256SUMS","./bin/phantom-controller","./bin/phantom-safety","./bin/phantom-network","./bin/phantom-mdns","./bin/phantom-device-integration-test")
+        required=("build-manifest.json","SHA256SUMS","bin/phantom-controller","bin/phantom-safety","bin/phantom-network","bin/phantom-mdns","bin/phantom-device-integration-test","bin/phantom_protocol.py","bin/jcs.py","bin/ipc_layout.py","bin/wire_schema.yaml","bin/semantics.yaml")
         with tempfile.TemporaryDirectory() as directory:
             path=pathlib.Path(directory)/"bad-mode.tar.gz"
             with tarfile.open(path,"w:gz") as archive:
@@ -36,6 +45,17 @@ class PackageNameTests(unittest.TestCase):
                     info=tarfile.TarInfo(name);payload=b"x";info.size=1;info.mode=0o644
                     archive.addfile(info,io.BytesIO(payload))
             with self.assertRaisesRegex(ValueError,"not executable"):
+                verify_ev3_archive(path)
+
+    def test_protocol_semantics_runtime_input_is_required(self):
+        required=("build-manifest.json","SHA256SUMS","bin/phantom-controller","bin/phantom-safety","bin/phantom-network","bin/phantom-mdns","bin/phantom-device-integration-test","bin/phantom_protocol.py","bin/jcs.py","bin/ipc_layout.py","bin/wire_schema.yaml")
+        with tempfile.TemporaryDirectory() as directory:
+            path=pathlib.Path(directory)/"missing-semantics.tar.gz"
+            with tarfile.open(path,"w:gz") as archive:
+                for name in required:
+                    info=tarfile.TarInfo(name);payload=b"x";info.size=1;info.mode=0o755
+                    archive.addfile(info,io.BytesIO(payload))
+            with self.assertRaisesRegex(ValueError,"inventory is incomplete"):
                 verify_ev3_archive(path)
 
 

@@ -3,6 +3,11 @@
 > **Тип:** execution plan; ненормативный
 > **Область:** <компоненты / этап / requirement IDs>
 > **Начало:** <дата или commit>
+> **Status:** ACTIVE | COMPLETED | SUPERSEDED
+> **Supersedes:** <plan или N_A>
+> **Superseded by:** <plan или N_A>
+> **Normative owners:** <owning specifications>
+> **Hardware/evidence state:** NOT_RUN | ссылки на exact immutable evidence
 
 ## Цель
 

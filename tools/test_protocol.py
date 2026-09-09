@@ -1,5 +1,5 @@
-import hashlib,hmac,json,math,pathlib,struct,sys,unittest
-ROOT=pathlib.Path(__file__).resolve().parents[1];sys.path.insert(0,str(ROOT/"protocol"));import phantom_protocol as wire
+import copy,hashlib,hmac,json,math,pathlib,struct,sys,unittest
+ROOT=pathlib.Path(__file__).resolve().parents[1];sys.path.insert(0,str(ROOT/"protocol"));sys.path.insert(0,str(ROOT/"tools"));import phantom_protocol as wire;import protocolgen
 class ProtocolTests(unittest.TestCase):
  def test_schema_exact_sizes_and_unique_types(self):
   scalar={"u8":1,"i8":1,"u16":2,"i16":2,"u32":4,"i32":4,"u64":8,"f32":4,"id32":32}
@@ -9,8 +9,25 @@ class ProtocolTests(unittest.TestCase):
  def test_golden_vectors(self):
   doc=json.loads((ROOT/"protocol"/"golden_vectors"/"v1.json").read_text())
   self.assertEqual(doc["protocol_schema_sha256"],wire.schema_hash().hex())
+  self.assertEqual(doc["protocol_semantics_sha256"],wire.semantics_hash().hex())
+  self.assertEqual(doc["protocol_contract_sha256"],wire.contract_hash().hex())
   for v in doc["vectors"]:
    data=bytes.fromhex(v["datagram_hex"]);key=bytes.fromhex(v["hmac_key_hex"]);self.assertEqual(hashlib.sha256(data).hexdigest(),v["datagram_sha256"]);self.assertTrue(hmac.compare_digest(data[-32:],hmac.new(key,data[:-32],hashlib.sha256).digest()));self.assertEqual(wire.decode(data,key)["message"],v["name"])
+ def test_structural_and_semantic_identities_are_independent(self):
+  renamed=copy.deepcopy(wire.SCHEMA);renamed["messages"][1]["fields"][7][0]="renamed_without_layout_change"
+  renamed_schema=hashlib.sha256(wire.jcs.canonicalize(protocolgen.structural_projection(renamed))).digest()
+  self.assertEqual(renamed_schema,wire.schema_hash())
+  renumbered=copy.deepcopy(wire.SCHEMA);state=renumbered["enums"]["State"];state["READY"],state["HOLD"]=state["HOLD"],state["READY"]
+  renumbered_schema=hashlib.sha256(wire.jcs.canonicalize(protocolgen.structural_projection(renumbered))).digest()
+  self.assertNotEqual(renumbered_schema,wire.schema_hash())
+  moved_bit=copy.deepcopy(wire.SCHEMA);flags=moved_bit["bitfields"]["command_motion_flags"];flags["MOTION_ENABLE"],flags["TRACKING_VALID"]=flags["TRACKING_VALID"],flags["MOTION_ENABLE"]
+  moved_bit_schema=hashlib.sha256(wire.jcs.canonicalize(protocolgen.structural_projection(moved_bit))).digest()
+  self.assertNotEqual(moved_bit_schema,wire.schema_hash())
+  changed=copy.deepcopy(wire.SEMANTICS);changed["validation"]["unknown_enum_or_bit"]="REJECT_AND_AUDIT"
+  changed_semantics=hashlib.sha256(wire.jcs.canonicalize(changed)).digest()
+  self.assertNotEqual(changed_semantics,wire.semantics_hash())
+  changed_contract=hashlib.sha256(wire.jcs.canonicalize({"protocol_schema_hash":wire.schema_hash().hex(),"protocol_semantics_hash":changed_semantics.hex()})).digest()
+  self.assertNotEqual(changed_contract,wire.contract_hash())
  def test_command_parser_rejects_length_hmac_reserved_nan_inf(self):
   key=bytes(range(32));session=b"S"*16;boot=b"B"*16;good=wire.encode(256,wire.command_payload(5,[.1,.2,.3],.4),key,session,boot,1)
   self.assertEqual(wire.decode(good,key)["message"],"COMMAND")

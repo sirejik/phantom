@@ -8,7 +8,7 @@ description: Реализовать или исправить ограничен
 1. Не перечитывай `AGENTS.md`: он уже является активной проектной инструкцией.
 2. Найди только нужные нормативные разделы; если известна ссылка `§...`, используй
    `python tools/docindex.py --locate <section>`.
-3. Читай `ARCHITECTURE.md` только для изменения cross-component responsibility; читай
+3. Читай `docs/PHANTOM/SYSTEM_ARCHITECTURE.md` только для изменения cross-component responsibility; читай
    `docs/PHANTOM/README.md` только когда owner/location неясен.
 4. Если задача называет этап, прочитай §10.2 и этот этап в
    `docs/PHANTOM/IMPLEMENTATION_STAGES.md`, а также

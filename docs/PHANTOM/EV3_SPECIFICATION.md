@@ -1288,7 +1288,7 @@ engineering/disabled:
 
 EV3 публикует DNS-SD type `_phantom-ev3._udp` в domain `local.` (полный browse-name `_phantom-ev3._udp.local.`) с текущим `robot_id`, IPv4 port и protocol major. IP-адрес не является identity. V1 publisher/listener квалифицирован только для IPv4; Avahi publication не должна рекламировать IPv6-only endpoint.
 
-USB gadget network допускается только как maintenance/bench transport. Host-side инструменты используют проверенное имя `ev3dev.local` либо явно заданный endpoint и pin сохранённого SSH host key; они не должны предполагать, что `192.168.0.1` всегда принадлежит Brick, поскольку этот адрес может совпасть с LAN gateway. IPv4 link-local адрес после USB enumeration допустим для обслуживания при подтверждённой привязке к LEGO RNDIS interface/MAC. Production control остаётся в изолированной Wi-Fi/LAN согласно §8.12.
+USB gadget network допускается только как maintenance/bench transport. Штатные fixed-pair host-инструменты используют `ev3dev.local` и pin сохранённого SSH host key; произвольный endpoint в routine lifecycle запрещён. Отдельная диагностика не должна предполагать, что `192.168.0.1` всегда принадлежит Brick, поскольку этот адрес может совпасть с LAN gateway. IPv4 link-local адрес после USB enumeration допустим только для явной диагностики при подтверждённой привязке к LEGO RNDIS interface/MAC и том же fingerprint. Production control остаётся в изолированной Wi-Fi/LAN согласно §8.12.
 
 `HELLO_ACK` содержит:
 
@@ -1296,7 +1296,7 @@ USB gadget network допускается только как maintenance/bench 
 robot_id
 build_id                  # wire field; semantic value = EV3 component/profile build_id
 specification_sha256
-protocol_schema_hash
+protocol_contract_hash       # compatibility; schema/semantics hashes остаются в manifest/evidence
 commissioning_bundle_hash
 robot_geometry_hash
 drive_calibration_hash
@@ -1314,7 +1314,7 @@ gripper_capabilities
 build_profile
 ```
 
-Несовпадение `robot_id`, protocol major, `protocol_schema_hash`, `commissioning_bundle_hash` или safety-critical subhash запрещает `READY`.
+Несовпадение `robot_id`, protocol major, `protocol_contract_hash`, `commissioning_bundle_hash` или safety-critical subhash запрещает `READY`.
 
 Если DHCP меняет IP или endpoint меняется, Quest выполняет новый `HELLO` с `session_id=0` и новым `client_nonce`; **EV3**, а не Quest, генерирует новую session id. Совпадение прошлого IP не восстанавливает session, sequence, target или armed-latch. Пока старая CONTROL session свежая/активная, competing HELLO отклоняется; после stale/HOLD она может быть заменена. Exact HELLO retry внутри `hello_retry_window_ms` получает тот же cached semantic ACK/session id только при неизменных authoritative `controller_boot_id`, session generation и `commissioning_bundle_hash`; любая их invalidation очищает cache, поэтому старый nonce не воскресит прежнюю session.
 

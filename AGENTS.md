@@ -24,7 +24,7 @@ Meta Quest 3 отслеживает намерение пользователя,
    найденного раздела. Не загружай все документы PHANTOM.
 3. Читай `docs/PHANTOM/README.md` только если непонятно, какой документ является основным
    владельцем требования или где оно расположено.
-4. Читай `ARCHITECTURE.md`, если задача затрагивает границы ответственности между
+4. Читай `docs/PHANTOM/SYSTEM_ARCHITECTURE.md`, если задача затрагивает границы ответственности между
    Quest/EV3/механикой/протоколом или меняет эти границы.
 5. Для задачи по этапу прочитай §10.2 и только нужный раздел в
    `docs/PHANTOM/IMPLEMENTATION_STAGES.md`, затем
@@ -131,7 +131,7 @@ Meta Quest 3 отслеживает намерение пользователя,
 - Сохраняй несвязанные пользовательские изменения; не делай reset/overwrite.
 - Не утверждай, что тест пройден, если он реально не запускался и результат не наблюдался.
 - PASS относится к exact candidate identity из evidence. Если изменился
-  `specification_sha256`, `protocol_schema_hash`, build/config/bundle identity или проверяемый
+  `specification_sha256`, `protocol_contract_hash` либо его schema/semantics constituents, build/config/bundle identity или проверяемый
   artifact, старый PASS не переносится автоматически: выполни применимый regression gate.
 - Для воспроизводимого дефекта по возможности добавляй regression test.
 

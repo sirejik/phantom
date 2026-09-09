@@ -3,7 +3,9 @@ namespace Phantom.Networking.Generated
 {
     public static class WireV1
     {
-        public const string ProtocolSchemaSha256 = "960d64e335cd891ca16186c997a813e0121b44c0518bd75f255906d0f8c50818";
+        public const string ProtocolSchemaSha256 = "bbb1e01b5254bd81496d1be20e071a696bef5f79b1e580e60326d027fb79466c";
+        public const string ProtocolSemanticsSha256 = "f05005639fb801bbaaa1ecc96f625d553f3c5c5557493d1c98142ec60373e228";
+        public const string ProtocolContractSha256 = "73829128fe170d0fc71a7a04f48b19f37e4d8862bf539babcbb25f86c9a34cbe";
         public const int HeaderBytes=64, HmacBytes=32, MaxDatagramBytes=1024;
         public enum MessageType : ushort
         {
@@ -197,7 +199,7 @@ namespace Phantom.Networking.Generated
         public const int HelloAckOffsetAcceptedKeySlot = 82;
         public const int HelloAckOffsetAcceptedRole = 83;
         public const int HelloAckOffsetSpecificationSha256 = 84;
-        public const int HelloAckOffsetProtocolSchemaHash = 116;
+        public const int HelloAckOffsetProtocolContractHash = 116;
         public const int HelloAckOffsetCommissioningBundleHash = 148;
         public const int HelloAckOffsetRobotGeometryHash = 180;
         public const int HelloAckOffsetDriveCalibrationHash = 212;

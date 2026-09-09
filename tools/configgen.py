@@ -166,6 +166,8 @@ def main():
     parser=argparse.ArgumentParser();parser.add_argument("--check",action="store_true");args=parser.parse_args()
     out=ROOT/"config"/"generated";out.mkdir(parents=True,exist_ok=True)
     protocol_hash=(ROOT/"protocol"/"generated"/"schema.sha256").read_text().split()[0]
+    protocol_semantics_hash=(ROOT/"protocol"/"generated"/"semantics.sha256").read_text().split()[0]
+    protocol_contract_hash=(ROOT/"protocol"/"generated"/"contract.sha256").read_text().split()[0]
     ipc_hash=(ROOT/"protocol"/"generated"/"ipc_schema.sha256").read_text().split()[0]
     spec_hash=hashlib.sha256((ROOT/"docs"/"PHANTOM_SPECIFICATION.md").read_bytes()).hexdigest()
     results={};source_objects={}
@@ -197,6 +199,7 @@ def main():
         if not path.exists() or path.read_bytes()!=artifact+b"\n":raise SystemExit("generated measured registry stale")
     else:path.write_bytes(artifact+b"\n")
     manifest={"schema_version":1,"specification_sha256":spec_hash,"protocol_schema_hash":protocol_hash,
+              "protocol_semantics_hash":protocol_semantics_hash,"protocol_contract_hash":protocol_contract_hash,
               "ipc_schema_hash":ipc_hash,"artifact_hashes":results,
               "measured_gates":gates,"ready_gate":gates["READY"]}
     data=canonical(manifest)+b"\n";path=out/"config-manifest.json"

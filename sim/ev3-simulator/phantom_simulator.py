@@ -25,7 +25,7 @@ class Simulator:
         if sequence is None:self.tx_sequence+=1;sequence=self.tx_sequence
         return wire.encode(wire.NAMES[name]["type"],payload,self.key,self.session,self.boot_id,sequence,int((time.monotonic()-self.started)*1e6))
     def hello_ack(self,nonce,result=0,session_id=None):
-        protocol_hash=b"\xee"*32 if self.options.get("wrong_schema") else wire.schema_hash();bundle_hash=b"\xdd"*32 if self.options.get("wrong_bundle") else self.bundle_hash
+        protocol_hash=b"\xee"*32 if self.options.get("wrong_schema") else wire.contract_hash();bundle_hash=b"\xdd"*32 if self.options.get("wrong_bundle") else self.bundle_hash
         hashes=(protocol_hash,bundle_hash,b"\0"*32 if self.network_only else b"\x47"*32,b"\0"*32 if self.network_only else b"\x44"*32,self.safe_hash,b"\0"*32 if self.network_only else b"\x50"*32)
         robot="phantom99" if self.options.get("wrong_robot") else "phantom01";minor=1 if self.options.get("wrong_protocol") else 0;profile=1 if self.network_only else 0;state=CONNECTED_UNREFERENCED if self.network_only else HOLD;reference=0 if self.network_only else (STATUS_JOINT|STATUS_GRIPPER) if self.references else 0;limits=(0.,)*12 if self.network_only else (*self.q_min,*self.q_max,*self.max_vel,*self.max_acc)
         payload=struct.pack("<16s32s32sHBB32s32s32s32s32s32s32sHHBBH3f3f3f3f",nonce,wire.id32(robot),NETWORK_BUILD_ID if self.network_only else FULL_BUILD_ID,minor,0,0,b"\x11"*32,*hashes,state,reference,profile,0 if self.network_only else 3,result,*limits)

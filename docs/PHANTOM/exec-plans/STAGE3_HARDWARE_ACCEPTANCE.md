@@ -1,5 +1,10 @@
 # Stage 3 network-only: физическая приёмка Quest 3 и EV3
 
+> **Status:** SUPERSEDED
+> **Superseded by:** будущий fresh hardware plan после off-hardware lifecycle migration
+> **Normative owners:** `IMPLEMENTATION_STAGES.md` §10.5, `TEST_PLAN.md`
+> **Hardware/evidence state:** Stage 3 `NOT COMPLETE`; старые runs не квалифицируют новый candidate
+
 > **Исторический план:** vocabulary и оставшиеся команды относятся к прежнему lifecycle.
 > Для нового запуска использовать актуальные §8.5/§9.1 и отдельный новый hardware plan.
 

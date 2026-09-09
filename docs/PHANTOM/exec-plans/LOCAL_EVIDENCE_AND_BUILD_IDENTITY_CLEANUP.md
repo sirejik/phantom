@@ -1,5 +1,10 @@
 # Локальное evidence и независимая идентичность сборки
 
+> **Status:** SUPERSEDED
+> **Superseded by:** `LIFECYCLE_RESTRUCTURE.md`
+> **Normative owners:** `ENGINEERING.md`, `TEST_PLAN.md`
+> **Hardware/evidence state:** только исторические отчёты; не переносить PASS на текущий candidate
+
 > **Исторический план:** прежние названия фаз ниже сохранены только как provenance уже
 > выполненной миграции; текущий lifecycle определён §8.5/§9.1.
 

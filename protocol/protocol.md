@@ -9,7 +9,9 @@ derived human-readable mirror and never a competing source of truth.
 
 | identity | value |
 |---|---|
-| `protocol_schema_hash` | `960d64e335cd891ca16186c997a813e0121b44c0518bd75f255906d0f8c50818` |
+| `protocol_schema_hash` | `bbb1e01b5254bd81496d1be20e071a696bef5f79b1e580e60326d027fb79466c` |
+| `protocol_semantics_hash` | `f05005639fb801bbaaa1ecc96f625d553f3c5c5557493d1c98142ec60373e228` |
+| `protocol_contract_hash` | `73829128fe170d0fc71a7a04f48b19f37e4d8862bf539babcbb25f86c9a34cbe` |
 | `ipc_schema_hash` | `34918932cb81c6305e276e4410d0d44d0ca30aaaf52291669fe42358f4706455` |
 | protocol version | 1.0 |
 | endianness | little |
@@ -264,7 +266,7 @@ Every datagram is `header(64) || payload(exact per type) || HMAC-SHA-256(32)`.
 | 82 | 1 | `accepted_key_slot` | `u8` | 1 |
 | 83 | 1 | `accepted_role` | `u8` | 1 |
 | 84 | 32 | `specification_sha256` | `u8` | 32 |
-| 116 | 32 | `protocol_schema_hash` | `u8` | 32 |
+| 116 | 32 | `protocol_contract_hash` | `u8` | 32 |
 | 148 | 32 | `commissioning_bundle_hash` | `u8` | 32 |
 | 180 | 32 | `robot_geometry_hash` | `u8` | 32 |
 | 212 | 32 | `drive_calibration_hash` | `u8` | 32 |

@@ -2,6 +2,13 @@
 
 > **Тип:** ненормативный provenance. Requirements находятся в нормативном specification set.
 
+## 2026-09-09 — фиксированная hardware-пара и прямой `ev3dev.local`
+
+Зафиксирована deployment topology из одного назначенного Quest 3 и одного EV3. Штатные EV3
+maintenance scripts используют стандартный hostname `ev3dev.local` напрямую без локального
+alias и без сохранённого IP; brick по-прежнему аутентифицируется закреплённым SSH fingerprint.
+Прямой IP оставлен только как явный диагностический fallback.
+
 ## 2026-09-09 — явный lifecycle без скрытых фаз
 
 Lifecycle переработан в независимые `TEST`, `BUILD`, `PROVISION`, `TRANSFER`, `INSTALL`,

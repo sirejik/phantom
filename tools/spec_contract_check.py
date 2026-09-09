@@ -49,15 +49,28 @@ def main():
     generated = (ROOT / "protocol/generated/wire_schema.canonical.json").read_bytes()
     if generated != canonical + b"\n":
         fail("canonical schema artifact is stale")
-    digest = hashlib.sha256(canonical).hexdigest()
+    structural = (ROOT / "protocol/generated/wire_schema.structural.json").read_bytes()
+    if not structural.endswith(b"\n"):
+        fail("structural schema artifact must be LF-terminated")
+    digest = hashlib.sha256(structural[:-1]).hexdigest()
     recorded = (ROOT / "protocol/generated/schema.sha256").read_text(
         encoding="ascii"
     ).split()[0]
     if digest != recorded:
-        fail("protocol schema hash does not cover canonical JSON")
+        fail("protocol schema hash does not cover structural canonical JSON")
+    for artifact, digest_file, label in (
+        ("protocol_semantics.canonical.json", "semantics.sha256", "protocol semantics"),
+        ("protocol_contract.canonical.json", "contract.sha256", "protocol contract"),
+    ):
+        data = (ROOT / "protocol/generated" / artifact).read_bytes()
+        expected = hashlib.sha256(data[:-1] if data.endswith(b"\n") else data).hexdigest()
+        actual = (ROOT / "protocol/generated" / digest_file).read_text(encoding="ascii").split()[0]
+        if expected != actual:
+            fail(label + " hash does not cover its canonical JSON")
 
     required_semantics = (
         "protocol/wire_schema.yaml",
+        "protocol/semantics.yaml",
         "protocol/protocol.md",
         "HELLO.capabilities_requested",
         "ERR_UNSUPPORTED",
@@ -77,7 +90,7 @@ def main():
 
     print(
         "spec contract PASS: split manifest/prose ownership, "
-        "%d schema messages, canonical schema/hash" % len(schema["messages"])
+        "%d schema messages, structural/semantic/contract identities" % len(schema["messages"])
     )
 
 

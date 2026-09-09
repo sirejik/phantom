@@ -1,0 +1,14 @@
+#!/bin/sh
+# Physically trusted first-pair bootstrap. Invoked explicitly via interactive SSH/sudo.
+set -eu
+
+test "$(id -u)" = 0 || { echo "root required" >&2; exit 1; }
+public_key=${1:?public key path required}
+test -f "$public_key" || { echo "public key is missing" >&2; exit 1; }
+line=$(cat "$public_key")
+case "$line" in ssh-ed25519\ *) ;; *) echo "invalid deployment public key" >&2; exit 1;; esac
+install -d -m 0700 /root/.ssh
+touch /root/.ssh/authorized_keys
+chmod 0600 /root/.ssh/authorized_keys
+grep -qxF "$line" /root/.ssh/authorized_keys || printf '%s\n' "$line" >> /root/.ssh/authorized_keys
+rm -f "$public_key"

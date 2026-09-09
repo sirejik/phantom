@@ -101,7 +101,7 @@ Session lifecycle:
 - `sequence` строго возрастает отдельно по направлению внутри session, начинается с `1` после handshake, wrap запрещён;
 - защита от L2/UDP replay-DoS не заявляется как криптографическая гарантия v1; trusted/isolated LAN остаётся обязательным допущением §3.2.6.
 
-Нормативным single source of truth **структуры** wire format является `/protocol/wire_schema.yaml`. Он обязан задавать для **каждого** message type точный порядок полей, scalar type/width, enum numeric values, bit positions, fixed array lengths, reserved bytes и exact payload length; human-readable mirror генерируется как `protocol/protocol.md`, а §11.8 задаёт ownership/generation policy. Контекстные semantic ranges и transition guards, включая зависящие от active `CommissioningBundle`, нормативно задаются текстом соответствующих разделов и не должны искусственно сводиться к одному статическому scalar range. Из схемы генерируются canonical projection, C++14/C# constants/size maps и golden vectors. C++/C#/Python serializers/deserializers могут быть hand-written, но не являются отдельным source of truth: CI обязан проверять их общими golden bytes и negative vectors, а stale generated metadata блокирует gate. `protocol_schema_hash=SHA-256(wire_schema.canonical.json JCS bytes)` включается в build manifest/`HELLO_ACK`; canonical JSON projection детерминированно строится из `/protocol/wire_schema.yaml` по §8.2, поэтому YAML whitespace/line endings не входят в identity.
+Нормативным single source of truth **структуры** wire format является `/protocol/wire_schema.yaml`. Он обязан задавать для **каждого** message type точный порядок полей, scalar type/width, enum numeric values, bit positions, fixed array lengths, reserved bytes и exact payload length; machine-readable межреализационная semantics принадлежит `/protocol/semantics.yaml`, human-readable mirror генерируется как `protocol/protocol.md`, а §11.8 задаёт ownership/generation policy. Контекстные ranges/transition guards, зависящие от active `CommissioningBundle`, остаются в owning prose. Из sources генерируются structural/semantic/contract canonical artifacts, C++14/C# constants/size maps и golden vectors. Production codecs могут быть hand-written, но CI проверяет их общими vectors. Build manifests содержат `protocol_schema_hash`, `protocol_semantics_hash` и `protocol_contract_hash`; `HELLO_ACK` передаёт compatibility `protocol_contract_hash`. Whitespace/line endings authoring files не входят в identity.
 
 <a id="sec-4-7-4"></a>
 ### 4.7.4. Типы сообщений
@@ -356,21 +356,22 @@ Exact byte layout, offsets, payload sizes and numeric enum/bit definitions, ко
 остаются нормативными в owning prose. Production serializers/deserializers могут быть
 hand-written, но не являются отдельным source of truth.
 
-Authoritative byte-level sources:
+Authoritative protocol identity sources:
 
-1. `protocol/wire_schema.yaml` — machine-readable wire source;
-2. `protocol/wire_schema.canonical.json` — deterministic semantic projection produced by the
-   generator;
-3. `protocol/protocol.md` — generated human-readable wire mirror;
-4. generated C++/C# constants/size maps/compile-time definitions;
-5. `protocol/golden_vectors/v1.json` — cross-language wire fixtures.
+1. `protocol/wire_schema.yaml` — machine-readable wire structure source;
+2. `protocol/semantics.yaml` — machine-readable cross-runtime behavioral contract;
+3. generated `wire_schema.structural.json`, `protocol_semantics.canonical.json` and
+   `protocol_contract.canonical.json` — RFC 8785 JCS identity inputs;
+4. `protocol/protocol.md` — generated human-readable mirror;
+5. generated C++/C# constants/size maps/compile-time definitions;
+6. `protocol/golden_vectors/v1.json` — cross-language wire fixtures.
 
 If generated artifacts disagree with `wire_schema.yaml`, CI must fail. If behavioral prose in
 this document disagrees with the machine schema, the change is incomplete: resolve the
 semantic disagreement deliberately before release; do not silently pick whichever side makes
 a test pass.
 
-After changing the wire schema, run at minimum:
+After changing structure or semantics, run at minimum:
 
 ```powershell
 python tools/protocolgen.py
@@ -378,8 +379,8 @@ python tools/protocolgen.py --check
 python tools/test_protocol.py
 ```
 
-A semantic protocol change must also update relevant tests/evidence and regenerate the
-PHANTOM specification manifest when normative prose changes.
+A semantic protocol change must first update `protocol/semantics.yaml`, relevant
+tests/evidence and the PHANTOM specification manifest when normative prose changes.
 
 
 Для `SET_DRIVE_CALIBRATION` дополнительно обязательно: `gripper_open_limit_delta_counts != 0 && != INT32_MIN`; его значение **в точности** совпадает с authoritative `SafetyEnvelope`; `D_open_counts=abs(value)` помещается в configured/HIL-qualified bound; все используемые `CurveNode.delta_encoder` находятся в `[0,D_open_counts]`, строго возрастают по `d_counts`, endpoint nodes покрывают `0` и `D_open_counts`, а `opening_mm` монотонен с допуском schema. Calibration-session `gripper_e_closed` не превращается в persistent runtime hard limit.
@@ -388,14 +389,23 @@ PHANTOM specification manifest when normative prose changes.
 
 `actuator_scope_mask` и `safety_observation_mask` намеренно **не добавляются в v1 datagram layouts**: обе являются частью versioned `CommissioningBundle`, а стороны обязаны сверять `commissioning_bundle_hash`. `actuator_scope_mask` определяет motor-write authority; `safety_observation_mask` — какие реальные encoder/reference values необходимы safety logic. Поэтому в partial A/B/C qualification `q_actual/q_speed` safety-observed, но motor-disabled осей **не** канонизируются в zero; zero/`N_A` используется только вне `safety_observation_mask`. `COMMAND` fields вне motor authority не исполняются; effective coupled-safety target строится EV3 с fixed локальными coordinates этих осей (§7.16). Fixed payload lengths остаются неизменными.
 
-`protocol_minor=0` сам по себе не является доказательством semantic compatibility внутри pre-release v1: authoritative compatibility identity — exact `protocol_schema_hash`, который проверяется до actuator authority. Любое изменение enum/reserved-bit/field semantics требует нового schema hash и повторного golden/migration gate даже при неизменном fixed payload length. Несовпадение schema hash fail-closed; старый client не может продолжить motion только потому, что major/minor numeric fields совпали.
+`protocol_minor=0` сам по себе не является доказательством compatibility внутри pre-release
+v1. `protocol_schema_hash` идентифицирует только бинарную структуру; переименование поля без
+изменения layout не меняет его. `protocol_semantics_hash` идентифицирует machine-readable
+behavioral contract. Authoritative compatibility identity — exact
+`protocol_contract_hash=SHA-256(JCS({protocol_schema_hash,protocol_semantics_hash}))`, который
+передаётся в прежнем 32-byte compatibility slot `HELLO_ACK` и проверяется до actuator
+authority. Изменение layout меняет schema и contract hashes; изменение semantics при том же
+layout меняет semantics и contract hashes. Любое несовпадение contract hash fail-closed;
+старый client не может продолжить motion только потому, что major/minor или payload length
+совпали.
 
 ### Schema/code-generation gate
 
 CI обязан:
 
-1. parse `wire_schema.yaml` → deterministic semantic projection → RFC 8785 JCS `wire_schema.canonical.json` и hash именно canonical JSON bytes;
-2. сгенерировать C++14/C# constants/size maps, canonical schema artifact и compile-time size assertions; hand-written production codecs скомпилировать против этих definitions;
+1. parse `wire_schema.yaml` → deterministic structural projection → RFC 8785 JCS `wire_schema.structural.json`; отдельно canonicalize `semantics.yaml` и сформировать contract object из обоих hashes;
+2. сгенерировать C++14/C# constants/size maps, все три identity constants/canonical artifacts и compile-time size assertions; hand-written production codecs скомпилировать против этих definitions;
 3. выполнить cross-codec golden-vector decode/round-trip для каждого message type и отдельные semantic/negative vectors для каждого enum/error path;
 4. проверить corrupted length/reserved/NaN/Inf/endian/HMAC/fuzz cases;
 

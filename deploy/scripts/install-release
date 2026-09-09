@@ -10,12 +10,14 @@ result=/var/lib/phantom/install-result.json
 units="phantom-controller.service phantom-safety.service phantom-network.service phantom-mdns.service phantom.target"
 stop_order="phantom-mdns.service phantom-network.service phantom-controller.service phantom-safety.service phantom.target"
 started_at=$(date -u +%Y-%m-%dT%H:%M:%SZ)
-started_epoch=$(date +%s)
+now_ms() { python3 -c 'import time; print(int(time.monotonic()*1000))'; }
+started_ms=$(now_ms)
 step=prerequisites
-step_started_epoch=$started_epoch
+step_started_ms=$started_ms
 steps_file=$(mktemp /tmp/phantom-install-steps.XXXXXX)
 release_id=
 build_id=
+build_profile=N_A
 previous=
 staging=
 dest=
@@ -30,28 +32,33 @@ write_result() {
   detail=$2
   finished_at=$(date -u +%Y-%m-%dT%H:%M:%SZ)
   mkdir -p /var/lib/phantom
-  finished_epoch=$(date +%s)
-  python3 - "$result" "$status" "$detail" "$started_at" "$finished_at" "$started_epoch" "$finished_epoch" "$release_id" "$build_id" "$previous" "$dest" "$terminal_state" "$steps_file" <<'PY'
+  finished_ms=$(now_ms)
+  python3 - "$result" "$status" "$detail" "$started_at" "$finished_at" "$started_ms" "$finished_ms" "$release_id" "$build_id" "$build_profile" "$expected_archive_sha256" "$previous" "$dest" "$terminal_state" "$steps_file" <<'PY'
 import json, os, pathlib, sys
 path = pathlib.Path(sys.argv[1])
 steps = []
-for line in pathlib.Path(sys.argv[13]).read_text(encoding="utf-8").splitlines():
+for line in pathlib.Path(sys.argv[15]).read_text(encoding="utf-8").splitlines():
     fields = line.split("\t")
     if len(fields) == 3:
-        steps.append({"step": fields[0], "status": fields[1], "duration_seconds": int(fields[2])})
+        steps.append({"step": fields[0], "status": fields[1], "duration_ms": int(fields[2])})
 payload = {
     "schema_version": 1,
     "phase": "INSTALL",
+    "component": "EV3",
+    "profile": sys.argv[10],
     "status": sys.argv[2],
+    "reason": "INSTALLED" if sys.argv[2] == "PASS" else "INSTALL_FAILED",
     "detail": sys.argv[3],
     "started_at": sys.argv[4],
     "finished_at": sys.argv[5],
-    "duration_seconds": max(0, int(sys.argv[7]) - int(sys.argv[6])),
+    "duration_ms": max(0, int(sys.argv[7]) - int(sys.argv[6])),
     "release_id": sys.argv[8] or None,
     "build_id": sys.argv[9] or None,
-    "previous_release": sys.argv[10] or None,
-    "installed_path": sys.argv[11] or None,
-    "terminal_state": sys.argv[12],
+    "artifact_sha256": sys.argv[11],
+    "previous_release": sys.argv[12] or None,
+    "installed_path": sys.argv[13] or None,
+    "terminal_state": sys.argv[14],
+    "hardware_evidence_state": "NOT_QUALIFICATION_EVIDENCE",
     "steps": steps,
 }
 temporary = path.with_suffix(".tmp")
@@ -123,9 +130,9 @@ fail() {
 
 record_step() {
   status=$1
-  now=$(date +%s)
-  printf '%s\t%s\t%s\n' "$step" "$status" "$((now-step_started_epoch))" >> "$steps_file"
-  step_started_epoch=$now
+  now=$(now_ms)
+  printf '%s\t%s\t%s\n' "$step" "$status" "$((now-step_started_ms))" >> "$steps_file"
+  step_started_ms=$now
 }
 
 next_step() {
@@ -198,6 +205,7 @@ test "$(id -u)" = 0 || fail "root required"
 python3 -c 'import sys; raise SystemExit(0 if sys.version_info[:2] >= (3, 5) else 1)' || fail "Python 3.5+ runtime prerequisite is unavailable"
 mkdir -p "$root/releases" /var/lib/phantom
 staging=$(mktemp -d "$root/releases/.staging.XXXXXX")
+chmod 0755 "$staging" || fail "candidate staging directory could not be made runtime-traversable"
 
 next_step artifact-validation
 case "$expected_build_id" in ''|*[!0-9a-f]*) fail "invalid expected build_id";; esac
@@ -210,7 +218,9 @@ python3 - "$archive" <<'PY' || fail "unsafe archive inventory"
 import posixpath, sys, tarfile
 required = set(("build-manifest.json", "SHA256SUMS", "bin/phantom-controller",
                 "bin/phantom-safety", "bin/phantom-network", "bin/phantom-mdns",
-                "bin/phantom-device-integration-test"))
+                "bin/phantom-device-integration-test", "bin/phantom_protocol.py",
+                "bin/jcs.py", "bin/ipc_layout.py", "bin/wire_schema.yaml",
+                "bin/semantics.yaml"))
 names = set()
 with tarfile.open(sys.argv[1], "r:gz") as archive:
     for member in archive.getmembers():
@@ -226,7 +236,9 @@ with tarfile.open(sys.argv[1], "r:gz") as archive:
 if not required.issubset(names):
     raise SystemExit("required archive inventory is incomplete")
 PY
+next_step extract
 tar -xzf "$archive" -C "$staging"
+next_step embedded-hash-validation
 (cd "$staging" && sha256sum -c SHA256SUMS)
 python3 - "$staging" <<'PY' || fail "SHA256SUMS inventory mismatch"
 import pathlib, re, sys
@@ -252,13 +264,14 @@ build_id=$(python3 - "$staging/build-manifest.json" "$expected_build_id" <<'PY'
 import json, sys
 with open(sys.argv[1], encoding="utf-8-sig") as stream:
     manifest = json.load(stream)
-if manifest.get("schema_version") != 3 or manifest.get("build_identity_schema") != "PHANTOM-BUILD-V2" or manifest.get("component") != "EV3":
+if manifest.get("schema_version") != 4 or manifest.get("build_identity_schema") != "PHANTOM-BUILD-V3" or manifest.get("component") != "EV3":
     raise SystemExit("invalid embedded EV3 build manifest")
 if manifest.get("build_id") != sys.argv[2]:
     raise SystemExit("embedded EV3 build_id mismatch")
 print(manifest["build_id"])
 PY
 ) || fail "artifact validation failed"
+build_profile=$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1], encoding="utf-8-sig"))["build_profile"])' "$staging/build-manifest.json") || fail "build profile validation failed"
 python3 - "$staging" <<'PY' || fail "embedded config/bundle validation failed"
 import hashlib, json, pathlib, sys
 root = pathlib.Path(sys.argv[1])
@@ -310,7 +323,7 @@ stop_runtime || fail "runtime could not be stopped cleanly"
 force_and_verify_zero_output || fail "terminal zero-output state could not be established"
 terminal_state=RUNTIME_STOPPED_ZERO_OUTPUT
 
-next_step transaction
+next_step filesystem-install
 previous=$(readlink -f "$root/current" 2>/dev/null || true)
 case "$previous" in ''|"$root"/releases/*) ;; *) fail "current release resolves outside $root/releases";; esac
 backup=$(mktemp -d "$root/.install-backup.XXXXXX")
@@ -322,6 +335,7 @@ mv "$staging" "$dest"
 staging=
 transaction_started=1
 install_runtime_metadata "$dest" || fail "candidate runtime metadata installation failed"
+next_step atomic-finalize
 if test -n "$previous"; then ln -sfn "$previous" "$root/previous"; fi
 ln -sfn "$dest" "$root/current" || fail "candidate symlink activation failed"
 

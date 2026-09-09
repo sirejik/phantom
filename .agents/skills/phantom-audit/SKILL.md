@@ -8,7 +8,7 @@ description: Провести review/audit кода или документац�
 1. Не перечитывай `AGENTS.md`: он уже является активной проектной инструкцией.
 2. Ограничь audit указанным component/stage. Известные `§...` разрешай через
    `python tools/docindex.py --locate <section>` и загружай только relevant ranges.
-3. Читай `ARCHITECTURE.md` только при аудите cross-component boundaries.
+3. Читай `docs/PHANTOM/SYSTEM_ARCHITECTURE.md` только при аудите cross-component boundaries.
 4. Никогда не используй status или ADR вместо нормативного requirement/evidence report.
 5. Построй traceability:
    `requirement → primary owner → implementation → test/gate → repository result/evidence → status`.

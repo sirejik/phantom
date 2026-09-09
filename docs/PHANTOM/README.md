@@ -61,11 +61,11 @@ python tools/doclint.py
 
 ## Правило экономии agent context
 
-Используй progressive disclosure. Не читай `ARCHITECTURE.md`, этот README и целый component
+Используй progressive disclosure. Не читай `SYSTEM_ARCHITECTURE.md`, этот README и целый component
 spec при каждой задаче только потому, что они существуют.
 
 - Для узкой component-задачи найди и прочитай только нужный раздел основного owner.
-- Читай `ARCHITECTURE.md`, когда задача пересекает component boundaries или меняет
+- Читай `SYSTEM_ARCHITECTURE.md`, когда задача пересекает component boundaries или меняет
   responsibility.
 - Читай этот README, когда owner/location неясен.
 - Для stage-задачи читай §10.2 и нужный stage плюс `status/CURRENT_STATUS.md`.

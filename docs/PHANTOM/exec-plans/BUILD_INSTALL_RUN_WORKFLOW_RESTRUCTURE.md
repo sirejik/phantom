@@ -1,5 +1,10 @@
 # Разделение сборки, установки, запуска и device qualification
 
+> **Status:** SUPERSEDED
+> **Superseded by:** `LIFECYCLE_RESTRUCTURE.md`
+> **Normative owners:** `ENGINEERING.md`, `TEST_PLAN.md`
+> **Hardware/evidence state:** только исторические отчёты; не переносить PASS на текущий candidate
+
 > **Исторический план:** названия прежних фаз сохранены как запись выполненной миграции.
 > Неисполненные действия этого файла заменены `LIFECYCLE_RESTRUCTURE.md` и не являются
 > действующим workflow.

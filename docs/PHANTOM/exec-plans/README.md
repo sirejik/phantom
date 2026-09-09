@@ -16,3 +16,8 @@ Codex. Для небольшой обратимой правки plan не ну�
 
 Task plan фиксирует локальный work order, progress, decisions и verification commands. Он
 никогда не переопределяет нормативную спецификацию или test plan.
+
+Каждый plan имеет явный `Status`, normative owners и hardware/evidence state. Исторические
+plans, оставшиеся в корне до физического перемещения архива, обязаны иметь
+`COMPLETED`/`SUPERSEDED` и ссылку на преемника; они не считаются active только из-за пути.
+Новый active plan не может объявлять hardware PASS без ссылки на exact immutable report.

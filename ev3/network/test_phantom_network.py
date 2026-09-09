@@ -35,6 +35,8 @@ class NetworkTests(unittest.TestCase):
                        "actuator_scope_mask": 0, "safety_observation_mask": 0}
         self.manifest = {"build_id": hashlib.sha256(b"stage3-test").hexdigest(), "specification_sha256": "11" * 32,
                          "protocol_schema_hash": wire.schema_hash().hex(),
+                         "protocol_semantics_hash": wire.semantics_hash().hex(),
+                         "protocol_contract_hash": wire.contract_hash().hex(),
                          "commissioning_bundle_hash": hashlib.sha256(network.canonical(self.bundle)).hexdigest()}
         self.server = network.Stage3Server(self.config, self.bundle, self.manifest, self.key,
                                            self.boot_path, self.status_path)

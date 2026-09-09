@@ -29,14 +29,20 @@ scripts\phantom.cmd BUILD QUEST -Profile Diagnostic
 scripts\phantom.cmd BUILD EV3 -Profile Diagnostic
 ```
 
-Provisioning is a separate, infrequent administrative operation. Quest CONTROL credentials
-are stored in Android Keystore-backed storage; EV3 SSH trust, maintenance helpers, users, and
-the Wi-Fi autoconnect platform unit are provisioned separately from application releases.
+Provisioning is a separate, infrequent administrative operation. One idempotent fixed-pair
+command creates the exact Quest ADB identity, pinned EV3 SSH trust, separate deployment key,
+CONTROL credential and maintenance/platform state. Private state lives outside the repository
+under `%LOCALAPPDATA%\PHANTOM` by default.
 
 ```powershell
-powershell -NoProfile -ExecutionPolicy Bypass -File scripts/quest-provision-credential.ps1 -KeyFile <outside-repository-path>
-powershell -NoProfile -ExecutionPolicy Bypass -File scripts/ev3-provision-maintenance.ps1 -Address <actual-ip> -HostFingerprint <SHA256:...>
+scripts\phantom.cmd PROVISION PAIR -HostFingerprint <trusted-SHA256:...>
 ```
+
+The project is deployed to one designated Quest 3 and one designated EV3. EV3 maintenance
+uses the standard ev3dev mDNS hostname `ev3dev.local` directly; the pinned SSH host
+fingerprint, not a saved IP address or an extra alias, authenticates the brick. The
+private SSH policy accepts the resolved IPv4 or IPv6 transport only when the pinned host key
+matches. Routine Quest operations likewise address only the stored exact ADB serial.
 
 Deployment commands consume existing artifacts and installed/provisioned state. See §8.5 of
 `docs/PHANTOM/ENGINEERING.md` for exact arguments and error categories.

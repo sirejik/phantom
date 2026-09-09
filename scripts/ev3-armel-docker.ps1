@@ -9,7 +9,9 @@ if($LASTEXITCODE -ne 0){throw "Pinned EV3 cross image unavailable: $image"}
 $facts=docker run --rm --entrypoint sh $image -lc 'arm-linux-gnueabi-g++ --version | head -1; sha256sum /usr/bin/arm-linux-gnueabi-g++'
 $commit=(git rev-parse HEAD).Trim()
 $specHash=(Get-FileHash docs/PHANTOM_SPECIFICATION.md -Algorithm SHA256).Hash.ToLower()
-$protocolHash=(Get-Content protocol/generated/schema.sha256).Split()[0]
+    $protocolHash=(Get-Content protocol/generated/schema.sha256).Split()[0]
+    $protocolSemanticsHash=(Get-Content protocol/generated/semantics.sha256).Split()[0]
+    $protocolContractHash=(Get-Content protocol/generated/contract.sha256).Split()[0]
 $sourceHash=(python tools/source_hash.py ev3 protocol deploy).Trim()
 $toolchainLockHash=(Get-FileHash toolchains/ev3dev-stretch.lock.json -Algorithm SHA256).Hash.ToLower()
 $dirty=((git status --porcelain).Count -gt 0)
@@ -31,14 +33,15 @@ $profile=$Profile
   Copy-Item protocol/jcs.py "$binOut/jcs.py" -Force
   Copy-Item protocol/generated/ipc_layout.py "$binOut/ipc_layout.py" -Force
   Copy-Item protocol/wire_schema.yaml "$binOut/wire_schema.yaml" -Force
+  Copy-Item protocol/semantics.yaml "$binOut/semantics.yaml" -Force
   Copy-Item deploy/scripts/device-integration-test.py "$binOut/phantom-device-integration-test" -Force
   Copy-Item deploy/systemd "$profileOut/systemd" -Recurse -Force
   Copy-Item deploy/tmpfiles "$profileOut/tmpfiles" -Recurse -Force
   $profileConfigHash=(Get-FileHash $configSource -Algorithm SHA256).Hash.ToLower()
-  $buildId=(python tools/build_identity.py --component EV3 --profile $profile --source-tree-hash $sourceHash --specification-sha256 $specHash --protocol-schema-hash $protocolHash --component-config-hash $profileConfigHash --toolchain-or-package-lock-hash $toolchainLockHash).Trim()
+  $buildId=(python tools/build_identity.py --component EV3 --profile $profile --source-tree-hash $sourceHash --specification-sha256 $specHash --protocol-contract-hash $protocolContractHash --component-config-hash $profileConfigHash --toolchain-or-package-lock-hash $toolchainLockHash).Trim()
   $manifest=[ordered]@{
-    schema_version=3;build_identity_schema="PHANTOM-BUILD-V2";component="EV3";build_id=$buildId;git_commit=$commit;source_tree_hash=$sourceHash;worktree_dirty=$dirty;target="ARMv5TEJ-armel-gnueabi";build_profile=$profile
-    protocol_version=1;specification_sha256=$specHash;protocol_schema_hash=$protocolHash;config_hash=$profileConfigHash;commissioning_bundle_hash=if($profile -in @("Diagnostic","DeepDebug")){(Get-Content config/generated/config-manifest.json -Raw|ConvertFrom-Json).artifact_hashes.'commissioning_bundle-network-only'}else{(Get-Content config/generated/config-manifest.json -Raw|ConvertFrom-Json).artifact_hashes.commissioning_bundle};qualification_eligible=($profile-ne"DeepDebug")
+    schema_version=4;build_identity_schema="PHANTOM-BUILD-V3";component="EV3";build_id=$buildId;git_commit=$commit;source_tree_hash=$sourceHash;worktree_dirty=$dirty;target="ARMv5TEJ-armel-gnueabi";build_profile=$profile
+    protocol_version=1;specification_sha256=$specHash;protocol_schema_hash=$protocolHash;protocol_semantics_hash=$protocolSemanticsHash;protocol_contract_hash=$protocolContractHash;config_hash=$profileConfigHash;commissioning_bundle_hash=if($profile -in @("Diagnostic","DeepDebug")){(Get-Content config/generated/config-manifest.json -Raw|ConvertFrom-Json).artifact_hashes.'commissioning_bundle-network-only'}else{(Get-Content config/generated/config-manifest.json -Raw|ConvertFrom-Json).artifact_hashes.commissioning_bundle};qualification_eligible=($profile-ne"DeepDebug")
     cross_image=$image;toolchain_facts=($facts -join " | ")
     toolchain_or_package_lock_hash=$toolchainLockHash;source_date_epoch_or_reproducible_epoch=0
     controller_sha256=(Get-FileHash "$binOut/phantom-controller" -Algorithm SHA256).Hash.ToLower()

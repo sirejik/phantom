@@ -12,7 +12,7 @@
 Существующий `specification_sha256` — SHA-256 точных bytes generated manifest. Hidden normalization перед hashing запрещена: другая encoding/BOM/CRLF форма отклоняется gate.
 
 `specification_sha256` идентифицирует полный нормативный baseline PHANTOM.
-`protocol_schema_hash`, configuration/component hashes, build IDs и artifact hashes
+`protocol_schema_hash`, `protocol_semantics_hash`, derived `protocol_contract_hash`, configuration/component hashes, build IDs и artifact hashes
 идентифицируют более узкие machine/runtime domains.
 
 ## 2. Нормативные уровни и основные владельцы
@@ -31,6 +31,7 @@ owner не имеет права ослаблять эти ограничени�
 | `MECHANICAL_SPECIFICATION.md` | physical assembly, geometry, QR fixtures, cabling, gripper и mechanical constraints |
 | `PROTOCOL_SPECIFICATION.md` | человекочитаемая transport/session/transaction semantics |
 | `protocol/wire_schema.yaml` | точная schema-representable структура wire: layout, widths, numeric enum/bit positions, reserved fields и payload lengths; контекстные semantic ranges/transition guards остаются в owning prose |
+| `protocol/semantics.yaml` | machine-readable межреализационная semantics, входящая вместе со structural hash в compatibility `protocol_contract_hash` |
 | объявленные репозиторием config schema/generator sources | машинно-читаемая структура конфигурации и generated config artifacts |
 | `ENGINEERING.md` | source/build/CI/deployment/release/logging engineering requirements |
 | `TEST_PLAN.md` | verification taxonomy, applicability, evidence requirements и final acceptance |

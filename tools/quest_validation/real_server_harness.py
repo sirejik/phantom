@@ -37,12 +37,16 @@ def prepare(directory):
     bundle_hash = hashlib.sha256(jcs.canonicalize(bundle)).hexdigest()
     specification = hashlib.sha256((ROOT / "docs" / "PHANTOM_SPECIFICATION.md").read_bytes()).hexdigest()
     protocol_hash = wire.schema_hash().hex()
+    protocol_semantics_hash = wire.semantics_hash().hex()
+    protocol_contract_hash = wire.contract_hash().hex()
 
     manifest = {
         "schema_version": 2, "component": "EV3", "build_profile": "Diagnostic",
         "build_id": hashlib.sha256(b"phantom-host-interop").hexdigest(),
         "specification_sha256": specification,
         "protocol_schema_hash": protocol_hash,
+        "protocol_semantics_hash": protocol_semantics_hash,
+        "protocol_contract_hash": protocol_contract_hash,
         "commissioning_bundle_hash": bundle_hash,
     }
     manifest_path = directory / "build-manifest.json"

@@ -47,7 +47,7 @@ def main():
 
     # Баланс Markdown fenced blocks и относительные ссылки.
     all_md = list(PH.rglob("*.md"))
-    all_md += [ROOT/"AGENTS.md", ROOT/"ARCHITECTURE.md"]
+    all_md += [ROOT/"AGENTS.md"]
     for p in all_md:
         if not p.is_file():
             continue

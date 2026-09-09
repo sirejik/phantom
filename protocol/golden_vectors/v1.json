@@ -1,5 +1,7 @@
 {
-  "protocol_schema_sha256": "960d64e335cd891ca16186c997a813e0121b44c0518bd75f255906d0f8c50818",
+  "protocol_schema_sha256": "bbb1e01b5254bd81496d1be20e071a696bef5f79b1e580e60326d027fb79466c",
+  "protocol_semantics_sha256": "f05005639fb801bbaaa1ecc96f625d553f3c5c5557493d1c98142ec60373e228",
+  "protocol_contract_sha256": "73829128fe170d0fc71a7a04f48b19f37e4d8862bf539babcbb25f86c9a34cbe",
   "vectors": [
     {
       "name": "HELLO",

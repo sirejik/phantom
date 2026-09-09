@@ -3,7 +3,9 @@
 #include <cstddef>
 #include <cstdint>
 namespace phantom { namespace wire {
-constexpr const char* kProtocolSchemaSha256 = "960d64e335cd891ca16186c997a813e0121b44c0518bd75f255906d0f8c50818";
+constexpr const char* kProtocolSchemaSha256 = "bbb1e01b5254bd81496d1be20e071a696bef5f79b1e580e60326d027fb79466c";
+constexpr const char* kProtocolSemanticsSha256 = "f05005639fb801bbaaa1ecc96f625d553f3c5c5557493d1c98142ec60373e228";
+constexpr const char* kProtocolContractSha256 = "73829128fe170d0fc71a7a04f48b19f37e4d8862bf539babcbb25f86c9a34cbe";
 constexpr std::size_t kHeaderBytes=64, kHmacBytes=32, kMaxDatagramBytes=1024;
 enum class MessageType : std::uint16_t {
   HELLO = 0x0001,

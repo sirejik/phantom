@@ -31,3 +31,14 @@ Full-arm user-driven actuator authority не может обходить P0 gate
 
 Exact run evidence хранится в versioned test/device reports и Git history; этот ADR фиксирует
 решение, а не test report.
+
+## Жизненный цикл evidence
+
+Указанные версии и SHA-1 выше являются историческим rationale/locator исходного наблюдения,
+но не текущим qualification evidence и не переносятся на другую exact Quest platform matrix.
+Актуальный gate создаёт immutable P0 report с `quest_build_id`, `apk_sha256`, Horizon/runtime,
+Unity и package lock identities. Новый provider/package/runtime либо изменение required input
+mode инвалидирует применимость старого report и требует нового P0; ADR при этом меняется
+только если изменилось архитектурное решение, а не для записи результата очередного запуска.
+Если исторический artifact/report недоступен, его вывод остаётся контекстом решения, но его
+статус для qualification — `NOT_RUN`, а не восстановленный PASS.

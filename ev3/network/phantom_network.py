@@ -308,9 +308,9 @@ class Stage3Server(object):
         if manifest.get("commissioning_bundle_hash") != self.bundle_hash.hex():
             raise ValueError("bundle/manifest hash mismatch")
         self.spec_hash = hex_hash(manifest["specification_sha256"], "specification_sha256")
-        self.protocol_hash = hex_hash(manifest["protocol_schema_hash"], "protocol_schema_hash")
-        if self.protocol_hash != wire.schema_hash():
-            raise ValueError("protocol schema hash mismatch")
+        self.protocol_contract_hash = hex_hash(manifest["protocol_contract_hash"], "protocol_contract_hash")
+        if self.protocol_contract_hash != wire.contract_hash():
+            raise ValueError("protocol contract hash mismatch")
         self.build_id = manifest["build_id"]
         if not isinstance(self.build_id, str) or len(self.build_id) != 64 or self.build_id.lower() != self.build_id:
             raise ValueError("build_id must be 64 lowercase hex symbols")
@@ -367,7 +367,7 @@ class Stage3Server(object):
         zero = b"\0" * 32
         return struct.pack("<16s32s32sHBB32s32s32s32s32s32s32sHHBBH3f3f3f3f",
                            nonce, wire.id32(self.robot_id), self.build_id_bytes, 0, key_slot, role,
-                           self.spec_hash, self.protocol_hash, self.bundle_hash,
+                           self.spec_hash, self.protocol_contract_hash, self.bundle_hash,
                            zero, zero, zero, zero, state, 0, 1, 0, result,
                            0.0, 0.0, 0.0, 0.0, 0.0, 0.0,
                            0.0, 0.0, 0.0, 0.0, 0.0, 0.0)

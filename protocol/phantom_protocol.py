@@ -1,16 +1,31 @@
 """Strict bounded reference codec for PHANTOM protocol v1."""
 import hashlib, hmac, json, math, pathlib, struct
+import jcs
 
 ROOT=pathlib.Path(__file__).resolve().parent
 SCHEMA=json.loads((ROOT/"wire_schema.yaml").read_text(encoding="utf-8"))
+SEMANTICS=json.loads((ROOT/"semantics.yaml").read_text(encoding="utf-8"))
 MESSAGES={m["type"]:m for m in SCHEMA["messages"]}; NAMES={m["name"]:m for m in SCHEMA["messages"]}
 HEADER=struct.Struct("<4sHHHHI16s16sQQ")
 HEADER_BYTES=64; HMAC_BYTES=32; MAX_DATAGRAM_BYTES=1024; MAX_PAYLOAD_BYTES=928; ZERO_ID=b"\0"*16
 
 class ProtocolError(ValueError): pass
 
-def schema_hash():
-    return hashlib.sha256(json.dumps(SCHEMA,ensure_ascii=False,sort_keys=True,separators=(",",":")).encode("utf-8")).digest()
+def _kind_shape(name): return name if name in ("u8","i8","u16","i16","u32","i32","u64","f32","id32") else [_kind_shape(item[1]) for item in SCHEMA["types"][name]]
+def _field_shape(field): return [_kind_shape(field[1]),field[2] if len(field)>2 else 1]
+def structural_projection():
+    return {"schema_version":SCHEMA["schema_version"],"protocol_version":SCHEMA["protocol_version"],
+            "protocol_minor":SCHEMA["protocol_minor"],"magic_ascii":SCHEMA["magic_ascii"],
+            "endianness":SCHEMA["endianness"],"float_format":SCHEMA["float_format"],
+            "header_bytes":SCHEMA["header_bytes"],"hmac_bytes":SCHEMA["hmac_bytes"],
+            "max_datagram_bytes":SCHEMA["max_datagram_bytes"],
+            "enums":SCHEMA["enums"],"bitfields":SCHEMA["bitfields"],
+            "messages":[{"type":item["type"],"length":item["length"],"fields":[_field_shape(value) for value in item["fields"]]} for item in SCHEMA["messages"]]}
+def schema_hash(): return hashlib.sha256(jcs.canonicalize(structural_projection())).digest()
+def semantics_hash(): return hashlib.sha256(jcs.canonicalize(SEMANTICS)).digest()
+def contract_hash():
+    value={"protocol_schema_hash":schema_hash().hex(),"protocol_semantics_hash":semantics_hash().hex()}
+    return hashlib.sha256(jcs.canonicalize(value)).digest()
 
 def id32(value):
     data=value.encode("utf-8")

@@ -15,7 +15,7 @@
 ```text
 phantom/
 ├── AGENTS.md                       # правила для AI-агентов (canonical)
-├── ARCHITECTURE.md
+├── ARCHITECTURE.md                  # ненормативная корневая карта; normative owner ниже в docs/
 ├── .agents/skills/                 # canonical repo skills
 ├── PhantomQuest/                   # Unity-проект Quest
 │   └── Assets/Plugins/Android/     # androidlib: NSD bridge + credential store
@@ -125,7 +125,7 @@ override через переменную окружения:
 - отсутствие вручную дублируемых числовых констант между Quest и EV3 там, где они должны совпадать;
 - тестируемое разделение чистой математики и SDK/I/O адаптеров;
 - невозможность случайно включить секретный ключ в исходники или артефакт логов;
-- детерминированный `protocol_schema_hash`: schema pipeline сначала преобразует `wire_schema.yaml` в canonical JSON projection (`wire_schema.canonical.json`, RFC 8785 JCS), и SHA-256 считается именно по этим bytes; checkout line endings YAML не влияют на identity;
+- три детерминированные identity протокола: `protocol_schema_hash` считается по структурной JCS projection `wire_schema.structural.json` (типы, ширины, offsets, enum/bit numeric values, но не имена полей), `protocol_semantics_hash` — по JCS `protocol_semantics.canonical.json`, полученному из `protocol/semantics.yaml`, а `protocol_contract_hash` — по JCS объекта из этих двух hashes; checkout line endings YAML/JSON не влияют на identity;
 - детерминированный `specification_sha256`: SHA-256 по **точным bytes** generated `docs/PHANTOM_SPECIFICATION.md`. Все нормативные Markdown и сам manifest обязаны быть UTF-8 без BOM с LF line endings; gate отвергает другую encoding/line-ending форму и не выполняет hidden normalization. Manifest содержит ordered path+exact-byte-SHA-256 каждого нормативного документа из `docs/PHANTOM/spec-set.json`, поэтому один существующий wire hash транзитивно связывает весь normative spec set. Current status, task execution plans, ADRs, risk records, changelog и `REFERENCES.md` в manifest не входят. Manifest генерируется `tools/specgen.py`; ручное редактирование запрещено.
 
 <a id="sec-8-3"></a>
@@ -298,12 +298,12 @@ required flags: -march=armv5te -mfloat-abi=soft
 
 ```json
 {
-  "schema": "PHANTOM-BUILD-V2",
+  "schema": "PHANTOM-BUILD-V3",
   "component_id": "<EV3|QUEST>",
   "build_profile": "<Release|Diagnostic|DeepDebug>",
   "source_tree_hash": "<64-hex>",
   "specification_sha256": "<64-hex>",
-  "protocol_schema_hash": "<64-hex>",
+  "protocol_contract_hash": "<64-hex>",
   "component_config_hash": "<64-hex>",
   "toolchain_or_package_lock_hash": "<64-hex>"
 }
@@ -334,7 +334,7 @@ tmpfiles.d policy
 
 ```text
 component: EV3
-build_identity_schema: PHANTOM-BUILD-V2
+build_identity_schema: PHANTOM-BUILD-V3
 build_id
 git_commit
 source_tree_hash / worktree_dirty
@@ -344,6 +344,8 @@ compiler/toolchain
 cross_image_digest
 specification_sha256
 protocol_schema_hash
+protocol_semantics_hash
+protocol_contract_hash
 config_hash
 drive_calibration_schema_version
 source_date_epoch_or_reproducible_epoch
@@ -363,10 +365,13 @@ worktree: `git_commit` и `worktree_dirty` честно записываются
 identity либо install permission. Упаковщик нормализует owner/group, порядок файлов, mtime и
 gzip header. Профили упаковываются раздельно и не разделяют `build_id`.
 
-Для одинаковых semantic source/config/spec/toolchain inputs `build_id` обязан совпадать.
-EV3 qualification дополнительно требует reproducibility TEST: две чистые независимые сборки
-дают одинаковый package SHA-256. Старый build directory не является доказательством
-воспроизводимости.
+Для одинаковых semantic source/config/spec/toolchain inputs `build_identity_stable=true`
+означает совпадение `build_id`. Это не равнозначно
+`artifact_byte_reproducible=true`: второе требует совпадения SHA-256 двух независимо созданных
+финальных artifacts. Reproducibility report обязан хранить оба признака и
+`difference_class`; EV3 qualification требует обоих, а отличие Quest APK bytes требует
+явного анализа toolchain nondeterminism. Старый build directory не является доказательством
+ни одного свойства.
 
 <a id="sec-8-7"></a>
 ## 8.7. Развёртывание EV3
@@ -376,11 +381,18 @@ TRANSFER/INSTALL проверяют sidecar, внешний SHA-256, embedded ma
 `SHA256SUMS`; установка сама по себе не создаёт DEVICE/HIL/Release evidence и не расширяет
 motor authority.
 
-One-time PROVISION устанавливает project-scoped SSH target `phantom-ev3`, pinned host
-fingerprint, identity file, stable USB/RNDIS endpoint и versioned maintenance tooling.
-Обычные deploy scripts используют только этот target. Изменение fingerprint даёт
-`HOST_IDENTITY_CHANGED`, недоступность target — `EV3_UNREACHABLE`; auto-accept, поиск нового
-адреса и изменение SSH/Wi-Fi запрещены.
+PHANTOM развёртывается на одну заранее назначенную пару: один Quest 3 и один EV3. Штатный
+maintenance hostname единственного brick — стандартный для ev3dev `ev3dev.local`; отдельный
+SSH alias и сохранённый IP не используются. mDNS каждый раз разрешает актуальный адрес USB
+RNDIS либо LAN, а identity brick подтверждается закреплённым SSH host fingerprint. One-time
+PROVISION создаёт private workstation state вне Git/`build/**`/`results/**`: exact Quest ADB
+serial, EV3 hostname, pinned SSH fingerprint, отдельный deployment private key и CONTROL PSK.
+SSH policy использует `Host ev3dev.local`, `AddressFamily any` по умолчанию, root identity
+file и strict host-key checking. Изменение fingerprint даёт
+`HOST_KEY_MISMATCH`, недоступность имени/устройства — `DEVICE_NOT_FOUND`; auto-accept, автоматическая
+подмена на найденный IP и изменение SSH/Wi-Fi запрещены. Прямой IP допускается только как
+явный диагностический fallback с отдельной проверкой того же fingerprint и не становится
+штатной deployment identity.
 
 Installer работает с root privilege. Runtime identities разделены: `phantom-ctrl` (controller + motor-I/O group), `phantom-net` (UDP/HMAC + credential read), `phantom-mdns` (public identity only), dedicated `phantom-ipc`/`phantom-safety-ipc` groups; `phantom-safety` работает как root только для supervisor/takeover I/O. `/run/phantom` и его subdirectories создаются через совместимую с systemd 232 `tmpfiles.d` policy с минимальными owner/group/mode для каждого endpoint, а `/var/lib/phantom/secrets` недоступен controller/mDNS. Общая writable `phantom:phantom` область, которая одновременно даёт network и motor authority, запрещена. Общий unrestricted passwordless sudo для пользователя `robot` запрещён; maintenance harness получает только явно перечисленную команду, а production install требует отдельного контролируемого root/sudo шага.
 
@@ -406,7 +418,10 @@ deadlines, отчёты и failure semantics.
 `TRANSFER` открывает минимальное число SSH/SCP sessions, копирует только
 `phantom-<build_id>.tar.gz` в staging, сверяет локальный/удалённый SHA-256 и не меняет
 `current`, units либо services. Installer/helpers уже установлены PROVISION-фазой и не
-передаются с каждым build. Повторная передача тех же bytes idempotent.
+передаются с каждым build. Если финальный staging file уже имеет exact SHA-256, фаза
+завершается `SKIPPED_ALREADY_PRESENT`; другой hash по тому же `build_id` даёт
+`ARTIFACT_MISMATCH`. Новые bytes сначала передаются в `.partial`, проверяются на EV3 и только
+затем атомарно переименовываются.
 
 `INSTALL` выполняется атомарно при запрещённом motion:
 
@@ -438,10 +453,10 @@ process kill/restart и device integration runner не являются уста
 если orchestrator всё равно показывает per-service deadline/result и однозначно находит
 первый непосредственный отказ, а не объявляет cascade dependency failures отдельными causes.
 
-При startup failure до любого rollback сохраняются journal/status первого failed unit,
+При startup failure сохраняются journal/status первого failed unit,
 `Result`, `ExecMainCode`, `ExecMainStatus`, dependency/cascade outcomes, identity failed
-release и terminal zero-output/safe state. Failed activated release не удаляется до
-завершения диагностики. `START` не запускает on-device self-tests с fault injection и не
+release и terminal zero-output/safe state. START никогда не вызывает rollback автоматически;
+failed activated release не удаляется до завершения диагностики. `START` не запускает on-device self-tests с fault injection и не
 вызывает DEVICE INTEGRATION TEST. `START -Debug` запускает те же установленные Diagnostic
 bytes и лишь включает/собирает расширенные bounded journal, stack/runtime/config/network
 diagnostics без секретов. Если их недостаточно, отдельный BUILD `DeepDebug` создаёт
@@ -492,6 +507,16 @@ failed upgrade он возвращается на `previous`; неуспешно
 
 Развёртывание во время `TRACKING` запрещено.
 
+Каждая host/device lifecycle-фаза пишет самостоятельный JSON result по
+`config/schema/lifecycle_result.schema.json`. Общая часть содержит как минимум
+`schema_version`, `phase`, `component`, `profile`, `status`, canonical `reason`,
+`duration_ms`, `terminal_state` и `hardware_evidence_state`; применимые фазы добавляют
+`build_id`, artifact hash и массив timed steps. Нормальные диагностические сообщения и
+stderr не смешиваются с JSON transport channel. Canonical pre-mutation failures:
+`PROVISION_REQUIRED`, `PROVISION_CORRUPT`, `QUEST_NOT_FOUND`,
+`QUEST_IDENTITY_MISMATCH`, `HOST_KEY_MISMATCH`, `DEVICE_NOT_FOUND` и
+`ARTIFACT_MISMATCH`.
+
 <a id="sec-8-8"></a>
 ## 8.8. Сборка Quest
 
@@ -502,7 +527,10 @@ Quest BUILD принимает один profile (`Diagnostic` по умолча�
 запускает Unity, не собирает APK и не выполняет app test suite. `START` отдельно запускает
 установленное приложение с bounded process/readiness/credential-state check. DEVICE
 INTEGRATION TEST §9.1.3 проверяет exact installed build без зависимости от локального APK или
-предыдущего result-файла.
+предыдущего result-файла. Routine Quest phases адресуют только exact ADB serial из complete
+fixed-pair record; выбор первого подключённого Android device запрещён. Отсутствие пары,
+нужного Quest или совпадения identity даёт соответственно `PROVISION_REQUIRED`,
+`QUEST_NOT_FOUND` или `QUEST_IDENTITY_MISMATCH` до install/start mutation.
 
 Штатные Quest-команды также разделены:
 
@@ -559,6 +587,8 @@ build:
   protocol_version: 1
   specification_sha256: ...
   protocol_schema_hash: ...
+  protocol_semantics_hash: ...
+  protocol_contract_hash: ...
   unity_version: ...
   package_lock_sha256: ...
   meta_xr_core_version: ...
@@ -649,7 +679,7 @@ bundle_id = "cb-" + lowercase_hex(first_16_bytes(commissioning_bundle_hash))
 <a id="sec-8-10"></a>
 ## 8.10. Откат программного обеспечения
 
-Откат допускается только на сборку, которая понимает текущую схему конфигурации, **текущую нормативную семантику протокола** и ранее прошла применимые TEST/DEVICE INTEGRATION TEST/HIL gates для того же либо явно совместимого safety-critical component set. Простое совпадение `protocol major`/JSON schema version недостаточно: если более новая ревизия изменила state/handshake/safety semantics без изменения major, старый build не считается автоматически совместимым. Rollback tooling сверяет `specification_sha256`, `protocol_schema_hash`, semantic config migrations, `CommissioningBundle`/component hashes и applicable qualification evidence; при отсутствии доказанной совместимости rollback выполняется только в maintenance/no-motion режиме до новой qualification.
+Откат допускается только на сборку, которая понимает текущую схему конфигурации, **текущую нормативную семантику протокола** и ранее прошла применимые TEST/DEVICE INTEGRATION TEST/HIL gates для того же либо явно совместимого safety-critical component set. Простое совпадение `protocol major`/JSON schema version недостаточно: если более новая ревизия изменила state/handshake/safety semantics без изменения major, старый build не считается автоматически совместимым. Rollback tooling сверяет `specification_sha256`, `protocol_contract_hash`, semantic config migrations, `CommissioningBundle`/component hashes и applicable qualification evidence; при отсутствии доказанной совместимости rollback выполняется только в maintenance/no-motion режиме до новой qualification.
 
 После любого отката EV3:
 
@@ -686,6 +716,18 @@ CONTROL PSK обязателен начиная с network-only Stage 3. Commiss
 6. role/key-slot mismatch отклоняется до создания session: control PSK не авторизует commissioning operations, commissioning role не повышается из CONTROL session;
 7. ротация каждого ключа выполняется независимо только при запрещённом actuator motion; после ротации соответствующие sessions инвалидируются и обе стороны должны получить согласованный новый credential;
 8. секреты не входят в Git, build manifest, `CommissioningBundle`, обычные логи или telemetry; там допускаются только `key_id`/slot metadata.
+
+Для текущей фиксированной пары provisioning выполняется одной явной idempotent операцией
+`phantom.cmd PROVISION PAIR`. Complete local record хранится по умолчанию в
+`%LOCALAPPDATA%\PHANTOM\pair.json`, а deployment SSH key, pinned `known_hosts` и CONTROL PSK —
+в соседних private subdirectories с ограниченным ACL. Record записывается атомарно последним,
+только после успешного EV3 и Quest provisioning. Повтор при complete/valid state возвращает
+`ALREADY_PROVISIONED`; partial/corrupt state не ремонтируется молча и требует явного
+`-Repair`. Repair не разрешает silent fingerprint repin либо secret rotation: новый trusted
+fingerprint и любые заменяемые credentials задаются оператором явно при запрещённом motion
+через отдельные `-RepinHost`, `-RotateSshKey` и `-RotateControlSecret`.
+Routine TEST/BUILD/TRANSFER/INSTALL/START/DEBUG/DEVICE/RECOVERY никогда не создают и не
+изменяют pair state.
 
 Проверенный EV3 layout для control credential: `/var/lib/phantom/secrets/control.psk`, каталог `root:phantom-net 0750`, файл `root:phantom-net 0640`, `key_slot=0`. Только `phantom-net` читает wire PSK; `phantom-ctrl`, `phantom-mdns` и helpers не получают эту группу/файл. Commissioning credential имеет тот же owner model, но устанавливается отдельной PROVISION-операцией только с этапа, реально вводящего commissioning. Loader принимает минимум 32 raw random bytes; совместимый provisioning также может хранить ровно 64 ASCII hex symbols, декодируемых в 32 bytes. Содержимое не выводится даже при startup/config error. Commissioning PSK хранится отдельным файлом/slot и не требуется для network-only gate.
 

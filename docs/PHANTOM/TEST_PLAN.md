@@ -131,8 +131,8 @@ Runner получает identity из установленного runtime и/и
 - отсутствует crash/exception при входе/выходе из приложения и повторном запуске;
 - Release не содержит включённых инженерных механизмов, которые должны быть Diagnostic-only.
 
-Штатный Quest runner — `scripts/quest-device-integration-test.ps1`. Он проверяет единственный
-авторизованный ADB target `Quest 3/eureka` и identity
+Штатный Quest runner — `scripts/quest-device-integration-test.ps1`. Для назначенной PHANTOM
+пары он проверяет единственный авторизованный ADB target `Quest 3/eureka` и identity
 установленного package. `adb install -r -g` относится к отдельному Quest INSTALL runner и не
 выполняется DEVICE runner’ом. DEVICE runner выполняет первый bounded запуск, `force-stop` и
 повторный bounded запуск. Запуск через ADB не использует неограниченный `am start -W`: runner
@@ -590,7 +590,7 @@ Optional `GripRemapProfile` тестируется отдельно:
 
 **Уровень:** `TEST`; performance parser/HMAC дополнительно проверяется на EV3 как `DEVICE INTEGRATION TEST`/HIL.
 
-Структура каждого message type определяется одним `wire_schema.yaml`; C# и C++ production encode/decode, независимо от того generated они или hand-written, должны проходить общие golden/negative vectors. CI проверяет `protocol_schema_hash`, exact payload lengths, enum/bit values и запрещает расхождение generated constants/size maps со схемой либо production codecs с общими vectors. Отдельный schema assertion требует, чтобы `COMMAND` содержал только motion flags, абсолютные `q_target[3]`, `grip_intent` и reserved field; PWM/duty/raw motor commands в Quest→EV3 wire отсутствуют.
+Структура каждого message type определяется `wire_schema.yaml`, а общий behavioral contract — `semantics.yaml`; C# и C++ production encode/decode должны проходить общие golden/negative vectors. CI независимо проверяет structural `protocol_schema_hash`, semantic `protocol_semantics_hash`, derived compatibility `protocol_contract_hash`, exact payload lengths, enum/bit values и отсутствие drift generated constants/codecs. Отдельный schema assertion требует, чтобы `COMMAND` содержал только motion flags, абсолютные `q_target[3]`, `grip_intent` и reserved field; PWM/duty/raw motor commands в Quest→EV3 wire отсутствуют.
 
 Security tests:
 
@@ -1522,12 +1522,19 @@ SIGKILL процесса phantom-controller
 
 Checkout с зафиксированными exact source inputs обязан воспроизводимо создать release manifests/evidence, связывающие:
 
-- `source_tree_hash`, provenance source commit, `specification_sha256`, `protocol_schema_hash`, отдельные `quest_build_id`/`ev3_build_id` и SHA-256 фактических APK/EV3 artifacts; изменение только commit при неизменных input bytes не меняет `build_id`;
+- `source_tree_hash`, provenance source commit, `specification_sha256`, три protocol identities, отдельные `quest_build_id`/`ev3_build_id` и SHA-256 фактических APK/EV3 artifacts; изменение только commit при неизменных input bytes не меняет `build_id`;
 - exact EV3 base image/toolchain/container hashes, SBOM и vulnerability/risk record для legacy/EOL компонентов; известная vulnerability без documented disposition/mitigation блокирует Release;
 - versioned LEGO Studio/CAD artifact/hash той mechanical revision, на которую ссылаются `RobotGeometry`, QR mounts и cable routing;
 - Quest Unity/Meta XR Core/Movement SDK/provider/MRUK/OpenXR versions, tested Horizon OS/runtime, `apk_sha256` и применимые P0 reports; изменение platform matrix инвалидирует старый P0;
 - доказательство, что Release/Diagnostic используют один control/state/safety core, а qualification-only surfaces отсутствуют/недоступны в Release;
 - rollback artifact с валидными manifests/hashes; несовместимые protocol schema/bundle/config не могут активироваться как actuator-compatible rollback.
+
+Reproducibility result различает `build_identity_stable` (совпали content-derived
+`build_id`) и `artifact_byte_reproducible` (совпали hashes финальных bytes). Report обязан
+дать оба boolean и `difference_class`; первый без второго не называется побайтовой
+воспроизводимостью. Неповторимый EV3 package блокирует gate. Отличающийся Quest APK может
+быть принят только отдельным documented review конкретного toolchain-generated difference,
+а не общим утверждением о воспроизводимости.
 
 <a id="sec-9-25"></a>
 ## 9.25. Матрица трассируемости
@@ -1570,7 +1577,7 @@ broken_internal_links = 0
 <a id="sec-9-26"></a>
 ## 9.26. Итоговый критерий готовности
 
-Перед обычным пользовательским использованием должны быть выполнены все пункты. Результаты относятся к одному и тому же Release candidate: `source_tree_hash`, `specification_sha256`, `protocol_schema_hash`, **соответствующие `quest_build_id` и `ev3_build_id`** и хэши их артефактов/конфигураций должны согласованно повторяться во всех отчётах; provenance commits могут различаться при byte-identical inputs, а Quest/EV3 build IDs не сравниваются между собой на равенство.
+Перед обычным пользовательским использованием должны быть выполнены все пункты. Результаты относятся к одному и тому же Release candidate: `source_tree_hash`, `specification_sha256`, `protocol_contract_hash` с его schema/semantics constituents, **соответствующие `quest_build_id` и `ev3_build_id`** и хэши их артефактов/конфигураций должны согласованно повторяться во всех отчётах; provenance commits могут различаться при byte-identical inputs, а Quest/EV3 build IDs не сравниваются между собой на равенство.
 
 ```text
 [ ] TEST полностью пройден на конкретных Quest/EV3 build artifacts до DEVICE/HIL/Release qualification

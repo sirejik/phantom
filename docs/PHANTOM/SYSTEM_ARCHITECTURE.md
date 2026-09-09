@@ -69,6 +69,7 @@ flowchart LR
     USB[USB Host]
     EWIFI[Wi-Fi модуль]
     APP[phantom-controller<br/>phantom-safety]
+    PWR[Физический actuator power domain]
     PA[Output A]
     PB[Output B]
     PC[Output C]
@@ -130,7 +131,11 @@ flowchart LR
   APP <-->|LOCAL_STOP| P4
   P3 <--> HOME
   P4 <--> STOP
-  PCUT -. разрывает питание независимо от software .-> APP
+  PWR --> PA
+  PWR --> PB
+  PWR --> PC
+  PWR --> PD
+  PCUT -. физически разрывает энергию независимо от software .-> PWR
 
   PA <-->|command + encoder| BASE
   PB <-->|command + encoder| SHOULDER

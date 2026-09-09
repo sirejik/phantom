@@ -8,14 +8,17 @@ start_order="phantom-safety.service phantom-controller.service phantom-network.s
 stop_order="phantom-mdns.service phantom-network.service phantom-controller.service phantom-safety.service phantom.target"
 step_timeout=${PHANTOM_START_STEP_TIMEOUT_SECONDS:-15}
 started_at=$(date -u +%Y-%m-%dT%H:%M:%SZ)
-started_epoch=$(date +%s)
+now_ms() { python3 -c 'import time; print(int(time.monotonic()*1000))'; }
+started_ms=$(now_ms)
 steps_file=$(mktemp /tmp/phantom-start-steps.XXXXXX)
 first_failed=
+first_failure_at_ms=
 failure_detail=
 diagnostics=
 start_verbosity=${PHANTOM_START_VERBOSITY:-normal}
 terminal_state=RUNTIME_STATE_UNVERIFIED
 build_id=unknown
+build_profile=N_A
 result_written=0
 
 finish() {
@@ -59,9 +62,7 @@ network_ready() {
 }
 
 stop_runtime() {
-  for unit in $stop_order; do
-    systemctl stop "$unit" >/dev/null 2>&1 || true
-  done
+  timeout "$step_timeout" sh -c 'for unit in $1; do systemctl stop "$unit" >/dev/null 2>&1 || true; done' sh "$stop_order" || true
   for unit in $stop_order; do
     if systemctl is-active --quiet "$unit" 2>/dev/null; then return 1; fi
   done
@@ -72,10 +73,10 @@ capture_failure() {
   diagnostics="/var/lib/phantom/startup-failures/${build_id}-${stamp}"
   mkdir -p "$diagnostics"
   for unit in $start_order phantom.target; do
-    systemctl show -p LoadState -p ActiveState -p SubState -p Result -p ExecMainCode -p ExecMainStatus -p Requires -p Wants -p After -p Before "$unit" > "$diagnostics/$unit.show.txt" 2>&1 || true
-    journalctl -u "$unit" -n 120 --no-pager > "$diagnostics/$unit.journal.txt" 2>&1 || true
+    timeout "$step_timeout" systemctl show -p LoadState -p ActiveState -p SubState -p Result -p ExecMainCode -p ExecMainStatus -p Requires -p Wants -p After -p Before "$unit" > "$diagnostics/$unit.show.txt" 2>&1 || true
+    timeout "$step_timeout" journalctl -u "$unit" -n 120 --no-pager > "$diagnostics/$unit.journal.txt" 2>&1 || true
   done
-  systemctl list-dependencies --all phantom.target > "$diagnostics/phantom.target.dependencies.txt" 2>&1 || true
+  timeout "$step_timeout" systemctl list-dependencies --all phantom.target > "$diagnostics/phantom.target.dependencies.txt" 2>&1 || true
   capture_context
 }
 
@@ -98,42 +99,48 @@ capture_debug() {
   diagnostics="/var/lib/phantom/startup-debug/${build_id}-${stamp}"
   mkdir -p "$diagnostics"
   for unit in $start_order phantom.target; do
-    systemctl show -p LoadState -p ActiveState -p SubState -p Result -p ExecMainCode -p ExecMainStatus -p MainPID -p Requires -p Wants -p After -p Before "$unit" > "$diagnostics/$unit.show.txt" 2>&1 || true
-    journalctl -u "$unit" -n 200 --no-pager > "$diagnostics/$unit.journal.txt" 2>&1 || true
+    timeout "$step_timeout" systemctl show -p LoadState -p ActiveState -p SubState -p Result -p ExecMainCode -p ExecMainStatus -p MainPID -p Requires -p Wants -p After -p Before "$unit" > "$diagnostics/$unit.show.txt" 2>&1 || true
+    timeout "$step_timeout" journalctl -u "$unit" -n 200 --no-pager > "$diagnostics/$unit.journal.txt" 2>&1 || true
   done
-  systemctl list-dependencies --all phantom.target > "$diagnostics/phantom.target.dependencies.txt" 2>&1 || true
+  timeout "$step_timeout" systemctl list-dependencies --all phantom.target > "$diagnostics/phantom.target.dependencies.txt" 2>&1 || true
   capture_context
 }
 
 write_result() {
   status=$1
   finished_at=$(date -u +%Y-%m-%dT%H:%M:%SZ)
-  finished_epoch=$(date +%s)
+  finished_ms=$(now_ms)
   mkdir -p /var/lib/phantom
-  python3 - "$result" "$status" "$started_at" "$finished_at" "$started_epoch" "$finished_epoch" "$build_id" "$first_failed" "$failure_detail" "$terminal_state" "$diagnostics" "$steps_file" <<'PY'
+  python3 - "$result" "$status" "$started_at" "$finished_at" "$started_ms" "$finished_ms" "$build_id" "$build_profile" "$first_failed" "$first_failure_at_ms" "$failure_detail" "$terminal_state" "$diagnostics" "$steps_file" <<'PY'
 import json, os, pathlib, sys
 path = pathlib.Path(sys.argv[1])
 steps = []
-step_path = pathlib.Path(sys.argv[12])
+step_path = pathlib.Path(sys.argv[14])
 if step_path.is_file():
     for line in step_path.read_text(encoding="utf-8").splitlines():
         fields = line.split("\t")
         if len(fields) == 6:
             steps.append({"unit": fields[0], "status": fields[1], "result": fields[2],
                           "exec_main_code": fields[3], "exec_main_status": fields[4],
-                          "duration_seconds": int(fields[5])})
+                          "duration_ms": int(fields[5])})
 payload = {
     "schema_version": 1,
     "phase": "START",
+    "component": "EV3",
+    "profile": sys.argv[8],
     "status": sys.argv[2],
+    "reason": "STARTED" if sys.argv[2] == "PASS" else "SERVICE_START_FAILED",
     "started_at": sys.argv[3],
     "finished_at": sys.argv[4],
-    "duration_seconds": max(0, int(sys.argv[6]) - int(sys.argv[5])),
+    "duration_ms": max(0, int(sys.argv[6]) - int(sys.argv[5])),
     "build_id": sys.argv[7],
-    "first_failed_service": sys.argv[8] or None,
-    "failure_detail": sys.argv[9] or None,
-    "terminal_state": sys.argv[10],
-    "diagnostics_directory": sys.argv[11] or None,
+    "artifact_sha256": None,
+    "first_failed_service": sys.argv[9] or None,
+    "first_failure_at_ms": int(sys.argv[10]) if sys.argv[10] else None,
+    "failure_detail": sys.argv[11] or None,
+    "terminal_state": sys.argv[12],
+    "hardware_evidence_state": "NOT_QUALIFICATION_EVIDENCE",
+    "diagnostics_directory": sys.argv[13] or None,
     "steps": steps,
 }
 temporary = path.with_suffix(".tmp")
@@ -147,7 +154,7 @@ record_step() {
   unit=$1
   status=$2
   duration=$3
-  properties=$(systemctl show -p Result -p ExecMainCode -p ExecMainStatus "$unit" 2>/dev/null || true)
+  properties=$(timeout "$step_timeout" systemctl show -p Result -p ExecMainCode -p ExecMainStatus "$unit" 2>/dev/null || true)
   service_result=$(printf '%s\n' "$properties" | sed -n 's/^Result=//p')
   main_code=$(printf '%s\n' "$properties" | sed -n 's/^ExecMainCode=//p')
   main_status=$(printf '%s\n' "$properties" | sed -n 's/^ExecMainStatus=//p')
@@ -156,6 +163,7 @@ record_step() {
 
 fail_start() {
   first_failed=$1
+  test -n "$first_failure_at_ms" || first_failure_at_ms=$(( $(now_ms) - started_ms ))
   failure_detail=$2
   capture_failure
   if stop_runtime && force_and_verify_zero_output; then terminal_state=RUNTIME_STOPPED_ZERO_OUTPUT; else terminal_state=SAFE_STATE_VERIFICATION_FAILED; fi
@@ -170,16 +178,18 @@ case "$step_timeout" in ''|*[!0-9]*) echo "PHANTOM_START_STEP_TIMEOUT_SECONDS mu
 test "$step_timeout" -gt 0 || { echo "PHANTOM_START_STEP_TIMEOUT_SECONDS must be positive" >&2; exit 1; }
 test -L "$root" && test -f "$root/build-manifest.json" || fail_start start-admission "installed current release is missing"
 (cd "$root" && sha256sum -c SHA256SUMS >/dev/null) || fail_start start-admission "installed release integrity check failed"
-build_id=$(python3 - "$root/build-manifest.json" <<'PY'
+identity=$(python3 - "$root/build-manifest.json" <<'PY'
 import json, re, sys
 with open(sys.argv[1], encoding="utf-8-sig") as stream:
     manifest = json.load(stream)
 build_id = manifest.get("build_id")
 if manifest.get("component") != "EV3" or not isinstance(build_id, str) or not re.fullmatch(r"[0-9a-f]{64}", build_id):
     raise SystemExit("installed build manifest is invalid")
-print(build_id)
+print(build_id + "\t" + manifest.get("build_profile", "N_A"))
 PY
 ) || fail_start start-admission "installed build manifest is invalid"
+build_id=$(printf '%s\n' "$identity" | cut -f1)
+build_profile=$(printf '%s\n' "$identity" | cut -f2)
 
 stop_runtime || fail_start pre-start-stop "existing runtime could not be stopped cleanly"
 force_and_verify_zero_output || fail_start pre-start-safe-state "could not establish zero-output before activation"
@@ -190,23 +200,23 @@ for unit in $start_order; do
     fail_start network-prerequisite "NETWORK_NOT_READY: provisioned EV3 network is not ready"
   fi
   echo "EV3 START: starting $unit (deadline ${step_timeout}s)"
-  step_started=$(date +%s)
+  step_started=$(now_ms)
   if timeout "$step_timeout" systemctl start "$unit" && systemctl is-active --quiet "$unit"; then
-    step_finished=$(date +%s)
+    step_finished=$(now_ms)
     record_step "$unit" PASS "$((step_finished-step_started))"
   else
-    step_finished=$(date +%s)
+    step_finished=$(now_ms)
     record_step "$unit" FAIL "$((step_finished-step_started))"
     fail_start "$unit" "service did not reach active state within its bounded start step"
   fi
 done
 
-target_started=$(date +%s)
+target_started=$(now_ms)
 if timeout "$step_timeout" systemctl start phantom.target && systemctl is-active --quiet phantom.target; then
-  target_finished=$(date +%s)
+  target_finished=$(now_ms)
   record_step phantom.target PASS "$((target_finished-target_started))"
 else
-  target_finished=$(date +%s)
+  target_finished=$(now_ms)
   record_step phantom.target FAIL "$((target_finished-target_started))"
   fail_start phantom.target "target did not reach active state"
 fi

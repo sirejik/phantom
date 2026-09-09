@@ -88,6 +88,12 @@
 - **ev3dev — Networking**
   https://www.ev3dev.org/docs/networking/
 
+- **ev3dev — Connecting to ev3dev Using SSH**
+  Официальная инструкция использует `ssh robot@ev3dev.local` как штатный SSH endpoint после
+  настройки сети. PHANTOM использует то же mDNS-имя для единственного назначенного EV3, но
+  сохраняет отдельные root maintenance credentials и обязательную pinned fingerprint policy.
+  https://www.ev3dev.org/docs/tutorials/connecting-to-ev3dev-with-ssh/
+
 - **Avahi — service publishing/browsing API**
   Avahi принимает service `type` (например `_http._tcp`) и `domain` отдельными параметрами; default domain обычно `.local`. PHANTOM v1 использует `type=_phantom-ev3._udp`, `domain=local.` и IPv4-only publication до отдельной IPv6 qualification.
   https://avahi.org/doxygen/html/publish_8h.html

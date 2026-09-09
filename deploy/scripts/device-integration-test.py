@@ -233,8 +233,10 @@ def protocol_probe(root, config, boot_hex, motors):
 def write_report(manifest):
     finished_monotonic = time.monotonic()
     status = "PASS" if all(item["status"] in ("PASS", "N_A") for item in checks) else "FAIL"
-    payload = {"schema_version": 2, "gate": "DEVICE INTEGRATION TEST", "stage": 3,
-               "status": status, "git_commit": manifest.get("git_commit"),
+    payload = {"schema_version": 2, "phase": "DEVICE INTEGRATION TEST", "gate": "DEVICE INTEGRATION TEST", "stage": 3,
+               "component": "EV3", "profile": manifest.get("build_profile", "N_A"),
+               "status": status, "reason": "COMPLETED" if status == "PASS" else "DEVICE_CHECK_FAILED",
+               "git_commit": manifest.get("git_commit"),
                "qualification_eligible": manifest.get("qualification_eligible") is True,
                "build_id": manifest.get("build_id"), "config_hash": manifest.get("config_hash"),
                "commissioning_bundle_hash": manifest.get("commissioning_bundle_hash"),
@@ -243,6 +245,8 @@ def write_report(manifest):
                "started_at": run_started_at,
                "finished_at": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
                "duration_ms": int(max(0.0, finished_monotonic - run_started_monotonic) * 1000),
+               "terminal_state": "RUNTIME_ACTIVE_ZERO_OUTPUT" if status == "PASS" else "RUNTIME_STATE_REQUIRES_LAUNCHER_SAFE_STOP",
+               "hardware_evidence_state": "DEVICE",
                "monotonic_finished_us": int(finished_monotonic * 1000000), "checks": checks}
     REPORT.parent.mkdir(parents=True, exist_ok=True)
     temporary = REPORT.with_suffix(".tmp")

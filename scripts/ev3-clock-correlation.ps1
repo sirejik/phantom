@@ -1,17 +1,14 @@
 param(
-  [string]$DeviceHost="ev3dev.local",
-  [string]$DeviceUser="robot",
-  [string]$KeyPath=".ev3-ssh/id_ed25519",
+  [string]$StateRoot='',
   [string]$OutputPath="results/ev3/clock-correlation.json",
   [ValidateRange(1,120)][int]$MaxDeltaSeconds=15,
   [ValidateRange(1,120)][int]$MaxRoundTripSeconds=30
 )
 $ErrorActionPreference="Stop"
-$resolvedKey=(Resolve-Path -LiteralPath $KeyPath).Path
+. "$PSScriptRoot/ev3-deploy-common.ps1"
 $before=[DateTimeOffset]::UtcNow
-$destination="$DeviceUser@$DeviceHost"
-$raw=& ssh -i $resolvedKey -o BatchMode=yes -o IdentitiesOnly=yes -o ConnectTimeout=8 $destination "date -u +%Y-%m-%dT%H:%M:%SZ"
-$sshExit=$LASTEXITCODE
+$run=Invoke-PhantomEv3Command 'date -u +%Y-%m-%dT%H:%M:%SZ' $StateRoot 8
+$raw=$run.Stdout;$sshExit=$run.ExitCode
 $after=[DateTimeOffset]::UtcNow
 if($sshExit -ne 0){throw "EV3 clock query failed with exit $sshExit"}
 $device=[DateTimeOffset]::ParseExact(($raw|Select-Object -Last 1).Trim(),"yyyy-MM-ddTHH:mm:ssZ",[Globalization.CultureInfo]::InvariantCulture,[Globalization.DateTimeStyles]::AssumeUniversal)
@@ -23,7 +20,6 @@ $report=[ordered]@{
   schema_version=1
   gate="EV3 HOST CLOCK CORRELATION"
   status=if($pass){"PASS"}else{"FAIL"}
-  device_host=$DeviceHost
   host_before_utc=$before.ToString("o")
   host_after_utc=$after.ToString("o")
   device_wall_clock_utc=$device.ToUniversalTime().ToString("o")
