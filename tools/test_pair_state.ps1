@@ -15,6 +15,12 @@ try
     $paths=Get-PhantomPairPaths $temporary
     Assert-Throws {Read-PhantomPairState $temporary} 'PROVISION_REQUIRED'
     New-Item -ItemType Directory -Force -Path $paths.SshDirectory,$paths.SecretDirectory|Out-Null
+
+    $generatedKey=Join-Path $temporary 'generated/id_ed25519'
+    New-Item -ItemType Directory -Force -Path (Split-Path -Parent $generatedKey)|Out-Null
+    New-PhantomDeploymentKey $generatedKey
+    Assert-True ((Test-Path -LiteralPath $generatedKey -PathType Leaf)-and(Test-Path -LiteralPath ($generatedKey+'.pub') -PathType Leaf)) 'empty-passphrase deployment key generation failed'
+
     foreach($file in @($paths.SshKey,$paths.SshConfig,$paths.KnownHosts,$paths.ControlSecret)){[IO.File]::WriteAllText($file,'test')}
     $record=[ordered]@{provision_schema_version=1;provision_status='complete';quest_adb_serial='QUEST-EXACT-001';ev3_hostname='ev3dev.local';ev3_host_key_fingerprint='SHA256:AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA';robot_id='phantom01';control_key_id='phantom01-control'}
     Write-PhantomPairState $record $temporary

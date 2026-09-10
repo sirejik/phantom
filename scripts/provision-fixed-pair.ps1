@@ -48,9 +48,7 @@ if($recordExisted -and !(Test-Path -LiteralPath $paths.SshKey -PathType Leaf) -a
 if($RotateSshKey){Remove-Item -LiteralPath $paths.SshKey,($paths.SshKey+'.pub') -Force -ErrorAction SilentlyContinue}
 if(!(Test-Path -LiteralPath $paths.SshKey -PathType Leaf))
 {
-    $sshKeygen=(Get-Command ssh-keygen -ErrorAction Stop).Source
-    & $sshKeygen -q -t ed25519 -N '' -C 'PHANTOM deployment key' -f $paths.SshKey
-    if($LASTEXITCODE-ne 0){throw 'PROVISION_CORRUPT: deployment SSH key generation failed'}
+    New-PhantomDeploymentKey $paths.SshKey
 }
 Set-PhantomPrivateAcl $paths.SshKey
 
@@ -74,11 +72,11 @@ $model=(@(Invoke-PhantomAdb $adb $serial @('shell','getprop','ro.product.model')
 $device=(@(Invoke-PhantomAdb $adb $serial @('shell','getprop','ro.product.device') 8)-join'').Trim()
 if($model-ne'Quest 3' -or $device-ne'eureka'){throw 'QUEST_IDENTITY_MISMATCH: connected device is not the designated Quest 3 class'}
 
-$ev3Args=@('-HostFingerprint',$HostFingerprint,'-KeyPath',$paths.SshKey,'-SshDirectory',$paths.SshDirectory,
-    '-ControlKeyFile',$paths.ControlSecret,'-BootstrapUser',$BootstrapUser)
-if($RepinHost){$ev3Args+='-RepinHost'}
-if($WifiSettingsFile){$ev3Args+=@('-WifiSettingsFile',$WifiSettingsFile,'-WifiServiceId',$WifiServiceId)}
-& "$PSScriptRoot/ev3-provision-maintenance.ps1" @ev3Args
+& "$PSScriptRoot/ev3-provision-maintenance.ps1" -HostFingerprint $HostFingerprint `
+    -KeyPath $paths.SshKey -SshDirectory $paths.SshDirectory `
+    -ControlKeyFile $paths.ControlSecret -BootstrapUser $BootstrapUser `
+    -WifiSettingsFile $WifiSettingsFile -WifiServiceId $WifiServiceId `
+    -RepinHost:$RepinHost -Repair:$Repair
 if($LASTEXITCODE-ne 0){throw 'PROVISION_CORRUPT: EV3 provisioning failed'}
 & "$PSScriptRoot/quest-provision-credential.ps1" -KeyFile $paths.ControlSecret -KeyId $ControlKeyId -Serial $serial
 if($LASTEXITCODE-ne 0){throw 'PROVISION_CORRUPT: Quest credential provisioning failed'}

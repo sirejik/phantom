@@ -89,6 +89,15 @@ function Invoke-PhantomProcess([string]$File,[string[]]$Arguments,[ValidateRange
     return [pscustomobject]@{ExitCode=$process.ExitCode;Output=@(($stdout.Result+"`n"+$stderr.Result)-split"`r?`n"|Where-Object{$_})}
 }
 
+function New-PhantomDeploymentKey([string]$Path)
+{
+    $sshKeygen=(Get-Command ssh-keygen -ErrorAction Stop).Source
+    # Windows PowerShell drops a directly supplied empty native argument. The
+    # bounded process helper quotes every argument and preserves -N "".
+    $run=Invoke-PhantomProcess $sshKeygen @('-q','-t','ed25519','-N','','-C','PHANTOM deployment key','-f',$Path) 15 'PROVISION_CORRUPT'
+    if($run.ExitCode-ne 0){throw "PROVISION_CORRUPT: deployment SSH key generation failed (exit=$($run.ExitCode))"}
+}
+
 function Invoke-PhantomAdb([string]$Adb,[string]$Serial,[string[]]$Arguments,[ValidateRange(1,300)][int]$TimeoutSeconds=15)
 {
     $all=if($Serial){@('-s',$Serial)+$Arguments}else{$Arguments}

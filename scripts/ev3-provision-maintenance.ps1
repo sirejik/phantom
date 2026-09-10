@@ -8,7 +8,7 @@ param(
     [ValidateSet('any','inet','inet6')][string]$AddressFamily='any',
     [ValidateRange(5,30)][int]$ScanTimeoutSeconds=8,
     [string]$WifiSettingsFile='',[string]$WifiServiceId='',
-    [string]$Destination='results/ev3/provision',[switch]$RepinHost
+    [string]$Destination='results/ev3/provision',[switch]$RepinHost,[switch]$Repair
 )
 $ErrorActionPreference='Stop'
 $started=(Get-Date).ToUniversalTime()
@@ -20,7 +20,7 @@ $controlPath=[IO.Path]::GetFullPath($ControlKeyFile)
 $knownHostsPath=Join-Path $sshDirectoryPath 'known_hosts'
 $configPath=Join-Path $sshDirectoryPath 'config'
 
-foreach($required in @($keyPathFull,$keyPathFull+'.pub',$controlPath))
+foreach($required in @($keyPathFull,($keyPathFull+'.pub'),$controlPath))
 {if(!(Test-Path -LiteralPath $required -PathType Leaf)){throw "PROVISION_CORRUPT: private provisioning input is missing: $required"}}
 $controlBytes=[IO.File]::ReadAllBytes($controlPath)
 try
@@ -61,7 +61,10 @@ else
 {
     $scanArgs=@('-T',$ScanTimeoutSeconds,'-t','ed25519')
     if($AddressFamily-eq'inet'){$scanArgs=@('-4')+$scanArgs}elseif($AddressFamily-eq'inet6'){$scanArgs=@('-6')+$scanArgs}
-    $scan=@(& (Get-Command ssh-keyscan -ErrorAction Stop).Source @scanArgs $target 2>$null)
+    $sshKeyscan=(Get-Command ssh-keyscan -ErrorAction Stop).Source
+    $scanRun=Invoke-PhantomProcess $sshKeyscan (@($scanArgs)+$target) ($ScanTimeoutSeconds+3) 'DEVICE_NOT_FOUND'
+    if($scanRun.ExitCode-ne 0){throw "DEVICE_NOT_FOUND: ssh-keyscan exited with code $($scanRun.ExitCode)"}
+    $scan=@($scanRun.Output)
     $matching=@($scan|Where-Object{(Get-Fingerprint $_)-eq$HostFingerprint})
     $distinct=@($matching|ForEach-Object{($_-split'\s+')[2]}|Sort-Object -Unique)
     if($distinct.Count-eq 0){throw 'HOST_KEY_MISMATCH: discovered EV3 key does not match the trusted fingerprint'}
@@ -72,18 +75,21 @@ else
 }
 
 $familyLine=if($AddressFamily-eq'any'){''}else{"    AddressFamily $AddressFamily`n"}
-$config="Host ev3dev.local`n${familyLine}    User $User`n    IdentityFile $keyPathFull`n    IdentitiesOnly yes`n    BatchMode yes`n    ConnectTimeout 8`n    ServerAliveInterval 5`n    ServerAliveCountMax 1`n    StrictHostKeyChecking yes`n    UserKnownHostsFile $knownHostsPath`n"
+$config="Host ev3dev.local`n${familyLine}    User $User`n    IdentityFile $keyPathFull`n    IdentitiesOnly yes`n    BatchMode yes`n    ConnectTimeout 8`n    ServerAliveInterval 5`n    ServerAliveCountMax 6`n    StrictHostKeyChecking yes`n    UserKnownHostsFile $knownHostsPath`n"
 if(Test-Path -LiteralPath $configPath -PathType Leaf)
 {
     if((Get-Content -LiteralPath $configPath -Raw -Encoding UTF8)-ne$config)
-    {throw 'PROVISION_CORRUPT: existing EV3 SSH config differs; use explicit pair repair'}
+    {
+        if(!$Repair){throw 'PROVISION_CORRUPT: existing EV3 SSH config differs; use explicit pair repair'}
+        [IO.File]::WriteAllText($configPath,$config,[Text.UTF8Encoding]::new($false))
+    }
 }
 else{[IO.File]::WriteAllText($configPath,$config,[Text.UTF8Encoding]::new($false))}
 
 $ssh=(Get-Command ssh -ErrorAction Stop).Source
 $scp=(Get-Command scp -ErrorAction Stop).Source
-& $ssh -F $configPath -o BatchMode=yes $target -- true 2>$null
-if($LASTEXITCODE-ne 0)
+$deploymentProbe=Invoke-PhantomProcess $ssh @('-F',$configPath,'-o','BatchMode=yes',$target,'--','true') 45 'DEVICE_NOT_FOUND'
+if($deploymentProbe.ExitCode-ne 0)
 {
     if($BootstrapUser-notmatch'^[A-Za-z0-9._-]+$'){throw 'PROVISION_REQUIRED: a trusted bootstrap user is required to install the deployment key'}
     $bootstrapTarget="$BootstrapUser@$target"
