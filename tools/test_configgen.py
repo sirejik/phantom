@@ -4,9 +4,11 @@ import copy
 import importlib.util
 import json
 import pathlib
+import shutil
 import sys
 import tempfile
 import unittest
+from unittest.mock import patch
 
 ROOT = pathlib.Path(__file__).resolve().parents[1]
 SPEC = importlib.util.spec_from_file_location("phantom_configgen", str(ROOT / "tools" / "configgen.py"))
@@ -140,14 +142,23 @@ class MeasuredLifecycleTests(unittest.TestCase):
         sources["quest"]["qr"]["required_only_before_ready"] = "MEASURED_REQUIRED"
         self.assertRaises(ValueError, CONFIGGEN.check_measured_registry, sources, self.measured)
 
-    def test_prose_declared_measured_fields_exist_in_canonical_config(self):
-        CONFIGGEN.check_prose_measured_contract(self.sources)
-        sources = copy.deepcopy(self.sources)
-        del sources["quest"]["human_mapping"]["max_mapping_scale"]
-        self.assertRaises(ValueError, CONFIGGEN.check_prose_measured_contract, sources)
-
-
 class GeneratedArtifactTests(unittest.TestCase):
+    def test_generator_works_without_documentation_and_is_stable_after_doc_edits(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = pathlib.Path(directory)
+            shutil.copytree(ROOT / "config/source", root / "config/source")
+            shutil.copytree(ROOT / "config/schema", root / "config/schema")
+            shutil.copytree(ROOT / "protocol/generated", root / "protocol/generated")
+            with patch.object(CONFIGGEN, "ROOT", root), patch.object(sys, "argv", ["configgen"]):
+                CONFIGGEN.main()
+                before = {p.name: p.read_bytes() for p in (root / "config/generated").iterdir()}
+                (root / "docs").mkdir()
+                (root / "docs/requirements.md").write_bytes(b"changed documentation\n")
+                CONFIGGEN.main()
+                self.assertEqual(before, {p.name: p.read_bytes() for p in (root / "config/generated").iterdir()})
+                with patch.object(sys, "argv", ["configgen", "--check"]):
+                    CONFIGGEN.main()
+
     def test_manifest_publishes_stage_gates_and_ipc_identity(self):
         manifest = json.loads((ROOT / "config" / "generated" / "config-manifest.json").read_text(encoding="utf-8"))
         self.assertIn("measured_gates", manifest)

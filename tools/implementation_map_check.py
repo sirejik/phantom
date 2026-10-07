@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Validate docs/PHANTOM/implementation-map.json.
+"""Validate docs/implementation-map.json.
 
 The map exists so "not done" can be told apart from "forgotten": every entry
 names the normative owner, the stage that owns it, the current status and the
@@ -11,17 +11,25 @@ import json
 import pathlib
 import re
 import sys
+import docindex
 
 ROOT = pathlib.Path(__file__).resolve().parents[1]
-MAP = ROOT / "docs" / "PHANTOM" / "implementation-map.json"
-SECTION_INDEX = ROOT / "docs" / "PHANTOM" / "SECTION_INDEX.md"
+MAP = ROOT / "docs" / "implementation-map.json"
 
 PATH_TOKEN = re.compile(r"(?:[A-Za-z0-9_.-]+/)+[A-Za-z0-9_.-]+")
 
 
 def known_sections():
-    text = SECTION_INDEX.read_text(encoding="utf-8")
-    return set(re.findall(r"§(\d+(?:\.\d+)*)", text))
+    return {pathlib.Path(row[2]).name + "#" + row[0] for row in docindex.collect()}
+
+
+def owner_reference_errors(owner, sections):
+    errors = []
+    for item in owner.split(";"):
+        match = re.fullmatch(r"([a-z][a-z0-9-]*\.md#sec-[a-z0-9-]+)(?: \([A-Z][A-Z0-9-]*\))?", item.strip())
+        if not match or match[1] not in sections:
+            errors.append("normative owner reference does not resolve: " + item.strip())
+    return errors
 
 
 def main():
@@ -48,10 +56,9 @@ def main():
         stage = entry.get("stage")
         if not isinstance(stage, int) or not 1 <= stage <= 10:
             errors.append("%s: stage must be 1..10" % identifier)
-        # Each referenced section must exist in the generated index.
-        for reference in re.findall(r"(\d+\.\d+(?:\.\d+)*)", str(entry.get("normative_owner", ""))):
-            if reference not in sections:
-                errors.append("%s: normative owner section §%s does not resolve" % (identifier, reference))
+        # Resolve file + stable anchor directly, independently of display numbering.
+        errors.extend(identifier + ": " + error for error in owner_reference_errors(
+            str(entry.get("normative_owner", "")), sections))
         for token in PATH_TOKEN.findall(str(entry.get("verification", ""))):
             if "/" not in token or token.endswith("/"):
                 continue

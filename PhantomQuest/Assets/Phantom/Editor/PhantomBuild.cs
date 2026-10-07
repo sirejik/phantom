@@ -27,7 +27,6 @@ namespace Phantom.Editor
             var configuredAppId=RequiredEnvironmentVariable("PHANTOM_META_APP_ID");
             var profile=Environment.GetEnvironmentVariable("PHANTOM_BUILD_PROFILE")??"Release";
             var gitCommit=RequiredEnvironmentVariable("PHANTOM_GIT_COMMIT");
-            var specificationHash=RequiredEnvironmentVariable("PHANTOM_SPECIFICATION_SHA256");
             var protocolSchemaHash=RequiredEnvironmentVariable("PHANTOM_PROTOCOL_SCHEMA_HASH");
             var protocolSemanticsHash=RequiredEnvironmentVariable("PHANTOM_PROTOCOL_SEMANTICS_HASH");
             var protocolContractHash=RequiredEnvironmentVariable("PHANTOM_PROTOCOL_CONTRACT_HASH");
@@ -76,7 +75,7 @@ namespace Phantom.Editor
                 PlayerSettings.Android.keystorePass=password;
                 PlayerSettings.Android.keyaliasName=alias;
                 PlayerSettings.Android.keyaliasPass=password;
-                WriteEmbeddedInputs(profile,buildId,gitCommit,sourceTreeHash,worktreeDirty,specificationHash,protocolSchemaHash,protocolSemanticsHash,protocolContractHash,configHash,bundleHash,packageLockHash);
+                WriteEmbeddedInputs(profile,buildId,gitCommit,sourceTreeHash,worktreeDirty,protocolSchemaHash,protocolSemanticsHash,protocolContractHash,configHash,bundleHash,packageLockHash);
                 var options=BuildOptions.None;
                 if(profile=="DeepDebug")options=BuildOptions.Development|BuildOptions.AllowDebugging|BuildOptions.ConnectWithProfiler;
                 report=BuildPipeline.BuildPlayer(paths,output,BuildTarget.Android,options);
@@ -96,16 +95,16 @@ namespace Phantom.Editor
             }
             if(report.summary.result!=BuildResult.Succeeded)throw new Exception($"Android build failed: {report.summary.result}, errors={report.summary.totalErrors}");
             var apkHash=Sha256(File.ReadAllBytes(output));
-            var identity=BuildIdentityJson(profile,buildId,gitCommit,sourceTreeHash,worktreeDirty,specificationHash,protocolSchemaHash,protocolSemanticsHash,protocolContractHash,configHash,bundleHash,packageLockHash);
+            var identity=BuildIdentityJson(profile,buildId,gitCommit,sourceTreeHash,worktreeDirty,protocolSchemaHash,protocolSemanticsHash,protocolContractHash,configHash,bundleHash,packageLockHash);
             var embeddedBytes=new UTF8Encoding(false).GetBytes(identity+Environment.NewLine);
             var manifest=ExternalManifestJson(identity,apkHash,Sha256(embeddedBytes),DateTime.UtcNow.ToString("o"));
             File.WriteAllText(output+".build-manifest.json",manifest+Environment.NewLine);
         }
 
-        static void WriteEmbeddedInputs(string profile,string buildId,string gitCommit,string sourceTreeHash,string worktreeDirty,string specificationHash,string protocolSchemaHash,string protocolSemanticsHash,string protocolContractHash,string configHash,string bundleHash,string packageLockHash)
+        static void WriteEmbeddedInputs(string profile,string buildId,string gitCommit,string sourceTreeHash,string worktreeDirty,string protocolSchemaHash,string protocolSemanticsHash,string protocolContractHash,string configHash,string bundleHash,string packageLockHash)
         {
             Directory.CreateDirectory(Path.GetDirectoryName(EmbeddedBuildPath));
-            var manifest=BuildIdentityJson(profile,buildId,gitCommit,sourceTreeHash,worktreeDirty,specificationHash,protocolSchemaHash,protocolSemanticsHash,protocolContractHash,configHash,bundleHash,packageLockHash);
+            var manifest=BuildIdentityJson(profile,buildId,gitCommit,sourceTreeHash,worktreeDirty,protocolSchemaHash,protocolSemanticsHash,protocolContractHash,configHash,bundleHash,packageLockHash);
             File.WriteAllText(EmbeddedBuildPath,manifest+Environment.NewLine,new UTF8Encoding(false));
             var configPath=RequiredEnvironmentVariable("PHANTOM_QUEST_CONFIG_PATH");
             File.Copy(configPath,EmbeddedConfigPath,true);
@@ -119,7 +118,7 @@ namespace Phantom.Editor
             AssetDatabase.DeleteAsset(EmbeddedConfigPath);
         }
 
-        static string BuildIdentityJson(string profile,string buildId,string gitCommit,string sourceTreeHash,string worktreeDirty,string specificationHash,string protocolSchemaHash,string protocolSemanticsHash,string protocolContractHash,string configHash,string bundleHash,string packageLockHash)
+        static string BuildIdentityJson(string profile,string buildId,string gitCommit,string sourceTreeHash,string worktreeDirty,string protocolSchemaHash,string protocolSemanticsHash,string protocolContractHash,string configHash,string bundleHash,string packageLockHash)
         {
             var core=PackageVersion("com.meta.xr.sdk.core");
             var mruk=PackageVersion("com.meta.xr.mrutilitykit");
@@ -128,7 +127,7 @@ namespace Phantom.Editor
             var hands=PackageVersion("com.unity.xr.hands");
             var bodyCompatibility=BodyMultimodalCompatibility();
             var multimodal=profile=="Release"?"true":"false";var qualificationEligible=profile=="DeepDebug"?"false":"true";
-            return $"{{\"schema_version\":7,\"build_identity_schema\":\"PHANTOM-BUILD-V3\",\"component\":\"QUEST\",\"build_id\":\"{buildId}\",\"git_commit\":\"{gitCommit}\",\"source_tree_hash\":\"{sourceTreeHash}\",\"worktree_dirty\":{worktreeDirty},\"build_profile\":\"{profile}\",\"qualification_eligible\":{qualificationEligible},\"protocol_version\":1,\"specification_sha256\":\"{specificationHash}\",\"protocol_schema_hash\":\"{protocolSchemaHash}\",\"protocol_semantics_hash\":\"{protocolSemanticsHash}\",\"protocol_contract_hash\":\"{protocolContractHash}\",\"config_hash\":\"{configHash}\",\"commissioning_bundle_hash\":\"{bundleHash}\",\"unity_version\":\"{UnityEngine.Application.unityVersion}\",\"app_version\":\"{PlayerSettings.bundleVersion}\",\"package_lock_sha256\":\"{packageLockHash}\",\"toolchain_or_package_lock_hash\":\"{packageLockHash}\",\"meta_xr_core_version\":\"{core}\",\"movement_sdk_version\":\"{core}\",\"body_tracking_provider\":\"OVRBody/com.meta.xr.sdk.core\",\"multimodal_required\":{multimodal},\"body_provider_joint_set\":\"UpperBody\",\"body_right_shoulder_api\":\"OVRPlugin.BoneId.Body_RightShoulder\",\"body_multimodal_compatibility\":\"{bodyCompatibility}\",\"mruk_version\":\"{mruk}\",\"openxr_plugin_version\":\"{openxr}\",\"meta_openxr_version\":\"{metaOpenxr}\",\"xr_hands_version\":\"{hands}\"}}";
+            return $"{{\"schema_version\":8,\"build_identity_schema\":\"PHANTOM-BUILD-V4\",\"component\":\"QUEST\",\"build_id\":\"{buildId}\",\"git_commit\":\"{gitCommit}\",\"source_tree_hash\":\"{sourceTreeHash}\",\"worktree_dirty\":{worktreeDirty},\"build_profile\":\"{profile}\",\"qualification_eligible\":{qualificationEligible},\"protocol_version\":1,\"protocol_schema_hash\":\"{protocolSchemaHash}\",\"protocol_semantics_hash\":\"{protocolSemanticsHash}\",\"protocol_contract_hash\":\"{protocolContractHash}\",\"config_hash\":\"{configHash}\",\"commissioning_bundle_hash\":\"{bundleHash}\",\"unity_version\":\"{UnityEngine.Application.unityVersion}\",\"app_version\":\"{PlayerSettings.bundleVersion}\",\"package_lock_sha256\":\"{packageLockHash}\",\"toolchain_or_package_lock_hash\":\"{packageLockHash}\",\"meta_xr_core_version\":\"{core}\",\"movement_sdk_version\":\"{core}\",\"body_tracking_provider\":\"OVRBody/com.meta.xr.sdk.core\",\"multimodal_required\":{multimodal},\"body_provider_joint_set\":\"UpperBody\",\"body_right_shoulder_api\":\"OVRPlugin.BoneId.Body_RightShoulder\",\"body_multimodal_compatibility\":\"{bodyCompatibility}\",\"mruk_version\":\"{mruk}\",\"openxr_plugin_version\":\"{openxr}\",\"meta_openxr_version\":\"{metaOpenxr}\",\"xr_hands_version\":\"{hands}\"}}";
         }
 
         static string ExternalManifestJson(string identity,string apkHash,string embeddedIdentityHash,string createdAt)

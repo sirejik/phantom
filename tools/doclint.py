@@ -6,11 +6,12 @@ import json
 import re
 import subprocess
 import sys
+import docindex
 
 ROOT = Path(__file__).resolve().parents[1]
-PH = ROOT / "docs" / "PHANTOM"
+PH = ROOT / "docs"
 SPEC_SET = PH / "spec-set.json"
-SUPPORTING = [PH / "REFERENCES.md"]
+SUPPORTING = [PH / "references.md"]
 
 ANCHOR_RE = re.compile(r'<a id="(sec-[^"]+)"></a>')
 SECTION_REF_RE = re.compile(r'§(\d+(?:\.\d+)*)')
@@ -18,6 +19,133 @@ MD_LINK_RE = re.compile(r'\[[^\]]*\]\(([^)]+)\)')
 
 def norm(path):
     return path.read_text(encoding="utf-8").replace("\r\n","\n").replace("\r","\n")
+
+
+def numbering_errors(text):
+    """Each document has one title and a consecutive local heading hierarchy."""
+    errors = []
+    counts = [0] * 5
+    fenced = False
+    titles = 0
+    for line in text.splitlines():
+        if line.startswith("```"):
+            fenced = not fenced
+        if fenced:
+            continue
+        match = re.match(r"^(#{1,6})\s+(.+)$", line)
+        if not match:
+            continue
+        depth = len(match[1]) - 2
+        if depth < 0:
+            titles += 1
+            continue
+        counts[depth] += 1
+        counts[depth + 1:] = [0] * (4 - depth)
+        expected = ".".join(map(str, counts[:depth + 1]))
+        if not all(counts[:depth + 1]) or docindex.heading_number(match[2]) != expected:
+            errors.append(f"ожидался раздел {expected}: {line}")
+    if titles != 1:
+        errors.append(f"ожидался один заголовок документа, найдено {titles}")
+    return errors
+
+def product_traceability_errors(text):
+    """Every obligation supports an existing, used acceptance criterion."""
+    errors = []
+    criteria = re.findall(r'^\| <a id="criterion-(c-\d{2})"></a>`(C-\d{2})` \|', text, re.M)
+    declared = {identifier for _, identifier in criteria}
+    if not declared or len(declared) != len(criteria):
+        errors.append("criteria must be nonempty and unique")
+    for anchor, identifier in criteria:
+        if anchor != identifier.lower():
+            errors.append("criterion anchor does not match ID: " + identifier)
+    rows = re.findall(r'^\| `((?:FR|NFR)-[A-Z]+-\d+)` \| (.+)$', text, re.M)
+    candidates = re.findall(r'^\| `(?:FR|NFR)-.*$', text, re.M)
+    if len(candidates) != len(rows):
+        errors.append("requirement rows must use one current, canonical ID")
+    seen, used = set(), set()
+    if not rows:
+        errors.append("product requirements are missing")
+    for identifier, cells in rows:
+        if identifier in seen:
+            errors.append("duplicate requirement ID: " + identifier)
+        seen.add(identifier)
+        parts = cells.split("|")
+        if len(parts) != 3 or not parts[0].strip() or parts[-1].strip():
+            errors.append("requirement must have text and criterion columns: " + identifier)
+            continue
+        links = re.findall(r'\[(C-\d{2})\]\(#criterion-(c-\d{2})\)', parts[1])
+        remainder = re.sub(r'\[(C-\d{2})\]\(#criterion-(c-\d{2})\)', '', parts[1])
+        if not links or remainder.strip(' ,'):
+            errors.append("criterion links are missing or malformed: " + identifier)
+        for criterion, anchor in links:
+            if criterion not in declared or anchor != criterion.lower():
+                errors.append("unknown or mismatched criterion: " + identifier)
+            used.add(criterion)
+    for criterion in sorted(declared - used):
+        errors.append("criterion has no supporting requirements: " + criterion)
+    return errors
+
+
+def acceptance_traceability_errors(product, acceptance):
+    """Require explicit owner/procedure coverage; this does not prove test PASS."""
+    errors = []
+    requirements = set(re.findall(r'^\| `((?:FR|NFR)-[A-Z]+-\d+)` \|', product, re.M))
+    criteria = set(re.findall(r'^\| <a id="criterion-c-\d{2}"></a>`(C-\d{2})` \|', product, re.M))
+    sections = {}
+    for number in (1, 2):
+        match = re.search(
+            r'<a id="sec-test-plan-25-' + str(number) + r'"></a>(.*?)'
+            r'(?=<a id="sec-test-plan-25-' + str(number + 1) + r'"></a>)',
+            acceptance, re.S)
+        if not match:
+            errors.append("missing acceptance traceability section: 25." + str(number))
+        sections[number] = match[1] if match else ""
+    seen_criteria = set()
+    for line in sections[1].splitlines():
+        if not line.startswith("| [C-"):
+            continue
+        cells = [cell.strip() for cell in line.strip("|").split("|")]
+        match = re.fullmatch(r'\[(C-\d{2})\]\(product-requirements\.md#criterion-(c-\d{2})\)', cells[0])
+        if not match or len(cells) != 3:
+            errors.append("malformed acceptance criterion row: " + line)
+            continue
+        identifier = match[1]
+        if identifier not in criteria or match[2] != identifier.lower():
+            errors.append("unknown or mismatched acceptance criterion: " + identifier)
+        if identifier in seen_criteria:
+            errors.append("duplicate acceptance criterion: " + identifier)
+        seen_criteria.add(identifier)
+        if not cells[1] or not re.search(r'\]\(#sec-[^)]+\)', cells[2]):
+            errors.append("criterion has no outcome/procedure: " + identifier)
+    for identifier in sorted(criteria - seen_criteria):
+        errors.append("criterion missing from acceptance matrix: " + identifier)
+    seen_requirements = set()
+    for line in sections[2].splitlines():
+        if not line.startswith("|") or not re.search(r'`(?:FR|NFR)-', line):
+            continue
+        cells = [cell.strip() for cell in line.strip("|").split("|")]
+        if len(cells) != 4:
+            errors.append("malformed requirement coverage row: " + line)
+            continue
+        identifiers = re.findall(r'`((?:FR|NFR)-[A-Z]+-\d+)`', cells[1])
+        remainder = re.sub(r'`(?:FR|NFR)-[A-Z]+-\d+`', '', cells[1])
+        if not identifiers or remainder.strip(' ,'):
+            errors.append("coverage requires explicit canonical IDs: " + cells[1])
+        owner_links = re.findall(r'\]\(([a-z0-9-]+\.md)#sec-[^)]+\)', cells[2])
+        if (not owner_links or any(owner in ('product-requirements.md', 'test-plan.md')
+                                   for owner in owner_links)
+                or not re.search(r'\]\(#sec-[^)]+\)', cells[3])):
+            errors.append("requirement coverage has no component owner/procedure: " + cells[1])
+        for identifier in identifiers:
+            if identifier not in requirements:
+                errors.append("unknown acceptance requirement ID: " + identifier)
+            if identifier in seen_requirements:
+                errors.append("duplicate acceptance requirement coverage: " + identifier)
+            seen_requirements.add(identifier)
+    for identifier in sorted(requirements - seen_requirements):
+        errors.append("requirement missing from acceptance matrix: " + identifier)
+    return errors
+
 
 def main():
     errors = []
@@ -34,20 +162,38 @@ def main():
         else:
             active.append(p)
     active.extend(p for p in SUPPORTING if p.is_file())
+    for p in active:
+        errors.extend(f"{p.relative_to(ROOT)}: {error}" for error in numbering_errors(norm(p)))
+    product = PH / "product-requirements.md"
+    if product.is_file():
+        errors.extend("product traceability: " + error for error in product_traceability_errors(norm(product)))
+        acceptance = PH / "test-plan.md"
+        if acceptance.is_file():
+            errors.extend("acceptance traceability: " + error
+                          for error in acceptance_traceability_errors(norm(product), norm(acceptance)))
+        requirement_ids = set(re.findall(r'^\| `((?:FR|NFR)-[A-Z]+-\d+)` \|', norm(product), re.M))
+        for path in active:
+            unknown = set(re.findall(r'\b(?:FR|NFR)-[A-Z]+-\d+\b', norm(path))) - requirement_ids
+            errors.extend("unknown requirement reference in {}: {}".format(path.relative_to(ROOT), identifier)
+                          for identifier in sorted(unknown))
+    for rel in rels:
+        if not re.fullmatch(r'[a-z][a-z0-9]*(?:-[a-z0-9]+)*\.md', Path(rel).name):
+            errors.append("specification filename must use lower-kebab-case: " + rel)
 
     # Проверки generated-файлов
     for script, args in [
-        ("tools/specgen.py", ["--check"]),
+        ("tools/protocolgen.py", ["--check", "--include-docs"]),
         ("tools/docindex.py", ["--check"]),
     ]:
-        cp = subprocess.run([sys.executable, "-S", str(ROOT/script), *args],
-                            cwd=ROOT, text=True, capture_output=True)
+        cp = subprocess.run([sys.executable, "-X", "utf8", "-S", str(ROOT/script), *args],
+                            cwd=ROOT, text=True, encoding="utf-8", capture_output=True)
         if cp.returncode != 0:
             errors.append((cp.stdout + cp.stderr).strip() or f"проверка {script} завершилась ошибкой")
 
     # Баланс Markdown fenced blocks и относительные ссылки.
     all_md = list(PH.rglob("*.md"))
     all_md += [ROOT/"AGENTS.md"]
+    all_md.extend((ROOT / ".agents" / "skills").rglob("*.md"))
     for p in all_md:
         if not p.is_file():
             continue
@@ -76,11 +222,12 @@ def main():
                 )
             owners[anchor] = p
 
-    # Каждая ссылка § в постоянной документации/project guidance/skills должна разрешаться.
+    # Current references use a file/anchor, not an ambiguous global section number.
+    indexed = {row[0]: row for row in docindex.collect()}
     section_ref_files = list(all_md)
     skills_root = ROOT / ".agents" / "skills"
     if skills_root.is_dir():
-        section_ref_files.extend(skills_root.rglob("SKILL.md"))
+        section_ref_files.extend(skills_root.rglob("*.md"))
     seen_section_files = set()
     for p in section_ref_files:
         if not p.is_file():
@@ -90,12 +237,28 @@ def main():
             continue
         seen_section_files.add(rp)
         txt = norm(p)
-        for m in SECTION_REF_RE.finditer(txt):
-            anchor = "sec-" + m.group(1).replace(".", "-")
-            if anchor not in owners:
-                errors.append(
-                    f"неразрешимая ссылка на раздел §{m.group(1)} в {p.relative_to(ROOT)}"
-                )
+        fenced = False
+        for line in txt.splitlines():
+            if line.startswith("```"):
+                fenced = not fenced
+            for link in MD_LINK_RE.finditer(line):
+                target = link[1].strip()
+                if "#sec-" not in target or target.startswith(("http://", "https://")):
+                    continue
+                anchor = target.split("#", 1)[1]
+                row = indexed.get(anchor)
+                if row is None:
+                    errors.append(f"неизвестный section anchor в {p.relative_to(ROOT)}: {target}")
+                    continue
+                label = link[0].split("](", 1)[0]
+                for number in SECTION_REF_RE.findall(label):
+                    if number != docindex.heading_number(row[3]):
+                        errors.append(f"устаревший номер в {p.relative_to(ROOT)}: {link[0]}")
+            if not fenced:
+                prose = MD_LINK_RE.sub("", line)
+                prose = re.sub(r"`[^`]*`", "", prose)
+                if SECTION_REF_RE.search(prose):
+                    errors.append(f"раздел без Markdown-ссылки в {p.relative_to(ROOT)}: {line}")
 
     # Repo skills: обязательный frontmatter и согласованность directory/name.
     skills_root = ROOT / ".agents" / "skills"
@@ -149,10 +312,13 @@ def main():
         "EV3_LEGACY_RISK.md",
         "PHANTOM_ROADMAP.md",
         "status/history/",
+        "decisions/",
+        "risks/",
+        "CHANGELOG.md",
     )
     retired_scan = list(all_md)
     if skills_root.is_dir():
-        retired_scan.extend(skills_root.rglob("SKILL.md"))
+        retired_scan.extend(skills_root.rglob("*.md"))
     seen_retired_files = set()
     for p in retired_scan:
         if not p.is_file() or p.resolve() == Path(__file__).resolve():
@@ -169,7 +335,7 @@ def main():
                 )
 
     # Semantic ownership anti-regressions for the split wire contract.
-    protocol_spec = PH / "PROTOCOL_SPECIFICATION.md"
+    protocol_spec = PH / "protocol-specification.md"
     if protocol_spec.is_file():
         pt = norm(protocol_spec)
         forbidden_protocol_patterns = (

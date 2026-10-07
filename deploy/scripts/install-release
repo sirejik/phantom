@@ -264,7 +264,7 @@ build_id=$(python3 - "$staging/build-manifest.json" "$expected_build_id" <<'PY'
 import json, sys
 with open(sys.argv[1], encoding="utf-8-sig") as stream:
     manifest = json.load(stream)
-if manifest.get("schema_version") != 4 or manifest.get("build_identity_schema") != "PHANTOM-BUILD-V3" or manifest.get("component") != "EV3":
+if manifest.get("schema_version") != 5 or manifest.get("build_identity_schema") != "PHANTOM-BUILD-V4" or manifest.get("component") != "EV3":
     raise SystemExit("invalid embedded EV3 build manifest")
 if manifest.get("build_id") != sys.argv[2]:
     raise SystemExit("embedded EV3 build_id mismatch")

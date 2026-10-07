@@ -2,29 +2,32 @@
 """Compute the normative content-addressed PHANTOM component build identity."""
 import argparse
 import hashlib
-import json
+import sys
+from pathlib import Path
+sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "protocol"))
+import jcs
 import re
 
 FIELDS=("schema","component_id","build_profile","source_tree_hash",
-        "specification_sha256","protocol_contract_hash","component_config_hash",
+        "protocol_contract_hash","component_config_hash",
         "toolchain_or_package_lock_hash")
 
 def canonical(value):
-    return json.dumps(value,ensure_ascii=False,sort_keys=True,separators=(",",":")).encode("utf-8")
+    return jcs.canonicalize(value)
 
-def identity(component,profile,source_tree_hash,specification_sha256,
+def identity(component,profile,source_tree_hash,
              protocol_contract_hash,component_config_hash,toolchain_or_package_lock_hash):
     if component not in ("EV3","QUEST"): raise ValueError("component_id")
     if profile not in ("Release","Diagnostic","DeepDebug"): raise ValueError("build_profile")
-    values=(source_tree_hash,specification_sha256,protocol_contract_hash,
+    values=(source_tree_hash,protocol_contract_hash,
             component_config_hash,toolchain_or_package_lock_hash)
-    lengths=(64,64,64,64,64)
+    lengths=(64,64,64,64)
     for value,length in zip(values,lengths):
         if not isinstance(value,str) or not re.fullmatch("[0-9a-f]{%d}"%length,value):
             raise ValueError("identity input must be %d lowercase hex symbols"%length)
-    obj={"schema":"PHANTOM-BUILD-V3","component_id":component,"build_profile":profile,
+    obj={"schema":"PHANTOM-BUILD-V4","component_id":component,"build_profile":profile,
          "source_tree_hash":source_tree_hash,
-         "specification_sha256":specification_sha256,"protocol_contract_hash":protocol_contract_hash,
+         "protocol_contract_hash":protocol_contract_hash,
          "component_config_hash":component_config_hash,
          "toolchain_or_package_lock_hash":toolchain_or_package_lock_hash}
     if tuple(sorted(obj))!=tuple(sorted(FIELDS)): raise AssertionError("identity field set")
@@ -35,14 +38,13 @@ def main():
     parser.add_argument("--component",required=True,choices=("EV3","QUEST"))
     parser.add_argument("--profile",required=True,choices=("Release","Diagnostic","DeepDebug"))
     parser.add_argument("--source-tree-hash",required=True)
-    parser.add_argument("--specification-sha256",required=True)
     parser.add_argument("--protocol-contract-hash",required=True)
     parser.add_argument("--component-config-hash",required=True)
     parser.add_argument("--toolchain-or-package-lock-hash",required=True)
     parser.add_argument("--print-object",action="store_true")
     args=parser.parse_args()
     digest,obj=identity(args.component,args.profile,args.source_tree_hash,
-                        args.specification_sha256,args.protocol_contract_hash,
+                        args.protocol_contract_hash,
                         args.component_config_hash,args.toolchain_or_package_lock_hash)
     print(canonical(obj).decode("utf-8") if args.print_object else digest)
 

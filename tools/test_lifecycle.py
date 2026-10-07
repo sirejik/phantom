@@ -150,9 +150,9 @@ class LifecycleTests(unittest.TestCase):
         for path in ("scripts/ev3-armel-docker.ps1", "scripts/ev3-host-build.ps1"):
             self.assertIn("semantics.yaml", read(path), path)
         self.assertIn('"bin/semantics.yaml"', read("deploy/scripts/install-release"))
-        self.assertIn("PHANTOM-BUILD-V3", read("scripts/ev3-armel-docker.ps1"))
-        self.assertIn("PHANTOM-BUILD-V3", read("scripts/ev3-host-build.ps1"))
-        self.assertIn("PHANTOM-BUILD-V3", read("PhantomQuest/Assets/Phantom/Editor/PhantomBuild.cs"))
+        self.assertIn("PHANTOM-BUILD-V4", read("scripts/ev3-armel-docker.ps1"))
+        self.assertIn("PHANTOM-BUILD-V4", read("scripts/ev3-host-build.ps1"))
+        self.assertIn("PHANTOM-BUILD-V4", read("PhantomQuest/Assets/Phantom/Editor/PhantomBuild.cs"))
         self.assertIn("wire.contract_hash()", read("ev3/network/phantom_network.py"))
         self.assertIn("WireV1.ProtocolContractSha256", read("PhantomQuest/Assets/Phantom/Networking/Stage3NetworkClient.cs"))
 

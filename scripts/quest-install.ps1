@@ -34,7 +34,7 @@ if(!(Test-Path -LiteralPath $apkPath -PathType Leaf) -or !(Test-Path -LiteralPat
 $manifest=Get-Content -LiteralPath $manifestPath -Encoding UTF8 -Raw|ConvertFrom-Json
 $apkHash=(Get-FileHash -LiteralPath $apkPath -Algorithm SHA256).Hash.ToLowerInvariant()
 if($apkHash-ne$manifest.apk_sha256){throw 'APK hash does not match build manifest'}
-if($manifest.schema_version-ne 7 -or $manifest.build_identity_schema-ne'PHANTOM-BUILD-V3' -or $manifest.component-ne'QUEST' -or $manifest.build_id-notmatch'^[0-9a-f]{64}$'){throw 'Invalid Quest build manifest'}
+if($manifest.schema_version-ne 8 -or $manifest.build_identity_schema-ne'PHANTOM-BUILD-V4' -or $manifest.component-ne'QUEST' -or $manifest.build_id-notmatch'^[0-9a-f]{64}$'){throw 'Invalid Quest build manifest'}
 $serial=Get-PhantomQuestDevice $adb $StateRoot
 $model=(@(Invoke-PhantomAdb $adb $serial @('shell','getprop','ro.product.model') 8)-join'').Trim()
 $device=(@(Invoke-PhantomAdb $adb $serial @('shell','getprop','ro.product.device') 8)-join'').Trim()

@@ -6,7 +6,7 @@ import re
 import sys
 
 ROOT = pathlib.Path(__file__).resolve().parents[1]
-SPEC_SET = ROOT / "docs/PHANTOM/spec-set.json"
+SPEC_SET = ROOT / "docs/spec-set.json"
 PATTERNS = (
     re.compile(r"30[- ]?минут", re.IGNORECASE),
     re.compile(r">=?\s*30\s*min", re.IGNORECASE),

@@ -6,11 +6,11 @@ import json
 import pathlib
 import re
 import sys
+import configgen
 
 
 ROOT = pathlib.Path(__file__).resolve().parents[1]
-MANIFEST = ROOT / "docs/PHANTOM_SPECIFICATION.md"
-PROTOCOL_SPEC = ROOT / "docs/PHANTOM/PROTOCOL_SPECIFICATION.md"
+PROTOCOL_SPEC = ROOT / "docs/protocol-specification.md"
 SCHEMA = ROOT / "protocol/wire_schema.yaml"
 
 
@@ -31,16 +31,34 @@ def exact_utf8_lf(path):
         fail("%s is not UTF-8" % path.relative_to(ROOT))
 
 
-def main():
-    _, manifest = exact_utf8_lf(MANIFEST)
-    protocol_raw, protocol_text = exact_utf8_lf(PROTOCOL_SPEC)
+def check_prose_measured_contract(source_objects):
+    """Every `MEASURED` field named by normative prose must exist in canonical config.
 
-    protocol_hash = hashlib.sha256(protocol_raw).hexdigest()
-    manifest_row = (
-        "| `docs/PHANTOM/PROTOCOL_SPECIFICATION.md` | `%s` |" % protocol_hash
-    )
-    if manifest_row not in manifest:
-        fail("split manifest does not bind the current protocol specification")
+    Without this the prose can declare a safety-relevant measured parameter that
+    never reaches the registry, which would silently defeat the READY gate.
+    """
+    documented={
+        "docs/quest-specification.md":{
+            "max_mapping_scale":"quest#/human_mapping/max_mapping_scale",
+            "arm_reach_min_technical_m":"quest#/human_mapping/arm_reach_min_technical_m",
+            "arm_reach_max_technical_m":"quest#/human_mapping/arm_reach_max_technical_m",
+        },
+    }
+    flat={}
+    for name,obj in source_objects.items():
+        for path in configgen.measured_paths(name,obj): flat[path.split("#",1)[0].replace(".json","")+"#"+path.split("#",1)[1]]=path
+    for document,mapping in documented.items():
+        text=(ROOT/document).read_text(encoding="utf-8")
+        for field,expected in mapping.items():
+            if field not in text: raise ValueError("%s no longer declares %s"%(document,field))
+            if expected not in flat: raise ValueError("prose MEASURED field %s is absent from canonical config (%s)"%(field,expected))
+
+
+def main():
+    source_objects = {path.stem: json.loads(path.read_text(encoding="utf-8"))
+                      for path in (ROOT / "config/source").glob("*.json")}
+    check_prose_measured_contract(source_objects)
+    _, protocol_text = exact_utf8_lf(PROTOCOL_SPEC)
 
     schema = json.loads(SCHEMA.read_text(encoding="utf-8"))
     canonical = json.dumps(
@@ -89,7 +107,7 @@ def main():
         fail("hand-written protocol prose contains a competing exact wire layout")
 
     print(
-        "spec contract PASS: split manifest/prose ownership, "
+        "spec contract PASS: schema/prose ownership, "
         "%d schema messages, structural/semantic/contract identities" % len(schema["messages"])
     )
 

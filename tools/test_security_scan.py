@@ -63,7 +63,6 @@ class JsonArtifactTests(unittest.TestCase):
 
     def test_declared_hash_fields_are_accepted(self):
         self.assertFalse(self.scan_document({"artifact_hashes": {"ev3": "ab" * 32},
-                                             "specification_sha256": "cd" * 32,
                                              "build_id": "ef" * 32}))
 
     def test_undeclared_64_hex_value_is_flagged(self):

@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Генерация/проверка/поиск стабильных ссылок на разделы PHANTOM."""
+"""Локальные оглавления и поиск стабильных ссылок на разделы PHANTOM."""
 
 from pathlib import Path
 import argparse
@@ -11,10 +11,10 @@ if hasattr(sys.stdout, "reconfigure"):
     sys.stdout.reconfigure(encoding="utf-8")
 
 ROOT = Path(__file__).resolve().parents[1]
-PH = ROOT / "docs" / "PHANTOM"
+PH = ROOT / "docs"
 SPEC_SET = PH / "spec-set.json"
-SUPPORTING = [PH / "REFERENCES.md"]  # владеет навигацией legacy §11.5, но не является нормативным
-OUTPUT = PH / "SECTION_INDEX.md"
+SUPPORTING = [PH / "references.md"]  # владеет навигацией legacy §11.5, но не является нормативным
+TOC_RE = re.compile(r'<!-- BEGIN GENERATED TOC -->.*?<!-- END GENERATED TOC -->\n*', re.S)
 
 ANCHOR_RE = re.compile(r'<a id="(sec-[^"]+)"></a>')
 HEADING_RE = re.compile(r'^(#{1,6})\s+(.+?)\s*$')
@@ -50,10 +50,6 @@ def sections(path: Path):
         result.append((anchor, heading, heading_line))
     return result
 
-def sec_key(anchor):
-    parts = anchor[len("sec-") :] if anchor.startswith("sec-") else anchor
-    parts = parts.split("-")
-    return [(0, int(p)) if p.isdigit() else (1, p) for p in parts]
 
 def collect():
     rows = []
@@ -67,27 +63,45 @@ def collect():
             section_id = anchor[len("sec-") :] if anchor.startswith("sec-") else anchor
             sec = "§" + section_id.replace("-", ".")
             rows.append((anchor, sec, rel, heading, heading_line))
-    rows.sort(key=lambda r: sec_key(r[0]))
     return rows
 
-def render(rows) -> str:
-    lines = [
-        "# Индекс разделов PHANTOM",
-        "",
-        "<!-- СГЕНЕРИРОВАНО tools/docindex.py. НЕ РЕДАКТИРОВАТЬ ВРУЧНУЮ. -->",
-        "",
-        "Стабильные legacy-номера разделов сохраняются после разбиения документации.",
-        "Используйте этот индекс или `python tools/docindex.py --locate <section>`, чтобы",
-        "найти `§x.y` без загрузки всех документов PHANTOM.",
-        "",
-        "| Раздел | Текущий документ | Заголовок |",
-        "|---|---|---|",
-    ]
-    for anchor, sec, rel, heading, _ in rows:
-        display = path_rel = Path(rel).relative_to("docs/PHANTOM").as_posix()
-        lines.append(f"| `{sec}` | [`{display}`]({path_rel}#{anchor}) | {heading} |")
-    lines.append("")
+def heading_number(heading):
+    match = re.match(r"^(\d+(?:\.\d+)*)\.\s", heading)
+    return match.group(1) if match else None
+
+
+def document_toc(rows, rel):
+    lines = ["<!-- BEGIN GENERATED TOC -->", "<details>", "<summary>Оглавление</summary>", ""]
+    seen = set()
+    for anchor, _, path, heading, _ in rows:
+        number = heading_number(heading)
+        if path != rel or number is None or heading in seen:
+            continue
+        seen.add(heading)
+        lines.append("  " * number.count(".") + f"- [{heading}](#{anchor})")
+    lines.extend(["", "</details>", "<!-- END GENERATED TOC -->", "", ""])
     return "\n".join(lines)
+
+
+def with_document_toc(text, toc):
+    text = TOC_RE.sub("", text)
+    first_section = re.search(r'(?:<a id="sec-[^\"]+"></a>\n)+## ', text)
+    if first_section is None:
+        raise ValueError("document has no anchored section")
+    return text[:first_section.start()] + toc + text[first_section.start():]
+
+
+def locate(rows, value, document=None):
+    if document:
+        # A document is required to disambiguate the independently numbered specs.
+        number = value.strip().lstrip("§").strip()
+        matches = {}
+        for row in rows:
+            if Path(row[2]).name == document and heading_number(row[3]) == number:
+                matches.setdefault((row[2], row[4]), row)
+        return list(matches.values())
+    wanted = normalize_lookup(value)
+    return [row for row in rows if row[0] == wanted]
 
 def normalize_lookup(value: str) -> str:
     value = value.strip()
@@ -101,40 +115,41 @@ def normalize_lookup(value: str) -> str:
     return "sec-" + value.replace(".", "-")
 
 def main() -> int:
-    ap = argparse.ArgumentParser(description="Индекс разделов PHANTOM")
-    ap.add_argument("--check", action="store_true", help="проверить актуальность индекса")
-    ap.add_argument("--locate", metavar="РАЗДЕЛ", help="найти раздел, например 7.16 или §10.5")
+    ap = argparse.ArgumentParser(description="Оглавления и поиск разделов PHANTOM")
+    ap.add_argument("--check", action="store_true", help="проверить актуальность локальных оглавлений")
+    ap.add_argument("--locate", metavar="РАЗДЕЛ", help="локальный номер с --document; иначе legacy identifier")
+    ap.add_argument("--document", metavar="ФАЙЛ", help="искать локальный номер в указанном документе")
     args = ap.parse_args()
 
     if args.check and args.locate:
         raise SystemExit("--check и --locate нельзя использовать одновременно")
+    if args.document and not args.locate:
+        raise SystemExit("--document требует --locate")
 
     rows = collect()
 
     if args.locate:
-        wanted = normalize_lookup(args.locate)
-        for anchor, sec, rel, heading, line in rows:
-            if anchor == wanted:
-                print(f"{sec}\t{rel}:{line}\t{anchor}\t{heading}")
-                return 0
+        matches = locate(rows, args.locate, args.document)
+        if matches:
+            for anchor, sec, rel, heading, line in matches:
+                label = "§" + heading_number(heading) if args.document else sec
+                print(f"{label}\t{rel}:{line}\t{anchor}\t{heading}")
+            return 0
         print(f"НЕ_НАЙДЕН\t{args.locate}")
         return 2
 
-    expected = render(rows)
-    if args.check:
-        if not OUTPUT.exists():
-            print("ОШИБКА: SECTION_INDEX.md отсутствует")
-            return 1
-        actual = OUTPUT.read_text(encoding="utf-8").replace("\r\n", "\n").replace("\r", "\n")
+    stale = []
+    for path in active_files():
+        actual = path.read_text(encoding="utf-8")
+        expected = with_document_toc(actual, document_toc(rows, path.relative_to(ROOT).as_posix()))
         if actual != expected:
-            print("ОШИБКА: SECTION_INDEX.md устарел; выполните python tools/docindex.py")
-            return 1
-        print("PASS: SECTION_INDEX.md актуален")
-        return 0
-
-    with OUTPUT.open("w", encoding="utf-8", newline="\n") as output_file:
-        output_file.write(expected)
-    print(f"СОЗДАН {OUTPUT.relative_to(ROOT)}")
+            stale.append(path.relative_to(ROOT).as_posix())
+            if not args.check:
+                path.write_bytes(expected.encode("utf-8"))
+    if args.check and stale:
+        print("ОШИБКА: оглавления устарели: " + ", ".join(stale))
+        return 1
+    print("PASS: локальные оглавления актуальны" if args.check else "ОБНОВЛЕНО оглавлений: " + str(len(stale)))
     return 0
 
 if __name__ == "__main__":

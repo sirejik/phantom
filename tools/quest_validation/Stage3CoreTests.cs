@@ -99,6 +99,15 @@ internal static class Stage3CoreTests
     {
         using(var rig=new Rig())
         {
+            var hello=rig.Begin();rig.Session=Id(0x60);var valid=Ack(hello,rig.Session,rig.Service.ControllerBootId);
+            DecodedDatagram decoded;Check(ProtocolCodec.TryDecode(valid,Key,out decoded),"ACK decode");
+            decoded.Payload[WireV1.HelloAckOffsetReserved0]=1;
+            var bad=ProtocolCodec.Encode(WireV1.MessageType.HelloAck,decoded.Payload,Key,rig.Session,rig.Service.ControllerBootId,0,0);
+            rig.Transport.Inject(bad);rig.Client.Tick();
+            Check(!rig.Client.Snapshot.SessionActive&&rig.Client.Snapshot.State==NetworkState.ProtocolMismatch,"reserved ACK created session");
+        }
+        using(var rig=new Rig())
+        {
             var hello=rig.Begin();rig.Transport.Inject(Ack(hello,new byte[16],rig.Service.ControllerBootId,null,"phantom01",12));rig.Client.Tick();
             Check(!rig.Client.Snapshot.SessionActive&&rig.Client.Snapshot.State==NetworkState.Reconnecting,"busy rejected ACK created authority");
         }

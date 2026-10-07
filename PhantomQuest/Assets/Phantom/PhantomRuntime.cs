@@ -26,7 +26,7 @@ namespace Phantom
             _hud=GetComponent<PhantomWristHud>()??gameObject.AddComponent<PhantomWristHud>();_logger=new QuestJsonlLogger();_flight=new BoundedNetworkFlightRecorder(256);
             try
             {
-                var config=LoadStage3Config();var options=config.ToOptions();var build=Resources.Load<TextAsset>("phantom-build");QuestBuildIdentity identity=null;if(build){identity=JsonUtility.FromJson<QuestBuildIdentity>(build.text);_startupBuildId=identity?.build_id;if(identity!=null&&!string.IsNullOrEmpty(identity.specification_sha256))options.ExpectedSpecificationHash=Stage3RuntimeConfig.Hex32(identity.specification_sha256);}
+                var config=LoadStage3Config();var options=config.ToOptions();var build=Resources.Load<TextAsset>("phantom-build");QuestBuildIdentity identity=null;if(build){identity=JsonUtility.FromJson<QuestBuildIdentity>(build.text);_startupBuildId=identity?.build_id;}
                 var discovery=new AndroidNsdDiscoveryBackend();var transport=new UdpRobotTransport();var credentials=new AndroidPrivateControlCredentialStore(Application.persistentDataPath);
                 // Engineering CONTROL PSK provisioning (ENGINEERING 8.11): the host
                 // drops the key into the app-specific provisioning directory outside

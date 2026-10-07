@@ -96,7 +96,6 @@ def main():
     protocol_schema=(ROOT/"protocol/generated/schema.sha256").read_text().split()[0]
     protocol_semantics=(ROOT/"protocol/generated/semantics.sha256").read_text().split()[0]
     protocol_contract=(ROOT/"protocol/generated/contract.sha256").read_text().split()[0]
-    specification=sha(ROOT/"docs/PHANTOM_SPECIFICATION.md")
     expected_config={"quest":{"release":sha(ROOT/"config/generated/quest.generated.json"),
                               "diagnostic":sha(ROOT/"config/generated/quest-network-only.generated.json"),
                               "deepdebug":sha(ROOT/"config/generated/quest-network-only.generated.json")},
@@ -118,16 +117,16 @@ def main():
         apk=pathlib.Path(args.artifact).resolve() if args.artifact else ROOT/f"build/quest/PhantomQuest-{profile}.apk";manifest_path=pathlib.Path(str(apk)+".build-manifest.json")
         require(apk.is_file() and manifest_path.is_file(),"Quest artifact missing: "+profile)
         manifest=load(manifest_path)
-        require(manifest.get("schema_version")==7 and manifest.get("build_identity_schema")=="PHANTOM-BUILD-V3" and manifest.get("component")=="QUEST","Quest build manifest schema mismatch")
+        require(manifest.get("schema_version")==8 and manifest.get("build_identity_schema")=="PHANTOM-BUILD-V4" and manifest.get("component")=="QUEST","Quest build manifest schema mismatch")
         require(manifest["build_profile"].lower()==profile,"Quest profile mismatch")
         require(manifest["apk_sha256"]==sha(apk),"Quest APK hash mismatch")
-        require(manifest["protocol_schema_hash"]==protocol_schema and manifest["protocol_semantics_hash"]==protocol_semantics and manifest["protocol_contract_hash"]==protocol_contract and manifest["specification_sha256"]==specification,"Quest source/contract hash mismatch")
+        require(manifest["protocol_schema_hash"]==protocol_schema and manifest["protocol_semantics_hash"]==protocol_semantics and manifest["protocol_contract_hash"]==protocol_contract,"Quest source/contract hash mismatch")
         require(manifest["config_hash"]==expected_config["quest"][profile],"Quest config hash mismatch")
         require(manifest.get("commissioning_bundle_hash")==expected_bundle[profile],"Quest bundle hash mismatch")
         require(manifest["source_tree_hash"]==expected_source,"Quest artifact was not built from current sources")
         require(manifest["package_lock_sha256"]==sha(ROOT/"PhantomQuest/Packages/packages-lock.json"),"Quest package lock hash mismatch")
         require(manifest.get("toolchain_or_package_lock_hash")==manifest["package_lock_sha256"],"Quest identity lock hash mismatch")
-        expected_build_id,_=identity("QUEST",manifest["build_profile"],expected_source,specification,protocol_contract,
+        expected_build_id,_=identity("QUEST",manifest["build_profile"],expected_source,protocol_contract,
                                      expected_config["quest"][profile],manifest["package_lock_sha256"])
         require(manifest.get("build_id")==expected_build_id,"Quest build_id mismatch")
         require(re.fullmatch(r"[0-9a-f]{64}",manifest.get("embedded_identity_sha256","")) is not None,"Quest embedded identity hash missing")
@@ -167,14 +166,14 @@ def main():
         expected_source=source_hash("ev3","protocol","deploy")
         directory=pathlib.Path(args.ev3_directory).resolve() if args.ev3_directory else ROOT/f"build/ev3-armel/{profile}"
         manifest=load(directory/"build-manifest.json")
-        require(manifest.get("schema_version")==4 and manifest.get("build_identity_schema")=="PHANTOM-BUILD-V3" and manifest.get("component")=="EV3","EV3 build manifest schema mismatch")
+        require(manifest.get("schema_version")==5 and manifest.get("build_identity_schema")=="PHANTOM-BUILD-V4" and manifest.get("component")=="EV3","EV3 build manifest schema mismatch")
         require(manifest["build_profile"].lower()==profile,"EV3 profile mismatch")
-        require(manifest["protocol_schema_hash"]==protocol_schema and manifest["protocol_semantics_hash"]==protocol_semantics and manifest["protocol_contract_hash"]==protocol_contract and manifest["specification_sha256"]==specification,"EV3 source/contract hash mismatch")
+        require(manifest["protocol_schema_hash"]==protocol_schema and manifest["protocol_semantics_hash"]==protocol_semantics and manifest["protocol_contract_hash"]==protocol_contract,"EV3 source/contract hash mismatch")
         require(manifest["config_hash"]==expected_config["ev3"][profile],"EV3 config hash mismatch")
         require(manifest.get("commissioning_bundle_hash")==expected_bundle[profile],"EV3 bundle hash mismatch")
         require(manifest["source_tree_hash"]==expected_source,"EV3 artifact was not built from current sources")
         require(manifest.get("toolchain_or_package_lock_hash")==sha(ROOT/"toolchains/ev3dev-stretch.lock.json"),"EV3 identity lock hash mismatch")
-        expected_build_id,_=identity("EV3",manifest["build_profile"],expected_source,specification,protocol_contract,expected_config["ev3"][profile],manifest["toolchain_or_package_lock_hash"])
+        expected_build_id,_=identity("EV3",manifest["build_profile"],expected_source,protocol_contract,expected_config["ev3"][profile],manifest["toolchain_or_package_lock_hash"])
         require(manifest.get("build_id")==expected_build_id,"EV3 build_id mismatch")
         require(manifest.get("qualification_eligible") is (profile!="deepdebug"),"EV3 qualification eligibility/profile mismatch")
         verify_checksum_manifest(directory)

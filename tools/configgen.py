@@ -140,27 +140,6 @@ def check_measured_registry(source_objects,measured):
     gates={stage:("RESOLVED" if not blocked[stage] else "BLOCKED_UNQUALIFIED_MEASURED_VALUES") for stage in STAGE_ORDER}
     return gates,blocked
 
-def check_prose_measured_contract(source_objects):
-    """Every `MEASURED` field named by normative prose must exist in canonical config.
-
-    Without this the prose can declare a safety-relevant measured parameter that
-    never reaches the registry, which would silently defeat the READY gate.
-    """
-    documented={
-        "docs/PHANTOM/QUEST_SPECIFICATION.md":{
-            "max_mapping_scale":"quest#/human_mapping/max_mapping_scale",
-            "arm_reach_min_technical_m":"quest#/human_mapping/arm_reach_min_technical_m",
-            "arm_reach_max_technical_m":"quest#/human_mapping/arm_reach_max_technical_m",
-        },
-    }
-    flat={}
-    for name,obj in source_objects.items():
-        for path in measured_paths(name,obj): flat[path.split("#",1)[0].replace(".json","")+"#"+path.split("#",1)[1]]=path
-    for document,mapping in documented.items():
-        text=(ROOT/document).read_text(encoding="utf-8")
-        for field,expected in mapping.items():
-            if field not in text: raise ValueError("%s no longer declares %s"%(document,field))
-            if expected not in flat: raise ValueError("prose MEASURED field %s is absent from canonical config (%s)"%(field,expected))
 
 def main():
     parser=argparse.ArgumentParser();parser.add_argument("--check",action="store_true");args=parser.parse_args()
@@ -169,7 +148,6 @@ def main():
     protocol_semantics_hash=(ROOT/"protocol"/"generated"/"semantics.sha256").read_text().split()[0]
     protocol_contract_hash=(ROOT/"protocol"/"generated"/"contract.sha256").read_text().split()[0]
     ipc_hash=(ROOT/"protocol"/"generated"/"ipc_schema.sha256").read_text().split()[0]
-    spec_hash=hashlib.sha256((ROOT/"docs"/"PHANTOM_SPECIFICATION.md").read_bytes()).hexdigest()
     results={};source_objects={}
     variants=(("commissioning_bundle","commissioning_bundle"),("commissioning_bundle-network-only","commissioning_bundle"),("ev3","ev3"),("ev3-network-only","ev3"),("quest","quest"),("quest-network-only","quest"))
     for name,schema_name in variants:
@@ -193,12 +171,11 @@ def main():
         if source_objects["quest"+suffix]["network"]["telemetry_max_age_ms"]>ev3["network"]["session_stale_ms"]:raise ValueError("Quest telemetry budget exceeds EV3 session staleness"+suffix)
     measured=load(ROOT/"config"/"source"/"measured_parameters.json");validate_schema(measured,load(ROOT/"config"/"schema"/"measured_parameters.schema.json"))
     gates,blocked=check_measured_registry(source_objects,measured)
-    check_prose_measured_contract(source_objects)
     artifact=canonical(measured);results["measured_parameters"]=hashlib.sha256(artifact).hexdigest();path=out/"measured_parameters.generated.json"
     if args.check:
         if not path.exists() or path.read_bytes()!=artifact+b"\n":raise SystemExit("generated measured registry stale")
     else:path.write_bytes(artifact+b"\n")
-    manifest={"schema_version":1,"specification_sha256":spec_hash,"protocol_schema_hash":protocol_hash,
+    manifest={"schema_version":2,"protocol_schema_hash":protocol_hash,
               "protocol_semantics_hash":protocol_semantics_hash,"protocol_contract_hash":protocol_contract_hash,
               "ipc_schema_hash":ipc_hash,"artifact_hashes":results,
               "measured_gates":gates,"ready_gate":gates["READY"]}

@@ -1,6 +1,20 @@
 import copy,hashlib,hmac,json,math,pathlib,struct,sys,unittest
+import tempfile
+from unittest.mock import patch
 ROOT=pathlib.Path(__file__).resolve().parents[1];sys.path.insert(0,str(ROOT/"protocol"));sys.path.insert(0,str(ROOT/"tools"));import phantom_protocol as wire;import protocolgen
 class ProtocolTests(unittest.TestCase):
+ def test_build_gate_ignores_missing_or_modified_generated_documentation(self):
+  with tempfile.TemporaryDirectory() as directory:
+   root=pathlib.Path(directory)
+   with patch.object(protocolgen,"ROOT",root),patch.object(sys,"argv",["protocolgen"]):
+    protocolgen.main()
+    document=root/"protocol/protocol.md"
+    document.write_bytes(b"edited documentation\n")
+    with patch.object(sys,"argv",["protocolgen","--check"]):protocolgen.main()
+    with patch.object(sys,"argv",["protocolgen","--check","--include-docs"]):
+     with self.assertRaises(SystemExit):protocolgen.main()
+    document.unlink()
+    with patch.object(sys,"argv",["protocolgen","--check"]):protocolgen.main()
  def test_schema_exact_sizes_and_unique_types(self):
   scalar={"u8":1,"i8":1,"u16":2,"i16":2,"u32":4,"i32":4,"u64":8,"f32":4,"id32":32}
   def size(t):return scalar[t] if t in scalar else sum(size(f[1])*(f[2] if len(f)>2 else 1) for f in wire.SCHEMA["types"][t])
@@ -57,4 +71,13 @@ class ProtocolTests(unittest.TestCase):
   with self.assertRaises(wire.ProtocolError):wire.decode(data,key)
   packet=wire.encode(768,struct.pack("<QQ",1,2),key,b"S"*16,b"B"*16,2)
   with self.assertRaises(wire.ProtocolError):wire.decode(packet,key,last_sequence=2)
+ def test_hello_ack_reserved_bytes_are_authenticated_and_rejected(self):
+  vectors=json.loads((ROOT/"protocol/golden_vectors/v1.json").read_text())["vectors"]
+  vector=next(v for v in vectors if v["name"]=="HELLO_ACK")
+  key=bytes.fromhex(vector["hmac_key_hex"]);packet=bytearray.fromhex(vector["datagram_hex"])
+  field=next(f for f in protocolgen.offsets(wire.SCHEMA,wire.NAMES["HELLO_ACK"]) if f[0]=="reserved0")
+  for index in (0,field[4]-1):
+   bad=bytearray(packet);bad[64+field[3]+index]=1
+   bad[-32:]=hmac.new(key,bytes(bad[:-32]),hashlib.sha256).digest()
+   with self.assertRaises(wire.ProtocolError):wire.decode(bytes(bad),key)
 if __name__=="__main__":unittest.main()

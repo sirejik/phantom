@@ -33,7 +33,7 @@ class NetworkTests(unittest.TestCase):
         self.bundle = {"schema_version": 1, "qualification_only": True,
                        "qualification_evidence_manifest_hash": "0" * 64,
                        "actuator_scope_mask": 0, "safety_observation_mask": 0}
-        self.manifest = {"build_id": hashlib.sha256(b"stage3-test").hexdigest(), "specification_sha256": "11" * 32,
+        self.manifest = {"build_id": hashlib.sha256(b"stage3-test").hexdigest(),
                          "protocol_schema_hash": wire.schema_hash().hex(),
                          "protocol_semantics_hash": wire.semantics_hash().hex(),
                          "protocol_contract_hash": wire.contract_hash().hex(),

@@ -3,14 +3,20 @@ name: phantom-test-and-build
 # component/profile operation and no job provisions, transfers or starts devices.
 on: [push, pull_request]
 jobs:
+  documentation:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - name: Documentation consistency and requirement checks
+        run: python3 tools/docindex.py --check && python3 tools/doclint.py && python3 tools/implementation_map_check.py && python3 tools/spec_contract_check.py && python3 tools/spec_test_duration_check.py
+      - name: Documentation regressions
+        run: python3 tools/test_documentation.py
   schemas-python-ev3-host:
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v4
-      - name: Specification identity and documentation lint
-        run: python3 tools/specgen.py --check && python3 tools/docindex.py --check && python3 tools/doclint.py && python3 tools/implementation_map_check.py
       - name: Generated protocol, IPC and configuration artifacts
-        run: python3 tools/protocolgen.py --check && python3 tools/spec_contract_check.py && python3 tools/configgen.py --check
+        run: python3 tools/protocolgen.py --check && python3 tools/configgen.py --check
       - name: Canonicalization, protocol and identity regressions
         run: |
           python3 tools/test_jcs.py
@@ -29,7 +35,7 @@ jobs:
       - name: Report analyzers
         run: python3 tools/quest_validation/test_analyze.py && python3 tools/ev3_validation/test_analyze.py
       - name: Quest static contracts
-        run: python3 tools/quest_android_nsd_check.py && python3 tools/quest_provider_compatibility_check.py && python3 tools/spec_test_duration_check.py
+        run: python3 tools/quest_android_nsd_check.py && python3 tools/quest_provider_compatibility_check.py
       - name: Lifecycle boundary regressions
         run: python3 tools/test_lifecycle.py
       - name: Secret and provisioning scan

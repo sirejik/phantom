@@ -307,7 +307,6 @@ class Stage3Server(object):
         self.bundle_hash = hashlib.sha256(canonical(bundle)).digest()
         if manifest.get("commissioning_bundle_hash") != self.bundle_hash.hex():
             raise ValueError("bundle/manifest hash mismatch")
-        self.spec_hash = hex_hash(manifest["specification_sha256"], "specification_sha256")
         self.protocol_contract_hash = hex_hash(manifest["protocol_contract_hash"], "protocol_contract_hash")
         if self.protocol_contract_hash != wire.contract_hash():
             raise ValueError("protocol contract hash mismatch")
@@ -367,7 +366,7 @@ class Stage3Server(object):
         zero = b"\0" * 32
         return struct.pack("<16s32s32sHBB32s32s32s32s32s32s32sHHBBH3f3f3f3f",
                            nonce, wire.id32(self.robot_id), self.build_id_bytes, 0, key_slot, role,
-                           self.spec_hash, self.protocol_contract_hash, self.bundle_hash,
+                           b"\0" * 32, self.protocol_contract_hash, self.bundle_hash,
                            zero, zero, zero, zero, state, 0, 1, 0, result,
                            0.0, 0.0, 0.0, 0.0, 0.0, 0.0,
                            0.0, 0.0, 0.0, 0.0, 0.0, 0.0)

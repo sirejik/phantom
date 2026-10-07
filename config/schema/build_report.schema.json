@@ -3,7 +3,7 @@
   "title": "PHANTOM BUILD result",
   "type": "object",
   "additionalProperties": false,
-  "required": ["schema_version", "phase", "status", "component", "profile", "qualification_eligible", "build_id", "artifact_path", "artifact_sha256", "config_hash", "specification_sha256", "protocol_schema_hash", "protocol_semantics_hash", "protocol_contract_hash"],
+  "required": ["schema_version", "phase", "status", "component", "profile", "qualification_eligible", "build_id", "artifact_path", "artifact_sha256", "config_hash", "protocol_schema_hash", "protocol_semantics_hash", "protocol_contract_hash"],
   "properties": {
     "schema_version": {"const": 1},
     "phase": {"const": "BUILD"},
@@ -15,7 +15,6 @@
     "artifact_path": {"type": "string", "minLength": 1},
     "artifact_sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
     "config_hash": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
-    "specification_sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
     "protocol_schema_hash": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
     "protocol_semantics_hash": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
     "protocol_contract_hash": {"type": "string", "pattern": "^[0-9a-f]{64}$"},

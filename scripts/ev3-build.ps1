@@ -5,7 +5,6 @@ param(
 )
 $ErrorActionPreference='Stop'
 foreach($check in @(
-    @('tools/specgen.py','--check'),
     @('tools/protocolgen.py','--check'),
     @('tools/configgen.py','--check')))
 {

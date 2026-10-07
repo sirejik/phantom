@@ -349,7 +349,9 @@ def render_cs(schema, schema_digest, semantics_digest, contract_digest):
 
 
 def main():
-    parser=argparse.ArgumentParser();parser.add_argument("--check",action="store_true");args=parser.parse_args()
+    parser=argparse.ArgumentParser();parser.add_argument("--check",action="store_true")
+    parser.add_argument("--include-docs",action="store_true",help="also check generated Markdown (documentation gate only)")
+    args=parser.parse_args()
     schema=load_json(SCHEMA_PATH); validate(schema)
     semantics=load_json(SEMANTICS_PATH);validate_semantics(semantics,schema)
     structure=structural_projection(schema)
@@ -408,6 +410,8 @@ def main():
     }
     for path,data in outputs.items():
         if args.check:
+            if path.suffix == ".md" and not args.include_docs:
+                continue
             if not path.exists() or path.read_text(encoding="utf-8")!=data: raise SystemExit("generated protocol artifact stale: "+str(path))
         else:
             path.parent.mkdir(parents=True,exist_ok=True)

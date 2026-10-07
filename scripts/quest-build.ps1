@@ -5,7 +5,6 @@ param(
 )
 $ErrorActionPreference="Stop"
 foreach($check in @(
-    @('tools/specgen.py','--check'),
     @('tools/protocolgen.py','--check'),
     @('tools/configgen.py','--check')))
 {
@@ -28,7 +27,6 @@ $env:PHANTOM_META_APP_ID="1405011949353501"
 $env:PHANTOM_BUILD_PROFILE=$Profile
 $env:PHANTOM_GIT_COMMIT=(git rev-parse HEAD).Trim()
 $env:PHANTOM_WORKTREE_DIRTY=if((git status --porcelain).Count -gt 0){"true"}else{"false"}
-$env:PHANTOM_SPECIFICATION_SHA256=(Get-FileHash docs\PHANTOM_SPECIFICATION.md -Algorithm SHA256).Hash.ToLower()
 $env:PHANTOM_PROTOCOL_SCHEMA_HASH=(Get-Content protocol\generated\schema.sha256).Split()[0]
 $env:PHANTOM_PROTOCOL_SEMANTICS_HASH=(Get-Content protocol\generated\semantics.sha256).Split()[0]
 $env:PHANTOM_PROTOCOL_CONTRACT_HASH=(Get-Content protocol\generated\contract.sha256).Split()[0]
@@ -39,7 +37,7 @@ $configManifest=Get-Content config\generated\config-manifest.json -Raw|ConvertFr
 $env:PHANTOM_BUNDLE_HASH=if($Profile -in @("Diagnostic","DeepDebug")){$configManifest.artifact_hashes.'commissioning_bundle-network-only'}else{$configManifest.artifact_hashes.commissioning_bundle}
 $env:PHANTOM_PACKAGE_LOCK_SHA256=(Get-FileHash PhantomQuest\Packages\packages-lock.json -Algorithm SHA256).Hash.ToLower()
 $env:PHANTOM_SOURCE_TREE_HASH=(python tools\source_hash.py PhantomQuest\Assets\Phantom PhantomQuest\Assets\Plugins PhantomQuest\Packages PhantomQuest\ProjectSettings).Trim()
-$env:PHANTOM_BUILD_ID=(python tools\build_identity.py --component QUEST --profile $Profile --source-tree-hash $env:PHANTOM_SOURCE_TREE_HASH --specification-sha256 $env:PHANTOM_SPECIFICATION_SHA256 --protocol-contract-hash $env:PHANTOM_PROTOCOL_CONTRACT_HASH --component-config-hash $env:PHANTOM_CONFIG_HASH --toolchain-or-package-lock-hash $env:PHANTOM_PACKAGE_LOCK_SHA256).Trim()
+$env:PHANTOM_BUILD_ID=(python tools\build_identity.py --component QUEST --profile $Profile --source-tree-hash $env:PHANTOM_SOURCE_TREE_HASH --protocol-contract-hash $env:PHANTOM_PROTOCOL_CONTRACT_HASH --component-config-hash $env:PHANTOM_CONFIG_HASH --toolchain-or-package-lock-hash $env:PHANTOM_PACKAGE_LOCK_SHA256).Trim()
 # Android Gradle Prefab corrupts non-ASCII Windows profile paths in generated
 # batch files. Keep its cache in the ASCII-only workspace path.
 $env:GRADLE_USER_HOME=[System.IO.Path]::GetFullPath(".gradle-quest")
@@ -84,6 +82,6 @@ $manifest|Add-Member -NotePropertyName apk_signing_certificate_sha256 -NotePrope
 [IO.File]::WriteAllText($env:PHANTOM_APK_PATH+'.build-manifest.json',($manifest|ConvertTo-Json -Depth 20 -Compress)+"`n",[Text.UTF8Encoding]::new($false))
 python tools/artifact_check.py --component QUEST --profile $Profile --artifact $env:PHANTOM_APK_PATH
 if($LASTEXITCODE-ne 0){throw 'Quest BUILD artifact structure/metadata validation failed'}
-$buildResult=[ordered]@{schema_version=1;phase='BUILD';status='PASS';component='QUEST';profile=$Profile;qualification_eligible=($Profile-ne'DeepDebug');build_id=$manifest.build_id;artifact_path=$env:PHANTOM_APK_PATH;artifact_sha256=$actualHash;config_hash=$manifest.config_hash;specification_sha256=$manifest.specification_sha256;protocol_schema_hash=$manifest.protocol_schema_hash;protocol_semantics_hash=$manifest.protocol_semantics_hash;protocol_contract_hash=$manifest.protocol_contract_hash;apk_signing_certificate_sha256=$certificateSha256}
+$buildResult=[ordered]@{schema_version=1;phase='BUILD';status='PASS';component='QUEST';profile=$Profile;qualification_eligible=($Profile-ne'DeepDebug');build_id=$manifest.build_id;artifact_path=$env:PHANTOM_APK_PATH;artifact_sha256=$actualHash;config_hash=$manifest.config_hash;protocol_schema_hash=$manifest.protocol_schema_hash;protocol_semantics_hash=$manifest.protocol_semantics_hash;protocol_contract_hash=$manifest.protocol_contract_hash;apk_signing_certificate_sha256=$certificateSha256}
 [IO.File]::WriteAllText($env:PHANTOM_APK_PATH+'.build-result.json',($buildResult|ConvertTo-Json -Depth 5)+"`n",[Text.UTF8Encoding]::new($false))
 Write-Output "QUEST BUILD: PASS profile=$Profile build_id=$($manifest.build_id)"
