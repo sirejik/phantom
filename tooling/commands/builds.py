@@ -53,8 +53,11 @@ def archive(directory, destination):
 
 def cross_build(image, stage, profile, timeout):
     container = 'phantom-tooling-build-' + uuid.uuid4().hex
+    # Linux bind mounts retain host UID/GID and the staging directory is private.
+    # Run as its owner; Docker Desktop supplies different mount semantics.
+    user = ['--user', f'{os.getuid()}:{os.getgid()}'] if os.name != 'nt' else []
     try:
-        run(['docker', 'run', '--name', container, '--rm', '--entrypoint', 'sh', '--mount',
+        run(['docker', 'run', '--name', container, '--rm', *user, '--entrypoint', 'sh', '--mount',
              f'type=bind,src={ROOT},dst=/workspace,readonly', '--mount',
              f'type=bind,src={stage},dst=/out', image, '-lc', cross_command(profile)],
             timeout=timeout, echo=True)

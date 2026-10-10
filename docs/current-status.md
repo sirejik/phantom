@@ -35,7 +35,7 @@ C++14 `phantom-maintenance` и `phantom-device-integration-test`; коротки
 
 - `doctor`, генерация протокола/конфигурации/оглавлений и `check` проходят;
   Android bridge компилируется, POSIX ресурсы проходят синтаксическую проверку.
-- Все 136 tooling self-tests проходят: генераторы, пакеты, JSON/JCS, процессные отказы,
+- Все 138 tooling self-tests проходят: генераторы, пакеты, JSON/JCS, процессные отказы,
   Unity XML, SSH fingerprint/config, сохранение credentials, cleanup и анализ.
 - Семь C++ suites проходят в Diagnostic, Release и с ASan/UBSan.
 - Quest host: 3 Unit-группы и 10 Functional cases, включая настоящий C#↔C++ UDP/IPC, проходят.

@@ -17,6 +17,12 @@ from tooling.commands import builds, devices, product_tests, logs, checks
 
 
 class ConfigCommandTests(unittest.TestCase):
+    def test_internal_runner_can_import_shared_modules(self):
+        # Reproduces the embedded Python failure: script directory alone cannot
+        # import the tooling package from a subprocess.
+        result = checks.internal('artifact_check', '--help')
+        self.assertEqual(result.returncode, 0)
+
     def test_schema_check_validates_host_settings_without_devices(self):
         with patch.object(checks, 'internal') as invoke:
             checks.execute(SimpleNamespace(command='check', target='schemas'))
@@ -202,6 +208,16 @@ class DeviceTests(unittest.TestCase):
 
 
 class BuildTests(unittest.TestCase):
+    def test_linux_cross_build_uses_the_staging_owner(self):
+        stage = Path('private-stage')
+        with patch.object(builds.os, 'name', 'posix'), \
+                patch.object(builds.os, 'getuid', return_value=1001, create=True), \
+                patch.object(builds.os, 'getgid', return_value=121, create=True), \
+                patch.object(builds, 'run') as invoke:
+            builds.cross_build('locked-image', stage, 'Diagnostic', 30)
+        arguments = invoke.call_args_list[0].args[0]
+        self.assertEqual(arguments[arguments.index('--user') + 1], '1001:121')
+
     def test_docker_timeout_removes_own_container_and_preserves_failure(self):
         original = ToolError('build timeout')
         with patch.object(builds, 'run', side_effect=[original, ToolError('cleanup unavailable')]) as process:

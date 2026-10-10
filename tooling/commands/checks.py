@@ -11,8 +11,8 @@ from tooling.common.files import load
 def internal(name, *arguments):
     folder = ROOT / 'tooling/internal'
     script = folder / (name + '.py')
-    bootstrap = 'import runpy,sys; sys.path.insert(0,sys.argv.pop(1)); sys.argv.pop(0); runpy.run_path(sys.argv[0],run_name="__main__")'
-    return run([sys.executable, '-c', bootstrap, folder, script, *arguments], echo=True)
+    bootstrap = 'import runpy,sys; sys.path.insert(0,sys.argv.pop(1)); sys.path.insert(0,sys.argv.pop(1)); sys.argv.pop(0); runpy.run_path(sys.argv[0],run_name="__main__")'
+    return run([sys.executable, '-c', bootstrap, ROOT, folder, script, *arguments], echo=True)
 
 
 def execute(args):
