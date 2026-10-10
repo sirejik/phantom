@@ -10,22 +10,22 @@ description: "Изменять wire/IPC схемы, семантику, коде
 
 | Изменение | Начать с |
 |---|---|
-| Wire layout, enum, bits, widths | `protocol/wire_schema.yaml` |
-| Межреализационная семантика | `protocol/semantics.yaml` |
-| EV3-local IPC | `protocol/ipc_schema.yaml` |
+| Wire layout, enum, bits, widths | `config/shared/protocol/wire-schema.json` |
+| Межреализационная семантика | `config/shared/protocol/semantics.json` |
+| EV3-local IPC | `config/shared/protocol/ipc-schema.json` |
 | Контекстные state/profile/bundle ограничения | Спецификация протокола или компонента |
 | Ошибка codec при неизменном контракте | Production codec и регрессионные vectors/tests |
 
 1. При изменении контракта исправь его источник и пересоздай производные файлы.
    При исправлении codec сохрани контракт; не меняй schema для оправдания ошибки.
-2. Выполни `python tools/protocolgen.py`, затем `python tools/protocolgen.py --check`.
-   Generated Markdown проверь отдельно через `--check --include-docs`.
-3. Для wire запускай `tools/test_protocol.py`, для IPC — `tools/test_ipc_contract.py`.
+2. Выполни `python tooling generate --target protocol`, затем `python tooling check --target schemas`.
+   Generated Markdown также проверяется командой `check --target docs`.
+3. Выполни `python tooling self-test` для wire и IPC.
    Выполни общие golden/negative vectors затронутыми production codecs: генерация
    не подтверждает совместимость языков. Для parser/session/admission проверь malformed
    length, reserved/unknown values, NaN/Inf, replay и действия до аутентификации.
 4. Проверь изменения hashes и зависимые config/build artifacts по
-   [техническим контрактам](../../../docs/engineering-contracts.md).
+   [техническим контрактам](../../../docs/tooling.md).
    Изменения документации проведи через [phantom-spec-sync](../phantom-spec-sync/SKILL.md).
 
 Укажи изменённые identities, проверенные codecs/regressions и непроверенные device cases.

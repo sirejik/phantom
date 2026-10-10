@@ -14,7 +14,7 @@
 
 1. До изменений проверь `git status`, изучи нужный код и существующие тесты.
 2. Для текущего раздела используй
-   `python tools/docindex.py --document <FILE.md> --locate <section>`, затем прочитай
+   `python tooling docs --document <FILE.md> --locate <section>`, затем прочитай
    ограниченный диапазон. Старый глобальный номер разрешается через
    `--locate <legacy-section>` без `--document`. Не загружай все спецификации.
 3. Владельца требования найди в [правилах спецификации](docs/specification-governance.md#sec-specification-governance-2).
@@ -53,9 +53,10 @@
 Код, статус и исторический отчёт не переопределяют спецификацию. Неоднозначность,
 влияющую на безопасность, разрешай до продолжения опасных действий.
 
-- Wire и EV3-local IPC принадлежат `protocol/wire_schema.yaml`, `protocol/semantics.yaml`
-  и `protocol/ipc_schema.yaml`; структура конфигурации — источникам в `config/schema/`
-  и `config/source/`. Не правь вручную сгенерированные константы, размеры, смещения и
+- Wire и EV3-local IPC принадлежат `config/shared/protocol/wire-schema.json`, `config/shared/protocol/semantics.json`
+  и `config/shared/protocol/ipc-schema.json`; настройки и схемы принадлежат `config/ev3/`,
+  `config/quest/`, `config/shared/` и `config/tooling/`. Общие значения задавай один раз;
+  профили содержат только отличия от основы. Не правь вручную файлы `generated/`, размеры, смещения и
   канонические артефакты; не создавай конкурирующих копий.
 - При изменении кодеков сохраняй владение схемой и запускай общие эталонные и негативные
   тесты совместимости кодеков. Единственный канонизатор JSON — `protocol/jcs.py` (RFC 8785).
@@ -63,12 +64,10 @@
   Исправь источник и производные файлы либо явно обозначь поле как относящееся
   к будущему этапу; правила — [Quest](docs/quest-specification.md#sec-5-19-2)
   и [EV3](docs/ev3-specification.md#sec-7-21-2).
-- Локальные оглавления обновляются только через `tools/docindex.py`.
+- Локальные оглавления обновляются только через `python tooling generate --target docs`.
   Документация не является входом BUILD, конфигурации или сетевого согласования
   совместимости и не влияет на `build_id`.
-- После нормативной правки выполни `python tools/docindex.py`,
-  `python tools/docindex.py --check`, `python tools/doclint.py`,
-  `python tools/spec_contract_check.py`. Для машинных схем также выполни их генераторы
+- После нормативной правки выполни `python tooling generate --target docs`, затем `python tooling check --target docs`. Для машинных схем также выполни их генераторы
   и проверки. Не оставляй новых изменяемых дубликатов; обнаруженные старые копии
   устрани в границах задачи или сообщи о них.
 
@@ -86,7 +85,7 @@
   Не редактируй их вручную. Долговечные отчёты публикуются неизменяемыми внешними
   артефактами с URI/SHA-256 по [плану проверки](docs/test-plan.md).
 - Геометрия `mechanical/**` влияет на `RobotGeometry` и `MEASURED` параметры.
-  `build/**` очищается через `scripts/build-clean.ps1` с предварительным просмотром;
+  `build/**` очищается через `python tooling clean --target build` с предварительным просмотром;
   не удаляй артефакты пользователя вручную.
 - Сохраняй несвязанные пользовательские изменения; не выполняй reset/overwrite.
   Секреты, пароли Wi-Fi, PSK и private keys не должны попадать в исходники,

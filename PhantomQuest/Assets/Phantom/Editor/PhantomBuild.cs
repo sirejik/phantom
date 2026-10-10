@@ -12,8 +12,6 @@ namespace Phantom.Editor
 {
     public static class PhantomBuild
     {
-        const string PackageName="dev.phantom.questprototype";
-        const string MetaAppId="1405011949353501";
         const string EmbeddedBuildPath="Assets/Resources/phantom-build.json";
         const string EmbeddedConfigPath="Assets/Resources/phantom-quest-config.json";
 
@@ -38,15 +36,13 @@ namespace Phantom.Editor
             var worktreeDirty=RequiredEnvironmentVariable("PHANTOM_WORKTREE_DIRTY");
             if(worktreeDirty!="true"&&worktreeDirty!="false")throw new Exception("Invalid PHANTOM_WORKTREE_DIRTY value");
             if(profile!="Release"&&profile!="Diagnostic")throw new Exception("Invalid build profile: "+profile);
-            if(configuredAppId!=MetaAppId)throw new Exception("Unexpected Meta App ID: "+configuredAppId);
             if(!File.Exists(keystore))throw new FileNotFoundException("Release keystore not found",keystore);
             if(!File.Exists(passwordFile))throw new FileNotFoundException("Release keystore password file not found",passwordFile);
             var password=File.ReadAllText(passwordFile).Trim();
             if(string.IsNullOrEmpty(password))throw new Exception("Release keystore password is empty");
             Directory.CreateDirectory(Path.GetDirectoryName(output));
-            PlayerSettings.SetApplicationIdentifier(NamedBuildTarget.Android,PackageName);
-            PlatformSettings.AppID=MetaAppId;
-            PlatformSettings.MobileAppID=MetaAppId;
+            PlatformSettings.AppID=configuredAppId;
+            PlatformSettings.MobileAppID=configuredAppId;
             EditorUtility.SetDirty(PlatformSettings.Instance);
             AssetDatabase.SaveAssets();
             EditorUserBuildSettings.SwitchActiveBuildTarget(BuildTargetGroup.Android,BuildTarget.Android);

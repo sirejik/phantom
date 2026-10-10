@@ -52,12 +52,12 @@ owner не имеет права ослаблять эти ограничени�
 | `ev3-specification.md` | EV3 processes, references, controller behavior, actuator protection, telemetry и EV3 config |
 | `mechanical-specification.md` | physical assembly, geometry, QR fixtures, cabling, gripper и mechanical constraints |
 | `protocol-specification.md` | человекочитаемая transport/session/transaction semantics |
-| `protocol/wire_schema.yaml` | точная schema-representable структура wire: layout, widths, numeric enum/bit positions, reserved fields и payload lengths; контекстные semantic ranges/transition guards остаются в owning prose |
-| `protocol/semantics.yaml` | machine-readable межреализационная semantics, входящая вместе со structural hash в compatibility `protocol_contract_hash` |
+| `config/shared/protocol/wire-schema.json` | точная schema-representable структура wire: layout, widths, numeric enum/bit positions, reserved fields и payload lengths; контекстные semantic ranges/transition guards остаются в owning prose |
+| `config/shared/protocol/semantics.json` | machine-readable межреализационная semantics, входящая вместе со structural hash в compatibility `protocol_contract_hash` |
 | объявленные репозиторием config schema/generator sources | машинно-читаемая структура конфигурации и generated config artifacts |
 | `engineering.md` | технологический стек и source/build/CI/deployment/release engineering requirements |
 | `code-guidelines.md` | общие правила исходников C++, C#/Unity, Android bridge и host/device tooling |
-| `engineering-contracts.md` | технические форматы и ограничения build/deploy tooling, идентификаторы, конфигурация и хранение ключей |
+| `tooling.md` | единый CLI, технические форматы build/deploy tooling, идентификаторы и хранение ключей |
 | `test-plan.md` | порядок программных, интеграционных и ручных проверок, пререквизиты и сценарии |
 | `metrics-and-logs.md` | сбор и хранение метрик/журналов при обычной работе и тестировании, анализ, автоматические отчёты и таблицы покрытия требований |
 | `implementation-stages.md` | нормативная последовательность разработки, stage definitions и qualification gates |
@@ -129,7 +129,7 @@ HTML anchor и остаётся рабочей при перемещении т�
 
 Существующие `sec-*` anchors — непрозрачные стабильные идентификаторы: цифры внутри них
 не являются текущей нумерацией. Они сохраняют совместимость со ссылками из кода и старых
-записей Git. `tools/docindex.py` обновляет оглавление внутри каждого документа и выполняет поиск по файлу и локальному номеру;
+записей Git. `tooling/internal/docindex.py` обновляет оглавление внутри каждого документа и выполняет поиск по файлу и локальному номеру;
 `--document ev3-specification.md --locate 1` ищет текущий раздел, а `--locate 7.1` без
 имени документа разрешает только прежний глобальный идентификатор.
 
@@ -153,7 +153,7 @@ HTML anchor и остаётся рабочей при перемещении т�
 - Текущее состояние реализации хранится в `current-status.md`; подробные реально выполненные
   automated/device/MANUAL reports публикуются как immutable CI/release artifacts и не
   копируются в normative prose либо историю Git.
-- Exact wire tables/constants/size maps должны происходить из `protocol/wire_schema.yaml`, а не поддерживаться вручную в нескольких prose files. Production codecs могут быть hand-written, но обязаны проходить общие golden/negative vectors и не становятся source of truth.
+- Exact wire tables/constants/size maps должны происходить из `config/shared/protocol/wire-schema.json`, а не поддерживаться вручную в нескольких prose files. Production codecs могут быть hand-written, но обязаны проходить общие golden/negative vectors и не становятся source of truth.
 - Secrets и credentials никогда не находятся в specifications, status, plans, source
   fixtures, build manifests или обычных logs.
 - Изменение нормативного документа требует regeneration/check локальных оглавлений,

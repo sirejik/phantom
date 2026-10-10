@@ -29,8 +29,8 @@ public sealed class HostTests
             Assert.That(UdpIntegration.Run(new[]{stub.Boot,stub.Port.ToString(),BundleHash(),scenario}),Is.Zero);
     }
 
-    static string BundleHash(){using var doc=JsonDocument.Parse(File.ReadAllText(Path.Combine(Root,"config/generated/config-manifest.json")));return doc.RootElement.GetProperty("artifact_hashes").GetProperty("commissioning_bundle-network-only").GetString();}
-    static string Distro => Environment.GetEnvironmentVariable("PHANTOM_WSL_DISTRO") ?? JsonDocument.Parse(File.ReadAllText(Path.Combine(Root,"toolchains/host-tools.json"))).RootElement.GetProperty("wsl").GetProperty("distribution").GetString();
+    static string BundleHash(){using var doc=JsonDocument.Parse(File.ReadAllText(Path.Combine(Root,"config/shared/generated/manifest.json")));return doc.RootElement.GetProperty("artifact_hashes").GetProperty("commissioning_bundle-network-only").GetString();}
+    static string Distro => Environment.GetEnvironmentVariable("PHANTOM_WSL_DISTRO") ?? JsonDocument.Parse(File.ReadAllText(Path.Combine(Root,"config/tooling/environment.json"))).RootElement.GetProperty("wsl").GetProperty("distribution").GetString();
     static Process Launch(params string[] args)
     {
         var info=new ProcessStartInfo{FileName=OperatingSystem.IsWindows()?"wsl.exe":args[0],UseShellExecute=false,CreateNoWindow=true,RedirectStandardOutput=true,RedirectStandardError=true,RedirectStandardInput=true,WorkingDirectory=Root};
@@ -58,7 +58,7 @@ public sealed class HostTests
             protocol_schema_hash=File.ReadAllText(Path.Combine(Root,"protocol/generated/schema.sha256")).Split()[0],
             protocol_semantics_hash=File.ReadAllText(Path.Combine(Root,"protocol/generated/semantics.sha256")).Split()[0],
             protocol_contract_hash=WireV1.ProtocolContractSha256,commissioning_bundle_hash=BundleHash()});
-        using var process=Launch(build+"/phantom-quest-interop-fixture",build+"/phantom-network",root+"/config/generated/ev3-network-only.generated.json",root+"/config/generated/commissioning_bundle-network-only.generated.json",manifest);
+        using var process=Launch(build+"/phantom-quest-interop-fixture",build+"/phantom-network",root+"/config/ev3/generated/diagnostic.json",root+"/config/shared/generated/commissioning-bundle-diagnostic.json",manifest);
         var errors=process.StandardError.ReadToEndAsync();
         try{
             var deadline=DateTime.UtcNow.AddSeconds(15);string port=null;

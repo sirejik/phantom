@@ -11,7 +11,7 @@
 - [1. Общие правила](#sec-code-guidelines-common)
 - [2. EV3: C++](#sec-code-guidelines-ev3)
 - [3. Quest: C#, Unity и Android](#sec-code-guidelines-quest)
-- [4. Python, PowerShell и shell](#sec-code-guidelines-tooling)
+- [4. Host CLI и системные ресурсы](#sec-code-guidelines-tooling)
 
 </details>
 <!-- END GENERATED TOC -->
@@ -29,14 +29,14 @@
 - Владение wire/config данными и правила генерации — в
   [правилах спецификации](specification-governance.md#sec-specification-governance-2).
   Канонизация JSON выполняется через `protocol/jcs.py`; формат и хэши — по
-  [контрактам конфигурации](engineering-contracts.md#sec-engineering-contracts-configuration).
+  [контрактам конфигурации](engineering.md#sec-engineering-contracts-configuration).
 - Ресурсы имеют явного владельца и освобождаются при ошибках и завершении работы.
   Внешние операции и очереди ограничены; ошибки сохраняют исходную причину.
 - Тесты приложения EV3 пишутся на C++, Quest — на C#/Java по языку проверяемого кода.
   Python-тесты проверяют Python-код; runner может запускать suites других языков.
   Порядок проверок и обязательный охват — в [плане тестирования](test-plan.md).
 - Секреты и данные сопряжения обрабатываются по
-  [правилам хранения ключей](engineering-contracts.md#sec-engineering-contracts-credentials).
+  [правилам хранения ключей](tooling.md#sec-engineering-contracts-credentials).
 
 <a id="sec-code-guidelines-ev3"></a>
 ## 2. EV3: C++
@@ -55,8 +55,7 @@
   host sanitizers; выводы о latency/deadline подтверждать на целевой системе.
 - Использовать Linux userspace API ev3dev; MCU register/ISR примеры не являются backend.
   Границы motor/network/safety I/O принадлежат EV3-спецификации.
-- Поставляемые Python-помощники проверки EV3 сохраняют совместимость с Python 3.5;
-  штатные службы написаны на C++14. Host fixtures и регрессии служб принадлежат
+- Поставляемые службы и помощники EV3 написаны на C++14; Python требуется только на host. Host fixtures и регрессии служб принадлежат
   C++/C# тестовым проектам. Состояние реализации — [current-status.md](current-status.md).
 
 <a id="sec-code-guidelines-quest"></a>
@@ -86,20 +85,19 @@
 [лицензия Apache-2.0](../.agents/skills/phantom-quest-development/LICENSE).
 
 <a id="sec-code-guidelines-tooling"></a>
-## 4. Python, PowerShell и shell
+## 4. Host CLI и системные ресурсы
 
 - Проверять runtime вызывающего runner. Host-инструменты разрешаются через
-  `tools/toolchain.ps1`; личные пути и версии не вшиваются в скрипты.
+  `config/tooling/environment.json`; личные пути и версии не вшиваются в скрипты.
 - Python использует существующий `unittest` и stdlib там, где их достаточно.
-  Не переносить новые зависимости или host-only syntax в Python 3.5 helpers на EV3.
+  Host runtime — Python 3.12 или новее, код не устанавливается на EV3.
   File/socket handles закрываются через context managers; subprocess/network имеют timeout.
 - Encoding и переводы строк задаются явно для hash-bound артефактов.
-- Для PowerShell проверять поддержку установленной версии, передавать аргументы массивом,
-  отдельно проверять native exit code. `$PID`, `$HOME` и другие системные переменные
-  не используются как локальные; пути обрабатываются через `-LiteralPath`.
+- Внешние команды передавать массивом аргументов без локального shell; проверять exit code
+  и завершать дочерние процессы при timeout. Общие операции переиспользовать из `tooling/common`.
 - Device `/bin/sh` не предполагает Bash arrays, `[[ ]]` или `pipefail`. Quoting,
   return status и cleanup сохраняют первичную ошибку.
 - Машинный stdout с JSON отделяется от диагностических сообщений. Перед удалением,
   переносом и установкой проверяется принадлежность путей назначенному каталогу;
   credentials/pair state не входят в disposable outputs. Установка следует
-  [техническим контрактам](engineering-contracts.md).
+  [техническим контрактам](tooling.md).

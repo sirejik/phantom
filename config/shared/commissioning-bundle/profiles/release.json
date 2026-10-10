@@ -1,0 +1,26 @@
+{
+  "bundle_id": "phantom-v1-unqualified",
+  "collision_model": {
+    "status": "MEASURED_REQUIRED"
+  },
+  "drive_calibration": {
+    "status": "MEASURED_REQUIRED"
+  },
+  "joint_safe_sets": {
+    "status": "MEASURED_REQUIRED"
+  },
+  "mechanical_revision": "MEASURED_REQUIRED",
+  "payload_profiles": {
+    "profiles": {
+      "EMPTY": {
+        "payload_state": "EMPTY",
+        "mass_kg": null,
+        "cog_offset_m": null
+      }
+    },
+    "status": "MEASURED_REQUIRED"
+  },
+  "robot_geometry": {
+    "marker_mounts": "MEASURED_REQUIRED"
+  }
+}

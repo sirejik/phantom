@@ -1,0 +1,10 @@
+{
+  "robot_id": "phantom01",
+  "network": {
+    "discovery_service_type": "_phantom-ev3._udp",
+    "discovery_domain": "local.",
+    "ip_family": "IPV4",
+    "port_udp": 30470,
+    "control_key_id": "phantom01-control"
+  }
+}

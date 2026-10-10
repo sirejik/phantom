@@ -1,0 +1,53 @@
+#!/bin/sh
+# Internal platform setup during INSTALL.
+set -eu
+
+test "$(id -u)" = 0 || { echo "root required" >&2; exit 1; }
+source_dir=${1:?provisioning payload directory required}
+control_file=${2:?CONTROL credential filename required}
+wifi_service=${3:-}
+wifi_file=${4:-}
+maintenance=/usr/local/libexec/phantom-maintenance
+
+# Runtime and validation helpers are native C++; Python is not required.
+ldconfig -p | grep -q 'libavahi-client.so.3' || { echo "PROVISION_REQUIRED: install libavahi-client3" >&2; exit 1; }
+ldconfig -p | grep -q 'libcrypto.so.1.0.2' || { echo "PROVISION_REQUIRED: install libssl1.0.2" >&2; exit 1; }
+
+for group in phantom-ipc phantom-safety-ipc phantom-motor; do
+  getent group "$group" >/dev/null 2>&1 || addgroup --system "$group"
+done
+for user in phantom-ctrl phantom-net phantom-mdns; do
+  getent group "$user" >/dev/null 2>&1 || addgroup --system "$user"
+  getent passwd "$user" >/dev/null 2>&1 || adduser --system --ingroup "$user" --home /var/lib/phantom --no-create-home --disabled-password --shell /usr/sbin/nologin "$user"
+done
+adduser phantom-ctrl phantom-motor >/dev/null 2>&1 || true
+adduser phantom-ctrl phantom-ipc >/dev/null 2>&1 || true
+adduser phantom-ctrl phantom-safety-ipc >/dev/null 2>&1 || true
+adduser phantom-net phantom-ipc >/dev/null 2>&1 || true
+getent group ev3dev >/dev/null 2>&1 && adduser phantom-ctrl ev3dev >/dev/null 2>&1 || true
+
+install -d -m 0755 "$maintenance" /var/lib/phantom /var/lib/phantom/staging
+install -d -m 0750 -o root -g phantom-net /var/lib/phantom/secrets
+install -m 0640 -o root -g phantom-net "$source_dir/$control_file" /var/lib/phantom/secrets/control.psk
+if test -n "$wifi_service"; then
+  case "$wifi_service" in wifi_[A-Za-z0-9_]*) ;; *) echo "unsafe Wi-Fi service id" >&2; exit 1;; esac
+  test -n "$wifi_file" && test -f "$source_dir/$wifi_file" || { echo "Wi-Fi settings missing" >&2; exit 1; }
+  install -d -m 0700 "/var/lib/connman/$wifi_service"
+  install -m 0600 "$source_dir/$wifi_file" "/var/lib/connman/$wifi_service/settings"
+fi
+found_wifi=0
+for settings in /var/lib/connman/wifi_*/settings; do
+  test -f "$settings" || continue
+  grep -qx 'Favorite=true' "$settings" || continue
+  grep -qx 'AutoConnect=true' "$settings" || continue
+  found_wifi=1
+done
+test "$found_wifi" = 1 || { echo "PROVISION_REQUIRED: no Favorite+AutoConnect Wi-Fi profile" >&2; exit 1; }
+for helper in install-release start-release run-device-integration-test wifi-autoconnect phantom-maintenance; do
+  install -m 0755 "$source_dir/$helper" "$maintenance/$helper"
+done
+install -m 0644 "$source_dir/phantom-wifi-autoconnect.service" /etc/systemd/system/phantom-wifi-autoconnect.service
+systemctl daemon-reload
+systemctl enable phantom-wifi-autoconnect.service
+
+echo "EV3 PROVISION: PASS platform state prepared; runtime not started"

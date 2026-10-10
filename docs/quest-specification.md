@@ -609,7 +609,7 @@ grip_intent = humanGrip
 ## 12. Геометрическая модель PHANTOM
 
 Quest загружает `RobotGeometry` из совместимого `CommissioningBundle`.
-Структура принадлежит [bundle schema](../config/schema/commissioning_bundle.schema.json);
+Структура принадлежит [bundle schema](../config/shared/commissioning-bundle.schema.json);
 параметры будущих этапов перечислены в [§19.2](#sec-5-19-2).
 
 | Группа | Что определяет |
@@ -1391,9 +1391,10 @@ Quest также снимает `MOTION_ENABLE` при применимой те
 <a id="sec-5-19"></a>
 ## 19. Конфигурация Quest
 
-Структура конфигурации Quest принадлежит `config/schema/quest.schema.json`; canonical
-sources — `config/source/quest.json` (Release) и `config/source/quest-network-only.json`
-(Stage-3 Diagnostic). Этот раздел описывает **смысл** полей и межполевые правила, а не
+Структура конфигурации Quest принадлежит `config/quest/runtime.schema.json`; canonical
+sources — `config/quest/runtime/base.json` и отличия в `config/quest/runtime/profiles/`.
+Общие поля добавляются из `config/shared/` по [правилам конфигурации](engineering.md#sec-engineering-contracts-configuration).
+Этот раздел описывает **смысл** полей и межполевые правила, а не
 повторяет их структуру. Структурные значения задаются schema; поведение и условия
 безопасности должны соответствовать требованиям продукта. Расхождение между prose и
 schema является дефектом: до допуска движения согласованно исправляются владелец
@@ -1405,7 +1406,7 @@ schema является дефектом: до допуска движения �
 | блок | назначение |
 |---|---|
 | `qualification` | **ожидаемый локальный profile**, а не источник authority: `qualification_only`, обе маски, `required_user_inputs` и `qualification_evidence_manifest_hash`. Authoritative значения находятся в установленном `CommissioningBundle` EV3 |
-| `human_mapping` | `arm_reach_min_technical_m`, `arm_reach_max_technical_m`, `max_mapping_scale` — technical sanity bounds и квалифицированный потолок линейного масштаба ([Справочник §2.1](reference.md#sec-11-1-1), `FR-MAP-08`). Все три `MEASURED` и зарегистрированы в `config/source/measured_parameters.json` |
+| `human_mapping` | `arm_reach_min_technical_m`, `arm_reach_max_technical_m`, `max_mapping_scale` — technical sanity bounds и квалифицированный потолок линейного масштаба ([Справочник §2.1](reference.md#sec-11-1-1), `FR-MAP-08`). Все три `MEASURED` и зарегистрированы в `config/shared/measured-parameters.json` |
 | `space` | обязательные XR capability gates; `require_current_room` никогда не может гейтить core actuator path (S37) |
 | `hand_tracking` | Wrist joint, максимальный возраст позы и `MEASURED` dropout grace |
 | `body_tracking` | `Body_RightShoulder` provider, joint set, максимальный возраст позы, `TrackingQualificationProfile` id и требование совпадения runtime-профиля (S28) |
@@ -1414,7 +1415,7 @@ schema является дефектом: до допуска движения �
 | `commissioning_bundle.expected_hash` | локально ожидаемый bundle hash, доказываемый через `HELLO_ACK` |
 | `network` | DNS-SD identity, порт, protocol version, `control_key_id`, а также **фактические тайминги клиента**: `telemetry_max_age_ms`, `hello_retry_ms`, `hello_max_attempts`, `ping_interval_ms`, `ping_timeout_ms`, `max_missed_pongs`, `reconnect_delay_ms` |
 
-Межполевые правила, которые проверяет `tools/configgen.py`:
+Межполевые правила, которые проверяет `tooling/internal/configgen.py`:
 
 - `actuator_scope_mask ⊆ safety_observation_mask` (S53);
 - `telemetry_max_age_ms` не превышает EV3 `session_stale_ms` — иначе Quest считал бы telemetry
@@ -1450,8 +1451,8 @@ schema и не читаются runtime; они добавляются вмес�
 
 Каждое действующее поле, объявленное как `MEASURED`, должно существовать в canonical
 config и реестре измеряемых параметров. Связи prose с источниками проверяются отдельным
-`tools/spec_contract_check.py`; при добавлении параметра расширяется его проверяемое
-сопоставление. `tools/configgen.py` проверяет саму конфигурацию и реестр без чтения
+`tooling/internal/spec_contract_check.py`; при добавлении параметра расширяется его проверяемое
+сопоставление. `tooling/internal/configgen.py` проверяет саму конфигурацию и реестр без чтения
 документации. Safety-critical параметр не может существовать только в prose и обходить
 блокировку `READY` по S30.
 

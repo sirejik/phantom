@@ -1,0 +1,248 @@
+#!/bin/sh
+# INSTALL phase only: validate and atomically select an EV3 release while runtime stays stopped.
+set -eu
+
+archive=${1:?release archive required}
+expected_build_id=${2:?expected build_id required}
+expected_archive_sha256=${3:?expected archive SHA-256 required}
+root=/opt/phantom
+result=/var/lib/phantom/install-result.json
+units="phantom-controller.service phantom-safety.service phantom-network.service phantom-mdns.service phantom.target"
+stop_order="phantom-mdns.service phantom-network.service phantom-controller.service phantom-safety.service phantom.target"
+started_at=$(date -u +%Y-%m-%dT%H:%M:%SZ)
+helper=/usr/local/libexec/phantom-maintenance/phantom-maintenance
+now_ms() { "$helper" time; }
+started_ms=$(now_ms)
+step=prerequisites
+step_started_ms=$started_ms
+steps_file=$(mktemp /tmp/phantom-install-steps.XXXXXX)
+release_id=
+build_id=
+build_profile=N_A
+previous=
+staging=
+dest=
+backup=
+transaction_started=0
+result_written=0
+terminal_state=PREVIOUS_RUNTIME_UNCHANGED
+failure_detail=
+
+write_result() {
+  status=$1
+  detail=$2
+  finished_at=$(date -u +%Y-%m-%dT%H:%M:%SZ)
+  mkdir -p /var/lib/phantom
+  finished_ms=$(now_ms)
+  "$helper" install-report "$result" "$status" "$detail" "$started_at" "$finished_at" "$started_ms" "$finished_ms" "$release_id" "$build_id" "$build_profile" "$expected_archive_sha256" "$previous" "$dest" "$terminal_state" "$steps_file"
+  result_written=1
+}
+
+restore_metadata() {
+  test -n "$backup" && test -d "$backup" || return 0
+  for unit in $units; do
+    if test -f "$backup/$unit"; then
+      install -m 0644 "$backup/$unit" "/etc/systemd/system/$unit"
+    else
+      rm -f "/etc/systemd/system/$unit"
+    fi
+  done
+  if test -f "$backup/phantom.conf"; then
+    install -m 0644 "$backup/phantom.conf" /etc/tmpfiles.d/phantom.conf
+  else
+    rm -f /etc/tmpfiles.d/phantom.conf
+  fi
+  systemctl daemon-reload
+}
+
+rollback_install_transaction() {
+  test "$transaction_started" = 1 || return 0
+  rollback_status=0
+  symlink_restored=0
+  restore_metadata || rollback_status=1
+  if test -n "$previous"; then
+    if ln -sfn "$previous" "$root/current"; then symlink_restored=1; else rollback_status=1; fi
+  else
+    if rm -f "$root/current"; then symlink_restored=1; else rollback_status=1; fi
+  fi
+  if test "$symlink_restored" = 1 && test -n "$dest" && test -d "$dest"; then
+    rm -rf -- "$dest" || rollback_status=1
+  fi
+  test "$rollback_status" = 0
+}
+
+finish() {
+  code=$?
+  trap - EXIT HUP INT TERM
+  if test "$code" != 0; then
+    if ! rollback_install_transaction; then
+      terminal_state=RUNTIME_STOPPED_ZERO_OUTPUT_ROLLBACK_INCOMPLETE
+      failure_detail="${failure_detail:-install aborted at step=$step}; transaction rollback incomplete"
+    fi
+    if test "$result_written" = 0; then
+      test -n "$failure_detail" || failure_detail="install aborted at step=$step"
+      write_result FAIL "$failure_detail"
+    fi
+  fi
+  test -z "$staging" || test ! -d "$staging" || rm -rf -- "$staging"
+  test -z "$backup" || test ! -d "$backup" || rm -rf -- "$backup"
+  rm -f "$steps_file"
+  exit "$code"
+}
+trap finish EXIT
+trap 'exit 130' HUP INT TERM
+
+fail() {
+  record_step FAIL
+  failure_detail=$1
+  exit 1
+}
+
+record_step() {
+  status=$1
+  now=$(now_ms)
+  printf '%s\t%s\t%s\n' "$step" "$status" "$((now-step_started_ms))" >> "$steps_file"
+  step_started_ms=$now
+}
+
+next_step() {
+  record_step PASS
+  step=$1
+}
+
+unit_loaded() {
+  load_state=$(systemctl show -p LoadState "$1" 2>/dev/null | sed -n 's/^LoadState=//p')
+  test -n "$load_state" && test "$load_state" != not-found
+}
+
+stop_runtime() {
+  for unit in $stop_order; do
+    if unit_loaded "$unit"; then
+      systemctl stop "$unit" || return 1
+    fi
+  done
+  for unit in $stop_order; do
+    if systemctl is-active --quiet "$unit" 2>/dev/null; then
+      echo "runtime unit remained active: $unit" >&2
+      return 1
+    fi
+  done
+}
+
+force_and_verify_zero_output() {
+  for motor in /sys/class/tacho-motor/motor*; do
+    test -d "$motor" || continue
+    echo 0 > "$motor/duty_cycle_sp"
+    echo brake > "$motor/stop_action"
+    echo stop > "$motor/command"
+  done
+  for motor in /sys/class/tacho-motor/motor*; do
+    test -d "$motor" || continue
+    test "$(cat "$motor/duty_cycle_sp")" = 0 || return 1
+    test "$(cat "$motor/duty_cycle")" = 0 || return 1
+    test "$(cat "$motor/speed")" = 0 || return 1
+    test "$(cat "$motor/stop_action")" = brake || return 1
+  done
+}
+
+install_runtime_metadata() {
+  release=$1
+  network_group=$(sed -n 's/^Group=//p' "$release/systemd/phantom-network.service" | head -n 1)
+  case "$network_group" in ''|*[!A-Za-z0-9._-]*) return 1;; esac
+  getent group "$network_group" >/dev/null 2>&1 || return 1
+  units_changed=0
+  for unit in $units; do
+    if ! cmp -s "$release/systemd/$unit" "/etc/systemd/system/$unit" 2>/dev/null; then
+      install -m 0644 "$release/systemd/$unit" "/etc/systemd/system/$unit" || return 1
+      units_changed=1
+    fi
+  done
+  tmpfiles_changed=0
+  if ! cmp -s "$release/tmpfiles/phantom.conf" /etc/tmpfiles.d/phantom.conf 2>/dev/null; then
+    install -m 0644 "$release/tmpfiles/phantom.conf" /etc/tmpfiles.d/phantom.conf || return 1
+    tmpfiles_changed=1
+  fi
+  test "$units_changed" = 0 || systemctl daemon-reload || return 1
+  if test -d /run/phantom; then
+    find /run/phantom -mindepth 1 -maxdepth 1 ! -name motor-control.lock -exec rm -rf -- {} + || return 1
+  fi
+  if test "$tmpfiles_changed" = 1 || test ! -d /run/phantom/controller; then
+    systemd-tmpfiles --create /etc/tmpfiles.d/phantom.conf || return 1
+  fi
+}
+
+test "$(id -u)" = 0 || fail "root required"
+test -x "$helper" || fail "native maintenance helper is unavailable"
+mkdir -p "$root/releases" /var/lib/phantom
+staging=$(mktemp -d "$root/releases/.staging.XXXXXX")
+chmod 0755 "$staging" || fail "candidate staging directory could not be made runtime-traversable"
+
+next_step artifact-validation
+case "$expected_build_id" in ''|*[!0-9a-f]*) fail "invalid expected build_id";; esac
+test "${#expected_build_id}" = 64 || fail "invalid expected build_id length"
+case "$expected_archive_sha256" in ''|*[!0-9a-f]*) fail "invalid expected archive SHA-256";; esac
+test "${#expected_archive_sha256}" = 64 || fail "invalid expected archive SHA-256 length"
+actual_archive_sha256=$(sha256sum "$archive" | sed 's/[[:space:]].*$//')
+test "$actual_archive_sha256" = "$expected_archive_sha256" || fail "artifact SHA-256 mismatch"
+"$helper" archive-check "$archive" || fail "unsafe archive inventory"
+next_step extract
+tar -xzf "$archive" -C "$staging"
+next_step embedded-hash-validation
+(cd "$staging" && sha256sum -c SHA256SUMS)
+"$helper" checksum-inventory "$staging" || fail "SHA256SUMS inventory mismatch"
+for executable in phantom-controller phantom-safety phantom-network phantom-mdns phantom-maintenance phantom-device-integration-test; do
+  test -f "$staging/bin/$executable" && test -x "$staging/bin/$executable" || fail "required runtime executable/mode is invalid: $executable"
+done
+build_id=$("$helper" manifest "$staging/build-manifest.json" "$expected_build_id") || fail "artifact validation failed"
+build_profile=$("$helper" get "$staging/build-manifest.json" build_profile) || fail "build profile validation failed"
+"$helper" validate-bundle "$staging" || fail "embedded config/bundle validation failed"
+case "$build_id" in ''|*[!0-9a-f]*) fail "artifact validation returned invalid build_id";; esac
+test "${#build_id}" = 64 || fail "artifact validation returned invalid build_id length"
+release_id="phantom-$build_id"
+dest="$root/releases/$release_id"
+test ! -e "$dest" || fail "release already exists: $dest"
+
+next_step platform-prerequisites
+for group in phantom-ipc phantom-safety-ipc phantom-motor; do
+  getent group "$group" >/dev/null 2>&1 || fail "PROVISION_REQUIRED: missing runtime group $group"
+done
+for user in phantom-ctrl phantom-net phantom-mdns; do
+  getent group "$user" >/dev/null 2>&1 || fail "PROVISION_REQUIRED: missing runtime group $user"
+  getent passwd "$user" >/dev/null 2>&1 || fail "PROVISION_REQUIRED: missing runtime user $user"
+done
+id -nG phantom-ctrl | tr ' ' '\n' | grep -qx phantom-motor || fail "PROVISION_REQUIRED: phantom-ctrl is not in phantom-motor"
+id -nG phantom-ctrl | tr ' ' '\n' | grep -qx phantom-ipc || fail "PROVISION_REQUIRED: phantom-ctrl is not in phantom-ipc"
+id -nG phantom-ctrl | tr ' ' '\n' | grep -qx phantom-safety-ipc || fail "PROVISION_REQUIRED: phantom-ctrl is not in phantom-safety-ipc"
+id -nG phantom-net | tr ' ' '\n' | grep -qx phantom-ipc || fail "PROVISION_REQUIRED: phantom-net is not in phantom-ipc"
+for stray in /etc/sudoers.d/phantom-*; do
+  case "$stray" in *'phantom-*') continue;; esac
+  fail "unexpected phantom sudoers fragment: $stray"
+done
+
+next_step stop-and-safe
+terminal_state=STOP_IN_PROGRESS_UNVERIFIED
+stop_runtime || fail "runtime could not be stopped cleanly"
+force_and_verify_zero_output || fail "terminal zero-output state could not be established"
+terminal_state=RUNTIME_STOPPED_ZERO_OUTPUT
+
+next_step filesystem-install
+previous=$(readlink -f "$root/current" 2>/dev/null || true)
+case "$previous" in ''|"$root"/releases/*) ;; *) fail "current release resolves outside $root/releases";; esac
+backup=$(mktemp -d "$root/.install-backup.XXXXXX")
+for unit in $units; do
+  test ! -f "/etc/systemd/system/$unit" || cp -p "/etc/systemd/system/$unit" "$backup/$unit"
+done
+test ! -f /etc/tmpfiles.d/phantom.conf || cp -p /etc/tmpfiles.d/phantom.conf "$backup/phantom.conf"
+mv "$staging" "$dest"
+staging=
+transaction_started=1
+install_runtime_metadata "$dest" || fail "candidate runtime metadata installation failed"
+next_step atomic-finalize
+if test -n "$previous"; then ln -sfn "$previous" "$root/previous"; fi
+ln -sfn "$dest" "$root/current" || fail "candidate symlink activation failed"
+
+record_step PASS
+step=complete
+write_result PASS "release installed; runtime intentionally remains stopped"
+transaction_started=0
+echo "EV3 INSTALL: PASS build_id=$build_id release_id=$release_id"

@@ -1,0 +1,38 @@
+{
+  "body_tracking": {
+    "joint_set": "UPPER_BODY",
+    "max_pose_age_ms": 50,
+    "require_iobt": false,
+    "shoulder_joint": "Body_RightShoulder"
+  },
+  "grasp": {
+    "default_mapping": "IDENTITY",
+    "fallback_provider": "DISABLED"
+  },
+  "hand_tracking": {
+    "wrist_dropout_grace_ms": null,
+    "wrist_joint": "Wrist",
+    "wrist_max_pose_age_ms": 50
+  },
+  "human_mapping": {},
+  "network": {
+    "commissioning_key_id": null,
+    "hello_max_attempts": 5,
+    "hello_retry_ms": 250,
+    "max_missed_pongs": 3,
+    "ping_interval_ms": 500,
+    "ping_timeout_ms": 750,
+    "reconnect_delay_ms": 250,
+    "telemetry_max_age_ms": 100
+  },
+  "qr": {
+    "runtime_tracking_required": false
+  },
+  "qualification": {},
+  "schema_version": 1,
+  "space": {
+    "require_current_room": false,
+    "require_scene_floor_anchor": false,
+    "scene_aware_ux_enabled": false
+  }
+}

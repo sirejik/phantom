@@ -19,7 +19,7 @@ license: MIT
 3. При изменении tick/concurrency найди нормативный бюджет, проверь ограниченность работы
    и очередей. Для IPC используй [phantom-protocol-change](../phantom-protocol-change/SKILL.md).
 4. Проверь поведение в `ev3/tests` с MockMotorBackend и применимых сетевых suites.
-   Host runner: `scripts/phantom.cmd TEST EV3 -Profile Diagnostic`.
+   Host runner: `python tooling test --target ev3 --profile diagnostic`.
    Сетевые регрессии и общий wire codec проверяет `phantom-network-server-tests`.
 5. Для C++/ABI/package изменений выполни применимую ARM-сборку закреплённым toolchain.
    Для systemd/helpers проверь поддержку целевой средой и ограничения служб.

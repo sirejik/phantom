@@ -24,7 +24,7 @@ license: Apache-2.0
 4. Для tracking/lifecycle проверь validity/age/координаты, pause/resume, focus loss,
    смену reference space и повторные подписки. Для QR начни с `QrTrackingAdapter`
    и проверь обработку данных по Quest-спецификации.
-5. Выполни подходящие EditMode/PlayMode tests через `scripts/phantom.cmd TEST QUEST`.
+5. Выполни подходящие EditMode/PlayMode tests через `python tooling test --target quest`.
    Для Android bridge проверь тесты Java/C# границы и обработку ошибок; поиск строк
    не доказывает JNI/Keystore/NSD. Отсутствующее покрытие укажи явно.
 6. Для package/manifest/IL2CPP изменений выполни BUILD и проверь итоговый manifest штатным

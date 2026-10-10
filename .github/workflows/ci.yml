@@ -1,69 +1,40 @@
 name: phantom-test-and-build
-# Configured off-hardware checks; full Unity test/build coverage is still pending.
-# BUILD remains a separate
-# component/profile operation and no job provisions, transfers or starts devices.
+# No device deployment; Unity licensing and the Editor build are separate prerequisites.
 on: [push, pull_request]
 jobs:
-  documentation:
+  checks-and-host-tests:
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v4
-      - name: Documentation consistency and requirement checks
-        run: python3 tools/docindex.py --check && python3 tools/doclint.py && python3 tools/implementation_map_check.py && python3 tools/spec_contract_check.py
-      - name: Documentation regressions
-        run: python3 tools/test_documentation.py
-  schemas-python-ev3-host:
-    runs-on: ubuntu-24.04
-    steps:
-      - uses: actions/checkout@v4
-      - name: Generated protocol, IPC and configuration artifacts
-        run: python3 tools/protocolgen.py --check && python3 tools/configgen.py --check
-      - name: Canonicalization, protocol and identity regressions
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - uses: actions/setup-dotnet@v4
+        with:
+          global-json-file: PhantomQuest/Tests/Host/global.json
+      - name: Documentation, schemas and secrets
         run: |
-          python3 tools/test_jcs.py
-          python3 tools/test_protocol.py
-          python3 tools/test_ipc_contract.py
-          python3 tools/test_build_identity.py
-          python3 tools/test_configgen.py
-      - name: EV3 device integration and package regressions
-        run: |
-          python3 tools/test_ev3_device_integration.py
-          python3 tools/test_artifact_check.py
-      - name: Report analyzers
-        run: python3 tools/quest_validation/test_analyze.py
-      - name: Secret and provisioning scan
-        run: python3 tools/security_scan.py && python3 tools/test_security_scan.py
-      - name: EV3 host build and tests
-        run: cmake -S ev3 -B build/ev3-host -G Ninja -DCMAKE_BUILD_TYPE=Debug && cmake --build build/ev3-host && ctest --test-dir build/ev3-host --output-on-failure
+          python tooling check --target docs
+          python tooling check --target schemas
+          python tooling check --target security
+      - name: Tooling regressions
+        run: python tooling self-test
+      - name: EV3 C++ host tests
+        run: python tooling test --target ev3
       - name: EV3 host sanitizers
-        run: cmake -S ev3 -B build/ev3-sanitize -G Ninja -DCMAKE_BUILD_TYPE=Debug -DCMAKE_CXX_FLAGS='-fsanitize=address,undefined -fno-omit-frame-pointer' && cmake --build build/ev3-sanitize && ASAN_OPTIONS=detect_leaks=1 ctest --test-dir build/ev3-sanitize --output-on-failure
-      - name: EV3 on-host self-tests
-        run: ./build/ev3-host/phantom-controller --self-test && ./build/ev3-host/phantom-safety --self-test
+        run: python tooling test --target ev3 --sanitize
+      - name: Quest CSharp unit and functional tests
+        run: python tooling test --target quest --suite host
   armel-cross:
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v4
-      - name: Build ARMv5TEJ armel artifacts in pinned image
-        shell: pwsh
-        run: |
-          $ErrorActionPreference='Stop'
-          . ./scripts/build-environment.ps1
-          $image=Get-PhantomEv3CrossImage
-          docker pull $image
-          if($LASTEXITCODE-ne 0){throw 'EV3 cross image pull failed'}
-          $out=Join-Path $env:RUNNER_TEMP 'phantom-ev3-armel/diagnostic'
-          New-Item -ItemType Directory -Force $out | Out-Null
-          $command=Get-PhantomEv3BuildCommand Diagnostic
-          docker run --rm --entrypoint sh -v "${PWD}:/workspace:ro" -v "${out}:/out" $image -lc $command
-          if($LASTEXITCODE-ne 0){throw 'EV3 cross-build failed'}
-
-  quest-host:
-    runs-on: ubuntu-24.04
-    steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-dotnet@v4
+      - uses: actions/setup-python@v5
         with:
-          global-json-file: PhantomQuest/Tests/Host/global.json
-      - name: Quest CSharp unit and functional tests
-        working-directory: PhantomQuest/Tests/Host
-        run: dotnet test --configuration Debug -p:RestoreLockedMode=true
+          python-version: '3.12'
+      - name: Fetch the pinned image
+        run: |
+          image=$(python -c "import json; x=json.load(open('config/ev3/toolchain.json')); print(x['cross_image']+'@'+x['cross_image_digest'])")
+          docker pull "$image"
+      - name: Build and validate Diagnostic ARM package
+        run: python tooling build --target ev3 --profile diagnostic

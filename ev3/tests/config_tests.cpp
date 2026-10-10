@@ -26,8 +26,8 @@ std::string write_temp(const std::string& suffix,const std::string& contents){
 
 int main(){
   const std::string root=PHANTOM_REPO_ROOT;
-  const std::string config_source=read_file(root+"/config/generated/ev3-network-only.generated.json");
-  const std::string bundle_source=read_file(root+"/config/generated/commissioning_bundle-network-only.generated.json");
+  const std::string config_source=read_file(root+"/config/ev3/generated/diagnostic.json");
+  const std::string bundle_source=read_file(root+"/config/shared/generated/commissioning-bundle-diagnostic.json");
   check(!config_source.empty()&&!bundle_source.empty(),"generated configuration fixtures are readable");
 
   const std::string config_path=write_temp("config",config_source);
@@ -56,8 +56,8 @@ int main(){
   check(!profile.external_power_cut_tested,"unqualified POWER_CUT must not be reported as tested");
 
   // The Release runtime configuration must also satisfy the loader contract.
-  const std::string release_config=write_temp("release-config",read_file(root+"/config/generated/ev3.generated.json"));
-  const std::string release_bundle=write_temp("release-bundle",read_file(root+"/config/generated/commissioning_bundle.generated.json"));
+  const std::string release_config=write_temp("release-config",read_file(root+"/config/ev3/generated/release.json"));
+  const std::string release_bundle=write_temp("release-bundle",read_file(root+"/config/shared/generated/commissioning-bundle-release.json"));
   phantom::RuntimeProfile release;
   check(phantom::load_runtime_profile(release_config,release_bundle,release,error),("Release profile must load: "+error).c_str());
   check(!release.diagnostic&&!release.qualification_only,"Release profile identity");

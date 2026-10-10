@@ -3,7 +3,7 @@
 
 Документ описывает рабочий конвейер и результат каждой операции.
 Форматы пакетов, расчёт идентификаторов и настройки установщиков —
-[технические контракты](engineering-contracts.md). Метрики, журналы и отчёты —
+[технические контракты](tooling.md). Метрики, журналы и отчёты —
 [метрики и анализ](metrics-and-logs.md).
 
 <!-- BEGIN GENERATED TOC -->
@@ -39,6 +39,8 @@
   - [7.1. EV3](#sec-8-7)
   - [7.2. Quest](#sec-engineering-deploy-quest)
 - [8. Совместимость конфигурации](#sec-8-9)
+  - [8.1. Каноническая конфигурация](#sec-engineering-contracts-configuration)
+    - [8.1.1. Ревизии конфигурации для квалификации и Release](#sec-engineering-contracts-qualification-bundles)
 - [9. Диагностика и сопровождение](#sec-engineering-diagnostics)
 
 </details>
@@ -50,15 +52,15 @@
 <a id="sec-8-1-1"></a>
 ### 1.1. Среда разработчика
 
-Пути определяет [toolchain.ps1](../tools/toolchain.ps1) по
-[host-tools.json](../toolchains/host-tools.json). Обычно настройка путей не требуется.
+Пути определяет [PHANTOM CLI](tooling.md) по
+[настройках Quest](../config/quest/toolchain.json). Обычно настройка путей не требуется.
 
 | Инструмент | Для чего | Как выбирается |
 |---|---|---|
 | Unity Editor | Сборка Quest и тесты C# | Версия из `PhantomQuest/ProjectSettings/ProjectVersion.txt`, установленная через Unity Hub |
 | `adb` | Установка, запуск и проверки Quest | Android SDK из Unity, затем `PATH` |
 | WSL | Сборка и тесты C++ на компьютере | `Ubuntu` с `cmake`, `ninja-build`, `g++` |
-| Docker | Кросс-сборка EV3 | Образ по digest из `ev3/toolchains/ev3dev-stretch.lock.json` |
+| Docker | Кросс-сборка EV3 | Образ по digest из `config/ev3/toolchain.json` |
 
 При нестандартной установке используются `PHANTOM_UNITY_ROOT`, `PHANTOM_ADB`,
 `PHANTOM_WSL_DISTRO`. Они задают расположение, а не другие версии.
@@ -69,14 +71,14 @@
 | Область | Технологии | Источники версий |
 |---|---|---|
 | Quest 3 | Android/Meta Horizon OS, Unity/C#, IL2CPP, Java; OpenXR, Meta XR Core/MRUK >=v83, Meta XR Movement | [Unity](../PhantomQuest/ProjectSettings/ProjectVersion.txt), [пакеты](../PhantomQuest/Packages/manifest.json), [закреплённые зависимости](../PhantomQuest/Packages/packages-lock.json) |
-| EV3 | ev3dev Debian Stretch, ARMv5TEJ/armel/gnueabi/soft-float, C++14, systemd 232 | [CMake](../ev3/CMakeLists.txt), [компилятор и образ](../ev3/toolchains/ev3dev-stretch.lock.json) |
-| Компьютер разработчика | Windows/PowerShell, Python для инструментов, WSL/Linux, Docker, Unity Editor, Android SDK/adb | [Инструменты](../toolchains/host-tools.json) |
-| Обмен данными | UDP Quest↔EV3, локальный Unix datagram IPC, генерируемые кодеки и конфигурации | [Протокол](../protocol/wire_schema.yaml), [IPC](../protocol/ipc_schema.yaml), [конфигурации](../config/schema/) |
+| EV3 | ev3dev Debian Stretch, ARMv5TEJ/armel/gnueabi/soft-float, C++14, systemd 232 | [CMake](../ev3/CMakeLists.txt), [компилятор и образ](../config/ev3/toolchain.json) |
+| Компьютер разработчика | Windows/PowerShell, Python для инструментов, WSL/Linux, Docker, Unity Editor, Android SDK/adb | [Инструменты](../config/tooling/environment.json) |
+| Обмен данными | UDP Quest↔EV3, локальный Unix datagram IPC, генерируемые кодеки и конфигурации | [Протокол](../config/shared/protocol/wire-schema.json), [IPC](../config/shared/protocol/ipc-schema.json), [конфигурации](../config/) |
 
 Все прикладные службы EV3, включая сетевой обмен и обнаружение, разрабатываются на C++14.
 Сеть, discovery и файловый ввод-вывод остаются отдельными от моторного цикла процессами.
-Python используется для инструментов на компьютере и вспомогательных установщиков/проверок
-на EV3. Прикладные службы не требуют интерпретатора Python.
+Python используется только для инструмента на компьютере. Проверки и обработка JSON
+на EV3 выполняются на C++14; системные операции используют короткие POSIX обёртки.
 Сеть использует OpenSSL для HMAC/SHA-256 и случайных идентификаторов;
 `phantom-mdns` публикует сервис через системный Avahi.
 
@@ -91,14 +93,13 @@ Unity должна поддерживать используемые Multimodal 
 
 | Каталог | Содержимое |
 |---|---|
-| [docs](../README.md) | Спецификации, руководства и справочники; [каталог скриптов и инструментов](python-scripts.md) |
+| [docs](../README.md) | Спецификации, руководства и справочники; [каталог скриптов и инструментов](tooling.md) |
 | [PhantomQuest](../PhantomQuest/) | Приложение Quest: Unity/C# и Android-адаптеры |
 | [ev3](../ev3/) | Прикладные службы EV3 и тесты |
-| [protocol](../protocol/) | Схемы, семантика, генераторы и эталонные данные протокола/IPC |
+| [protocol](../protocol/) | Канонизатор, генерируемые кодеки и эталонные данные протокола/IPC |
 | [config](../config/) | Исходные и сгенерированные конфигурации, схемы |
-| [tools](../tools/) | Анализаторы, генераторы и проверки на компьютере |
-| [scripts](../scripts/), [deploy](../deploy/) | Сборка и установка |
-| [toolchains](../toolchains/) | Закреплённые инструменты и общий ARM toolchain |
+| [tooling](../tooling/) | Единый CLI, общие модули, устанавливаемые ресурсы и регрессии инструмента |
+| [ev3/toolchains](../ev3/toolchains/) | Штатный CMake toolchain-файл ARM-компилятора |
 | [mechanical](../mechanical/) | Модель и состав деталей |
 | `build/**` | Готовые пакеты и промежуточные файлы сборки |
 | `results/**` | Локальные результаты инструментов |
@@ -142,29 +143,20 @@ flowchart TD
 <a id="sec-8-5-1"></a>
 ### 4.2. Инструменты и место выполнения
 
-Ниже — основные команды этапов. Полный [каталог инструментов](python-scripts.md)
-включает генераторы, внутренние helpers, host harnesses и их регрессии.
-Тесты, сборка, установка и запуск вызываются отдельно.
+Все операции вызывает [PHANTOM CLI](tooling.md). Установка, запуск и тесты — отдельные команды.
 
-| Работа | Скрипт | Где выполняется |
+| Работа | Команда `python tooling` | Место выполнения |
 |---|---|---|
-| Схемы, документация и статические проверки | [Инструменты проверок](python-scripts.md) | Компьютер разработчика; CI выполняет доступную часть |
-| Регрессии инструментов | [Python suites и test_pair_state.ps1](python-scripts.md) | Python — компьютер или CI; PowerShell — Windows, без устройств |
-| Unit/functional tests EV3 | [ev3-test.ps1](../scripts/ev3-test.ps1) | Windows-компьютер разработчика; C++-тесты запускаются в WSL |
-| Unit/functional tests Quest | [quest-test.ps1](../scripts/quest-test.ps1) | Компьютер разработчика, .NET SDK и Unity Editor; native interop в WSL |
-| Сборка EV3 | [ev3-build.ps1](../scripts/ev3-build.ps1) | Компьютер разработчика, Docker с ARM cross compiler |
-| Сборка Quest | [quest-build.ps1](../scripts/quest-build.ps1) | Компьютер разработчика, Unity Editor и Android SDK |
-| Установка EV3 с настройкой | [ev3-install.ps1](../scripts/ev3-install.ps1) | Компьютер настраивает назначенный EV3, передаёт и устанавливает ARM-пакет через SSH |
-| Установка Quest с настройкой | [quest-install.ps1](../scripts/quest-install.ps1) | Компьютер через ADB устанавливает APK с разрешениями и подготавливает credential назначенного Quest |
-| Запуск EV3 | [ev3-start.ps1](../scripts/ev3-start.ps1) | Компьютер через SSH запускает службы установленного пакета EV3 |
-| Запуск Quest | [quest-start.ps1](../scripts/quest-start.ps1) | Компьютер через ADB запускает установленное приложение Quest |
-| Интеграционные тесты EV3 | [ev3-device-integration-test.ps1](../scripts/ev3-device-integration-test.ps1) | Runner на компьютере и проверки на назначенном EV3 |
-| Интеграционные тесты Quest | [quest-device-integration-test.ps1](../scripts/quest-device-integration-test.ps1) | Runner на компьютере и приложение на назначенном Quest |
-
-Dispatcher [phantom.cmd](../scripts/phantom.cmd) вызывает эти скрипты по машинным именам
-операций (`TEST`, `BUILD`, `INSTALL`, `START`, `DEVICE`); это не отдельные виды проверок.
-Установка, запуск и интеграционные проверки ограничивают время ожидания и показывают
-первый отказ; установка не запускает тесты.
+| Линтеры, схемы и документация | `check` | Компьютер разработчика / CI |
+| Регрессии инструмента | `self-test` | Компьютер / CI, без устройств |
+| Тесты EV3 | `test --target ev3` | C++ в WSL на Windows, Linux в CI |
+| Тесты Quest | `test --target quest` | .NET и Unity на компьютере; C++ interop fixture в WSL |
+| Сборка EV3 | `build --target ev3` | Компьютер, Docker ARM cross compiler |
+| Сборка Quest | `build --target quest` | Компьютер, Unity и Android SDK |
+| Настройка и установка | `install --target ev3/quest --artifact <file>` | Компьютер → назначенное устройство через SSH/ADB |
+| Запуск | `start --target ev3/quest --build-id <id>` | Установленная система на устройстве |
+| Интеграционные тесты | `integration-test --target ev3/quest --build-id <id>` | Назначенные устройства, без движения |
+| Получение диагностики | `logs --target ev3/quest` | Компьютер получает данные устройства и анализирует их |
 
 <a id="sec-engineering-static-checks"></a>
 ### 4.3. Линтеры и статический анализ
@@ -172,9 +164,9 @@ Dispatcher [phantom.cmd](../scripts/phantom.cmd) вызывает эти скр�
 До сборки проверяются исходники обеих платформ, инструменты, схемы, сгенерированные
 файлы и документация. Ошибки устраняются, предупреждения — устраняются или обосновываются.
 C++ проверяется `clang-tidy` или эквивалентом, C# — анализаторами.
-Документация: `tools/docindex.py --check`, `tools/doclint.py`,
-`tools/implementation_map_check.py`, `tools/spec_contract_check.py`, проверка Mermaid.
-Для схем выполняются генераторы в режиме проверки.
+`python tooling check` проверяет схемы, документацию, Mermaid, host Python,
+POSIX ресурсы и Android bridge. Проверки C++ и C# выполняются средствами проектов;
+полнота статического анализа отражается в текущем статусе.
 
 <a id="sec-engineering-ci-tests"></a>
 ### 4.4. Автоматизация в GitHub Actions
@@ -186,8 +178,8 @@ ASan/UBSan и кросс-сборку EV3 на GitHub runner `ubuntu-24.04`.
 Наличие workflow не подтверждает успешный запуск. Полнота проверок отражается в статусе;
 текущий workflow не содержит полного Unity test/build job и не устанавливает ПО на устройства.
 Локальные тесты Quest включают .NET/NUnit host-проект и Unity EditMode,
-оба запускает `scripts/quest-test.ps1`. Host unit и functional части выбираются
-через `-Category`, host/Unity — через `-Suite`. .NET SDK закреплён в
+оба запускает `python tooling test --target quest`. Host unit и functional части выбираются
+через `--category`, host/Unity — через `--suite`. .NET SDK закреплён в
 [global.json](../PhantomQuest/Tests/Host/global.json), пакеты — в
 [packages.lock.json](../PhantomQuest/Tests/Host/packages.lock.json).
 Требования к покрытию —
@@ -226,7 +218,7 @@ ASan/UBSan и кросс-сборку EV3 на GitHub runner `ubuntu-24.04`.
 Тестовые исходники EV3 также не меняют `build_id` штатного пакета.
 Quest и EV3 имеют отдельные идентификаторы. SHA-256 готового пакета отдельно проверяет
 точные переданные байты, включая упаковку и подпись.
-Алгоритм и поля — [контракт идентичности](engineering-contracts.md#sec-engineering-contracts-build-identity).
+Алгоритм и поля — [контракт идентичности](tooling.md#sec-engineering-contracts-build-identity).
 
 <a id="sec-engineering-build-validation"></a>
 ### 5.3. Результат сборки и выпуск релиза
@@ -240,26 +232,27 @@ Quest и EV3 имеют отдельные идентификаторы. SHA-256
 После установки Release проверяется именно этот пакет. При изменении управления,
 безопасности, конфигурации, SDK или временных характеристик повторяются затронутые проверки.
 Результат Diagnostic не выдаётся за результат другого артефакта.
-Форматы и воспроизводимость — [контракт пакетов](engineering-contracts.md#sec-engineering-contracts-package-validation).
+Форматы и воспроизводимость — [контракт пакетов](tooling.md#sec-engineering-contracts-package-validation).
 
 <a id="sec-8-6"></a>
 ### 5.4. EV3
 
 На компьютере кросс-компилируются C++14-службы для EV3 и создаётся пакет с бинарниками,
 конфигурацией и systemd units. На EV3 компиляция не выполняется.
-Образ и компилятор выбираются по [закреплённым версиям](../ev3/toolchains/ev3dev-stretch.lock.json).
-Команда отладочной сборки: `scripts/ev3-build.ps1 -Profile Diagnostic`.
-Точный состав — [контракт пакета EV3](engineering-contracts.md#sec-engineering-contracts-ev3-package).
+Образ и компилятор выбираются по [закреплённым версиям](../config/ev3/toolchain.json).
+Команда отладочной сборки: `python tooling build --target ev3 --profile diagnostic`.
+Точный состав — [контракт пакета EV3](tooling.md#sec-engineering-contracts-ev3-package).
 
 | Конфигурационный файл | Назначение |
 |---|---|
 | [ev3/CMakeLists.txt](../ev3/CMakeLists.txt) | Состав C++ проекта, зависимости, C++14 и CTest. Используется для ARM-сборки и тестов на компьютере. |
 | [ev3/toolchains/armel.cmake](../ev3/toolchains/armel.cmake) | Компилятор и параметры ARM/soft-float. Применяется только при кросс-сборке. |
-| [ev3/toolchains/ev3dev-stretch.lock.json](../ev3/toolchains/ev3dev-stretch.lock.json) | Единственный источник Docker image/digest, идентификатора платформы и ожидаемых версии/хэша компилятора. |
+| [config/ev3/toolchain.json](../config/ev3/toolchain.json) | Единственный источник Docker image/digest, идентификатора платформы и ожидаемых версии/хэша компилятора. |
 
-Общий [host-tools.json](../toolchains/host-tools.json) задаёт поиск инструментов
-компьютера и путь к EV3 lock-файлу; значения EV3 в нём не повторяются.
-Локальный сборщик и ARM job CI используют общую команду из `build-environment.ps1`.
+Поиск инструментов Quest задаётся в `config/quest/toolchain.json`, общая среда WSL —
+в `config/tooling/environment.json`. Версии Unity и .NET читаются из обязательных
+файлов Unity ProjectVersion и .NET global.json.
+Локальная сборка и CI используют одну команду CLI и закреплённый Docker image.
 Имя фактически выбранного компилятора экспортирует CMake, версия и SHA-256
 измеряются при сборке и сравниваются с lock-файлом.
 CMake остаётся версии закреплённого образа; presets в этой версии не поддерживаются.
@@ -268,7 +261,7 @@ CMake остаётся версии закреплённого образа; pre
 ### 5.5. Quest
 
 Unity Editor создаёт подписанный APK с конфигурацией выбранного режима.
-Команда: `scripts/quest-build.ps1 -Profile Diagnostic`.
+Команда: `python tooling build --target quest --profile diagnostic`.
 Путь к keystore и пароль берутся из закрытой локальной настройки, не из исходников.
 
 <a id="sec-8-8-1"></a>
@@ -290,7 +283,7 @@ Release отвергает `qualification_only=true`.
 
 APK содержит выбранную конфигурацию, идентификатор версии и обязательные разрешения.
 Скрипт восстанавливает временно изменённые настройки Unity и не сохраняет секреты в проекте.
-Детали подписи и встроенных данных — [контракт APK](engineering-contracts.md#sec-engineering-contracts-quest-package).
+Детали подписи и встроенных данных — [контракт APK](tooling.md#sec-engineering-contracts-quest-package).
 
 <a id="sec-engineering-device-setup"></a>
 ## 6. Подготовка устройств
@@ -311,12 +304,12 @@ APK содержит выбранную конфигурацию, идентиф
 Ключи здесь — секреты для проверки подлинности сетевых сообщений, а не параметры движения.
 CONTROL обслуживает обычную связь; commissioning key даёт право запрашивать инженерные
 операции, но не заменяет локальное разрешение и safety-проверки.
-Настройка входит в `INSTALL EV3` и `INSTALL QUEST`; отдельной команды настройки нет.
-При первом назначении пары установщик принимает доверенный `-HostFingerprint` EV3
-и `-QuestSerial` (либо выбирает единственный подключённый и авторизованный Quest 3).
+Настройка входит в `install --target ev3` и `install --target quest`; отдельной команды настройки нет.
+При первом назначении пары установщик принимает доверенный `--host-fingerprint` EV3
+и `--quest-serial` (либо выбирает единственный подключённый и авторизованный Quest 3).
 Явный serial позволяет установить EV3 без подключённого шлема. Повторная установка
 использует локальное назначение пары, сохраняет ключи и не меняет fingerprint.
-Изменение Wi-Fi, восстановление credential или ротация требуют явного `-Repair`;
+Изменение Wi-Fi, восстановление credential или ротация требуют явного `--repair`;
 ротация SSH/CONTROL и repin EV3 дополнительно требуют соответствующего флага установщика EV3.
 Секреты не передаются исполнительным UDP и не выводятся в журналы.
 
@@ -326,7 +319,7 @@ CONTROL обслуживает обычную связь; commissioning key да
 Указать назначенный ADB serial, выдать нужные разрешения и установить CONTROL key в закрытое
 хранилище приложения через отладочную сборку. Приложение должно расшифровать ключ и
 подтвердить готовность без диалогов. Обычное обновление APK сохраняет ключ и данные.
-Подробности импорта — [контракт ключей](engineering-contracts.md#sec-engineering-contracts-quest-credentials).
+Подробности импорта — [контракт ключей](tooling.md#sec-engineering-contracts-quest-credentials).
 
 <a id="sec-8-12"></a>
 ### 6.3. EV3
@@ -337,7 +330,7 @@ SSH по ключу, автоматическое подключение LAN,
 CONTROL/COMMISSIONING UDP доступен только из доверенной подсети; публикация порта в интернете
 запрещена. На EV3 работает один менеджер сети ConnMan; штатный запуск PHANTOM сеть не ремонтирует.
 Проверить автоматическое подключение после загрузки; при смене подсети повторить проверку доступа.
-Детали — [контракт сети](engineering-contracts.md#sec-engineering-contracts-network).
+Детали — [контракт сети](tooling.md#sec-engineering-contracts-network).
 
 <a id="sec-engineering-deployment"></a>
 <a id="sec-8-10"></a>
@@ -358,21 +351,21 @@ CONTROL/COMMISSIONING UDP доступен только из доверенно�
 Настройка пользователей и credentials допускается только при остановленных службах EV3;
 активная система блокирует этот шаг до штатной безопасной остановки.
 
-`scripts/ev3-install.ps1 -Package <архив>` выполняет настройку EV3, передачу
+`python tooling install --target ev3 --artifact <архив>` выполняет настройку EV3, передачу
 пакета и установку. `build_id` и SHA-256 берутся из проверенного пакета и sidecar.
-`scripts/ev3-start.ps1` отдельно запускает safety → controller → network → mDNS,
+`python tooling start --target ev3 --build-id <id>` отдельно запускает safety → controller → network → mDNS,
 показывает результат каждой службы и первый отказ. Во время `TRACKING` установка запрещена.
-Форматы, права и порядок переключения — [контракт установки EV3](engineering-contracts.md#sec-engineering-contracts-ev3-install).
+Форматы, права и порядок переключения — [контракт установки EV3](tooling.md#sec-engineering-contracts-ev3-install).
 
 <a id="sec-engineering-deploy-quest"></a>
 ### 7.2. Quest
 
-`scripts/quest-install.ps1` проверяет APK, выполняет `adb install -r -g` на назначенном Quest
+`python tooling install --target quest --artifact <APK>` проверяет APK, выполняет `adb install -r -g` на назначенном Quest
 и сверяет установленную версию. Первая установка требует Diagnostic APK и подготавливает
 CONTROL credential для импорта при запуске. При обновлении credential повторно не передаётся;
 данные и ключи приложения сохраняются;
 `adb uninstall` и `pm clear` не выполняются.
-`scripts/quest-start.ps1` отдельно запускает приложение и проверяет процесс и готовность.
+`python tooling start --target quest --build-id <id>` отдельно запускает приложение и проверяет процесс и готовность.
 Отсутствующий или повреждённый ключ даёт ошибку, а не скрытую повторную настройку.
 
 <a id="sec-8-9"></a>
@@ -383,18 +376,125 @@ Quest и EV3 должны использовать согласованный п
 не редактируется частично через исполнительный UDP.
 Изменение механики требует новой соответствующей калибровки; перезапуск сохраняет её,
 но требует новой runtime-привязки. Изменение только интерфейса калибровку не инвалидирует.
-Условия смены ревизий и хэширования — [контракт конфигурации](engineering-contracts.md#sec-engineering-contracts-configuration).
+Условия смены ревизий и хэширования — [контракт конфигурации](engineering.md#sec-engineering-contracts-configuration).
+
+<a id="sec-engineering-contracts-configuration"></a>
+### 8.1. Каноническая конфигурация
+
+| Каталог | Содержание |
+|---|---|
+| `config/ev3/` | Runtime-основа, отличия профилей, runtime-схема и закреплённый ARM toolchain |
+| `config/quest/` | Runtime-основа, отличия профилей, runtime-схема и поиск Unity/Android/.NET |
+| `config/shared/` | Данные пары, допуск приводов, bundle, измеряемые параметры и JSON-источники wire/IPC |
+| `config/tooling/` | Требование к Python, общая среда WSL и таймауты CLI |
+| `config/{ev3,quest,shared}/generated/` | Полные канонические конфиги и manifest; создаются только генератором |
+
+В каталогах `runtime`, `qualification` и `commissioning-bundle` файл `base.json`
+содержит общую основу, а `profiles/release.json` и `profiles/diagnostic.json` — только
+различия. Генератор рекурсивно объединяет объекты; массив заменяется целиком,
+`null` остаётся значением. Повторение значения основы в профиле считается ошибкой.
+Полный конфиг проходит схему и проверки согласованности перед записью файлов.
+
+Общие данные пары (robot ID, DNS-SD, UDP port) и условия допуска задаются один раз
+в `shared`. Размеры пакета и версия протокола берутся из wire-схемы. Ожидаемый хэш
+bundle для Quest вычисляется автоматически. Компонент и профиль не могут переопределять
+эти поля. Логические ID измеряемых параметров сохраняются независимо от расположения источников.
+
+Настройки и схемы, которыми управляет PHANTOM, используют JSON. Обязательные файлы
+CMake, Unity ProjectSettings/Packages, .NET global.json, systemd и GitHub workflow
+сохраняют штатные форматы и расположение. Карты документации в `docs` и тестовые vectors
+остаются у своих владельцев. Credentials и настройки конкретной пары устройств хранятся
+вне репозитория. Сгенерированные копии допустимы; редактируемый источник каждого значения один.
+
+Конфигурация разделяет данные, определяющие поведение, и сведения об их происхождении:
+
+```text
+semantic_payload:
+  schema_version
+  revision
+  safety/config fields или component hashes
+content_hash = SHA-256(JCS(semantic_payload))
+
+provenance_sidecar:         # отдельный файл; не входит в content_hash
+  semantic_content_hash
+  created_by_build
+  created_at
+  transaction_id / evidence reference, если применимо
+```
+
+При сборке и калибровке `semantic_payload` сохраняется как канонический JCS JSON,
+а сведения о происхождении — отдельным файлом. Runtime проверяет SHA-256 установленных
+байтов, не сериализуя объект заново. Внешний файл может иметь свой хэш и ссылается
+на `semantic_content_hash`; его отсутствие или время создания не меняет совместимость приводов.
+
+`CommissioningBundle` использует тот же принцип:
+`commissioning_bundle_hash = SHA-256(JCS(bundle_semantic_payload))` хранится в оболочке,
+манифесте или runtime metadata, но не внутри `bundle_semantic_payload`.
+Хэш компонента хранится в содержащем его bundle, а не в хэшируемом компоненте.
+Время, имя компьютера и локальные metadata не влияют на допуск приводов.
+
+`bundle_id` не входит в `semantic_payload` и вычисляется после хэша:
+
+```text
+bundle_id = "cb-" + lowercase_hex(first_16_bytes(commissioning_bundle_hash))
+```
+
+Обе стороны получают одинаковый идентификатор без случайного UUID, времени или hostname.
+
+Установка геометрии и данных безопасности выполняется через инженерный доступ,
+а не исполнительный UDP. В протоколе v1 нет `SET_ROBOT_GEOMETRY` или передачи файлов
+по частям: `RobotGeometry`, `RobotCollisionModel`, PayloadProfiles и `JointSafeSet`
+могут превышать размер управляющего пакета и не должны обновляться частично.
+
+1. Сохранить результат инженерной калибровки на Quest или компьютере как канонические данные.
+2. Собрать полный `CommissioningBundle` для проверки (`qualification_only=true`);
+   проверить схемы, коллизии и связи с требованиями.
+3. При запрещённом движении установить одинаковые байты компонентов на обе стороны:
+   ADB для Quest, SSH/USB для EV3.
+4. После успешной проверки `QualificationEvidenceManifest` подготовить рабочую ревизию
+   (`qualification_only=false`). Байты компонентов и их хэши сохраняются; добавляются
+   только сведения о результатах проверки. Изменение геометрии/калибровки требует новой приёмки.
+5. Активировать ревизию через временный файл, fsync и атомарное переключение,
+   сохраняя предыдущую ревизию на случай незавершённой установки.
+
+Установка инвалидирует runtime sessions и привязки. Новый `HELLO` должен вернуть ожидаемый
+`commissioning_bundle_hash` до привязки и движения. Неполная установка пары или несовпадение
+хэшей блокирует движение; частично установленный bundle не используется.
+`SET_DRIVE_CALIBRATION` остаётся ограниченной транзакцией калибровки с обработкой потери ACK
+по [протоколу §2.5](protocol-specification.md#sec-4-7-5). Итоговая замена данных следует правилам выше.
+
+Изменения конфигурации обрабатываются так:
+
+| Изменение | Что требуется |
+|---|---|
+| Передача, крепление мотора, смысл encoder или `encoder_scale` | Новая `DriveCalibration` |
+| Крепление QR, ось, `L1`, `L2`, положение пола относительно Shoulder, TCP | Новая ревизия `RobotGeometry` |
+| Упор Base, прокладка кабеля или диапазон pitch | Повторная калибровка безопасных границ |
+| Перезапуск EV3/controller или новый `controller_boot_id` | Сохранить persistent `DriveCalibration`; инвалидировать runtime `JointReference`, `GripperReference` и старые sessions |
+| Новая `DriveCalibration` | Создать неизменяемую bundle revision с заменой соответствующего компонента, `new_bundle_revision = previous_bundle_revision + 1` |
+| Активация новой bundle revision | Закрыть прежние sessions; новый `HELLO` подтверждает новый хэш до движения |
+| Новый HMAC key | Новая сетевая сессия |
+| Только пользовательский интерфейс | `RobotGeometry` и `DriveCalibration` сохраняются |
+
+Quest и EV3 вычисляют хэш кандидата из одинаковых канонических компонентов.
+Несовпадение требует исправления настройки или файлов; изменение активной ревизии на месте запрещено.
+
+<a id="sec-engineering-contracts-qualification-bundles"></a>
+#### 8.1.1. Ревизии конфигурации для квалификации и Release
+
+Для `build_profile=Release` authoring schema обязана отклонять `qualification_only=true`, `actuator_scope_mask != 0x0F` и `safety_observation_mask != 0x0F`. Нулевой `qualification_evidence_manifest_hash` разрешён в source/generated config только как явно заблокированный `UNQUALIFIED_RELEASE_CANDIDATE`: runtime остаётся fail-closed и такой config нельзя установить/опубликовать как production release. Release **packaging/publication gate**, в отличие от schema/generator и compile-only build, обязательно отклоняет нулевой/отсутствующий evidence hash либо manifest, чей component-set hash не совпадает с production bundle, и проверяет PASS всех обязательных evidence refs. Простая ручная смена `qualification_only:true→false` не создаёт допустимый release и должна fail packaging/release validation. На этапах 3–5 ранний Diagnostic mechanical/safety bundle разрешает только пары масок `0x00/0x00` (network-only) и `0x08/0x08` (Gripper). Соответствующий Quest profile отдельно использует `required_user_inputs=NONE` для Stage 3 и phase-specific QR commissioning либо `GRIPPER_ONLY` для user-driven Stage 5. На этапах 6–7 Diagnostic `COMMISSIONING/CALIBRATION` может использовать versioned scope всех фактически подключённых осей текущего стенда, если их motor/mechanics/safety prerequisites [Спецификация Quest §16.1](quest-specification.md#sec-5-16-1) выполнены; отдельный `CALIBRATION_JOG.axis` выбирает единственную движущуюся ось, а штатный `COMMAND` для A/B/C при этом запрещён. Scoped A/B/C `ACTUATOR_QUALIFICATION` допускается только с полными `RobotGeometry`, `DriveCalibration`, `JointReference A/B/C`, `EMPTY` profile-specific `JointSafeSet`, `safety_observation_mask & 0x07 == 0x07`, `actuator_scope_mask & ~safety_observation_mask == 0` и пройденными **pre-motion** prerequisites [План проверки](test-plan.md#sec-9) (exhaustive safe-set proof, mechanical/fixture inspection, `LOCAL_STOP`/`POWER_CUT`, интеграционные тесты с нулевым выходом приводов и применимые P0 gates). Сам движущийся incremental MANUAL case не может быть prerequisite самому себе: он последовательно создаёт qualification evidence по [Метрики и анализ §4.7.7](metrics-and-logs.md#sec-9-15-7)/[Метрики и анализ §4.9](metrics-and-logs.md#sec-9-17)–[Метрики и анализ §4.10](metrics-and-logs.md#sec-9-19) и [Этапы реализации §11](implementation-stages.md#sec-10-11). Маска motor authority может быть уже (`C`, `B+C` и т.п.), но безопасность всегда вычисляется по реальным observed A/B/C.
+
+Для incremental A/B/C MANUAL узкая authority **не является runtime override** production bundle. Все narrow authority cases (`C`, `B+C`, затем A+B+C narrow/full-authority bring-up до payload qualification) выполняются только с **пустым Gripper без внешнего payload** и используют installed `EMPTY` PayloadProfile + matching `EMPTY` JointSafeSet. После reference tooling явно устанавливает engineering `SET_PAYLOAD_PROFILE=EMPTY` и `SET_PAYLOAD_STATE=EMPTY` при stationary motors и снятом qualification arm; это не product state, а доказуемый input safety gate. `LOADED`, non-empty profile, pickup/release и object-contact-as-payload в narrow qualification запрещены. Loaded-payload cases допускаются только в отдельном full `0x0F/0x0F qualification_only=true` bundle с полными A/B/C/D references и специальными engineering payload gates [Спецификация протокола §2.5](protocol-specification.md#sec-4-7-5). Engineering tooling создаёт каждую immutable derived revision из принятого production-candidate semantic component set: narrow bundles ссылаются на те же geometry/DriveCalibration/collision/SafetyEnvelope hashes и EMPTY profile/safe-set; full qualification bundle может переключать только уже установленные candidate payload profiles/safe-sets, не меняя их bytes. Каждая revision имеет собственный `commissioning_bundle_hash`, проходит двухсторонний deployment/hash check и при активации инвалидирует session/JointReference/GripperReference. После qualification production bundle создаётся/promote-ится отдельной revision; MANUAL никогда не переписывает masks in-place.
+
 
 <a id="sec-engineering-diagnostics"></a>
 ## 9. Диагностика и сопровождение
 
-При обнаружении проблемы получите данные через `scripts/ev3-pull-logs.ps1` или
-`scripts/quest-pull-logs.ps1`. Оба сборщика по умолчанию вызывают `tools/analyze_logs.py`;
-`-SkipAnalysis` оставляет только сбор. Сохранённые данные можно анализировать повторно
-через `python tools/analyze_logs.py EV3|QUEST <inputs> --out <directory>`.
-Правила сбора, анализа и хранения — в [метриках и журналах](metrics-and-logs.md).
-После исправления повторите затронутые этапы конвейера. Сбор данных не ограничен тестами.
+При обнаружении проблемы выполните `python tooling logs --target ev3/quest`.
+Команда получает данные и анализирует их; `--skip-analysis` оставляет только сбор.
+Сохранённые данные обрабатываются через `analyze`. Форматы и хранение —
+в [метриках и журналах](metrics-and-logs.md), параметры команд — в [CLI](tooling.md#sec-tooling-diagnostics).
+После исправления повторите затронутые проверки. Диагностика работает и вне тестов.
 
-Очистка рабочих данных выполняется отдельно: `scripts/build-clean.ps1` сохраняет свежие
-пакеты, `scripts/results-clean.ps1` выбирает временные отчёты. Сначала выполните
-предпросмотр; `-Apply` удаляет показанные файлы.
+Очистка: `python tooling clean --target build/results` показывает выбранные данные;
+`--apply` удаляет их. Состояние пары и секреты хранятся отдельно.

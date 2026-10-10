@@ -83,7 +83,7 @@ EV3 принимает цели от Quest, управляет приводам�
 Проверка systemd units, совместимость вспомогательных скриптов с образом EV3,
 сборка и фиксация legacy/EOL платформы принадлежат
 [правилам сборки EV3](engineering.md#sec-8-6) и
-[контракту пакета](engineering-contracts.md#sec-engineering-contracts-ev3-package).
+[контракту пакета](tooling.md#sec-engineering-contracts-ev3-package).
 Текущее состояние перехода служб на C++ — в [current-status.md](current-status.md).
 
 <a id="sec-7-2"></a>
@@ -160,7 +160,7 @@ UDP listener и готовности IPC, mDNS — после успешной D
 
 Для этапа 3 структура `ControllerRequestV1`, `ControllerReplyV1` и
 `ControllerTelemetrySnapshotV1`, типы сообщений, размеры и порядок полей принадлежат
-[IPC schema](../protocol/ipc_schema.yaml); constants/codecs и golden vectors генерируются
+[IPC schema](../config/shared/protocol/ipc-schema.json); constants/codecs и golden vectors генерируются
 из неё. Этот раздел определяет только контекстные проверки и условия допуска.
 
 Controller обрабатывает не более 16 queued IPC datagrams за один 50-Hz tick и принимает
@@ -181,7 +181,7 @@ handshake по [Спецификации протокола §2.3](protocol-spec
 **IPC транзакций этапа 4 и следующих этапов.** Описанные ниже
 `NetworkTransactionEnvelopeV1` и `ControllerProtocolReplyV1` являются контрактом
 будущего transaction layer; в Stage-3 IPC schema их ещё нет. Перед реализацией
-этого слоя структуры добавляются в `protocol/ipc_schema.yaml`, генерируются codecs
+этого слоя структуры добавляются в `config/shared/protocol/ipc-schema.json`, генерируются codecs
 и общие golden/negative vectors. Отсутствующую структуру нельзя вводить только в prose
 или hand-written runtime.
 
@@ -193,7 +193,7 @@ Controller отвечает `ControllerProtocolReplyV1{ipc_version,controller_bo
 
 Обратный `ControllerTelemetrySnapshotV1` передаёт network worker только bounded snapshot состояния controller/battery/reference/gripper/incident; network worker сериализует wire `TELEMETRY` вне 50-Hz loop. Snapshot запрашивается отдельным `TELEMETRY_QUERY` по тому же boundary и с теми же credential/freshness проверками. **Отсутствие свежего snapshot запрещает отправку telemetry и запрещает отвечать на `HELLO`**: worker никогда не подставляет собственное представление о состоянии, поэтому неподтверждаемый controller выглядит на Quest как `TelemetryStale`, а не как исправный робот. Battery, `local_stop_active` и `safety_supervisor_alive` приходят только из snapshot; чтение motor/power sysfs из network process запрещено. Потеря обратного IPC может сделать telemetry stale, но не изменяет actuator state.
 
-Точная структура всех IPC-сообщений принадлежит `protocol/ipc_schema.yaml`; из неё
+Точная структура всех IPC-сообщений принадлежит `config/shared/protocol/ipc-schema.json`; из неё
 генерируются `protocol/generated/ipc_constants.hpp`, `protocol/generated/ipc_layout.py` и
 общие `protocol/golden_vectors/ipc_v1.json`, которыми обе реализации доказывают одинаковое
 понимание offsets/размеров. Рукописные копии layout запрещены. IPC schema/version,
@@ -1143,14 +1143,14 @@ Persistent `DriveCalibration` загружается только при сов�
 
 Формируется около `20 Hz` из authoritative controller snapshot ([§2.2](#sec-7-2-2)).
 Семантика полей и подтверждения команд определена в [Спецификация протокола §2.8](protocol-specification.md#sec-4-7-8); точный состав пакета —
-в `protocol/wire_schema.yaml` и generated `docs/protocol-wire-reference.md`.
+в `config/shared/protocol/wire-schema.json` и generated `docs/protocol-wire-reference.md`.
 
 <a id="sec-7-19-2"></a>
 ### 19.2. `DIAGNOSTIC_TELEMETRY`
 
 Diagnostic может передавать raw encoder/speed, `q_ref`, duty/stress, loop timing,
 счётчики parser/HMAC/drop и глубину bounded queues. Точный состав действующего
-`DIAGNOSTIC_TELEMETRY` принадлежит [wire schema](../protocol/wire_schema.yaml)
+`DIAGNOSTIC_TELEMETRY` принадлежит [wire schema](../config/shared/protocol/wire-schema.json)
 и [генерируемому справочнику](protocol-wire-reference.md); отдельного layout здесь нет.
 `q_target`, contact position, calibration residuals и sample ids могут сохраняться
 локальным logger, но не объявляются wire-полями без изменения схемы.
@@ -1202,7 +1202,7 @@ emergency event по [§2.5](metrics-and-logs.md#sec-metrics-safety-events).
 
 Объём записи Release/Diagnostic — [§1](metrics-and-logs.md#sec-metrics-collection).
 Сетевой public status snapshot — [§2.7](metrics-and-logs.md#sec-metrics-network-status).
-Расположение файлов и права служб — [контракт установки](engineering-contracts.md#sec-engineering-contracts-ev3-install).
+Расположение файлов и права служб — [контракт установки](tooling.md#sec-engineering-contracts-ev3-install).
 
 <a id="sec-7-21"></a>
 ## 21. Конфигурация EV3
@@ -1212,8 +1212,8 @@ emergency event по [§2.5](metrics-and-logs.md#sec-metrics-safety-events).
 
 | артефакт | canonical schema | canonical source | что в нём живёт |
 |---|---|---|---|
-| EV3 runtime config | `config/schema/ev3.schema.json` | `config/source/ev3.json`, `config/source/ev3-network-only.json` | identity, scope masks, port assignment, network/session bounds, safety timings, logging retention |
-| `CommissioningBundle` | `config/schema/commissioning_bundle.schema.json` | `config/source/commissioning_bundle.json`, `config/source/commissioning_bundle-network-only.json` | `RobotGeometry`, `DriveCalibration`, collision model, `JointSafeSet`, payload profiles, `SafetyEnvelope` |
+| EV3 runtime config | `config/ev3/runtime.schema.json` | `config/ev3/runtime/base.json` + `config/ev3/runtime/profiles/` + общие данные `config/shared/` | identity, scope masks, port assignment, network/session bounds, safety timings, logging retention |
+| `CommissioningBundle` | `config/shared/commissioning-bundle.schema.json` | `config/shared/commissioning-bundle/base.json` + `config/shared/commissioning-bundle/profiles/` + `config/shared/qualification/` | `RobotGeometry`, `DriveCalibration`, collision model, `JointSafeSet`, payload profiles, `SafetyEnvelope` |
 
 Schema владеет **структурой**: именами, вложенностью, типами, диапазонами и обязательностью
 полей. Prose уточняет их **смысл** и межполевые условия безопасности в рамках FR/NFR.
@@ -1222,7 +1222,7 @@ schema, generated artifacts и проверки согласованно исп�
 по [Правилам спецификации §4](specification-governance.md#sec-specification-governance-4).
 
 Генерация, канонизация, хэши и установка конфигурации определены
-[контрактом конфигурации](engineering-contracts.md#sec-engineering-contracts-configuration).
+[контрактом конфигурации](engineering.md#sec-engineering-contracts-configuration).
 До допуска движения runtime проверяет установленные canonical bytes, совпадение
 хэшей и межкомпонентную совместимость. Хэш `QualificationEvidenceManifest` входит
 в semantic admission gate; provenance metadata и derived self-hash — вне semantic bytes.
@@ -1285,7 +1285,7 @@ engineering/disabled:
 Частичная квалификация A/B/C требует всех наблюдаемых A/B/C references и полного
 EMPTY safe-set по [§16](#sec-7-16); неизвестная нагрузка не разрешает движение.
 Правила создания, установки и promotion неизменяемых qualification/Release ревизий —
-[контракт конфигурации](engineering-contracts.md#sec-engineering-contracts-qualification-bundles).
+[контракт конфигурации](engineering.md#sec-engineering-contracts-qualification-bundles).
 
 <a id="sec-7-22"></a>
 ## 22. Обнаружение EV3 и установление соединения
@@ -1293,7 +1293,7 @@ EMPTY safe-set по [§16](#sec-7-16); неизвестная нагрузка �
 EV3 публикует DNS-SD type `_phantom-ev3._udp` в domain `local.` (полный browse-name `_phantom-ev3._udp.local.`) с текущим `robot_id`, IPv4 port и protocol major. IP-адрес не является identity. V1 publisher/listener квалифицирован только для IPv4; Avahi publication не должна рекламировать IPv6-only endpoint.
 
 Настройка LAN, firewall и инженерного SSH/USB доступа принадлежит
-[контракту сети](engineering-contracts.md#sec-engineering-contracts-network).
+[контракту сети](tooling.md#sec-engineering-contracts-network).
 `HELLO_ACK` формируется из свежего controller snapshot после решения controller-а:
 успешный ответ — только после принятия session; authenticated rejection возвращает
 `session_id=0` и error result без создания authority по [§2.2](#sec-7-2-2).

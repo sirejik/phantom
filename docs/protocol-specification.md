@@ -1,6 +1,6 @@
 # PHANTOM — спецификация протокола Quest↔EV3
 
-Нормативная семантика transport/session/transaction. Точный binary layout принадлежит `protocol/wire_schema.yaml` и generated artifacts.
+Нормативная семантика transport/session/transaction. Точный binary layout принадлежит `config/shared/protocol/wire-schema.json` и generated artifacts.
 
 <!-- BEGIN GENERATED TOC -->
 <details>
@@ -71,7 +71,7 @@ Quest discovery adapter использует platform `NsdManager`/DNS-SD и о�
 ```
 
 Точный byte order, scalar encoding, header/auth-tag widths, per-message payload lengths и
-protocol numeric fields задаются `protocol/wire_schema.yaml` и generated
+protocol numeric fields задаются `config/shared/protocol/wire-schema.json` и generated
 `docs/protocol-wire-reference.md`; этот prose их вручную не дублирует.
 
 `HELLO_ACK.reserved0` содержит только нули и проверяется получателем после HMAC.
@@ -92,7 +92,7 @@ HMAC-SHA-256(PSK, header || payload)
 <a id="sec-4-7-3"></a>
 ### 2.3. Общий заголовок
 
-Exact header layout/types/widths/reserved values задаются `protocol/wire_schema.yaml` и
+Exact header layout/types/widths/reserved values задаются `config/shared/protocol/wire-schema.json` и
 generated `docs/protocol-wire-reference.md`. Здесь фиксируется только behavioral semantics полей:
 
 | Поле | Смысл |
@@ -109,7 +109,7 @@ generated `docs/protocol-wire-reference.md`. Здесь фиксируется �
 
 `HELLO.capabilities_requested` в protocol v1 имеет canonical value `0`. Любое ненулевое значение, обнаруженное после успешной HMAC-проверки, приводит к authenticated `HELLO_ACK(result_code=ERR_UNSUPPORTED, session_id=0)`. Поле зарезервировано для versioned negotiation будущего protocol minor и не меняет layout v1.
 
-Перед type-specific payload parsing выполняются exact generated length checks из `protocol/wire_schema.yaml`/`docs/protocol-wire-reference.md` согласно [§4](#sec-11-8). Total datagram не превышает security limit `1024` bytes из `NFR-SEC-03`; header/payload/auth-tag widths берутся только из current schema-generated contract.
+Перед type-specific payload parsing выполняются exact generated length checks из `config/shared/protocol/wire-schema.json`/`docs/protocol-wire-reference.md` согласно [§4](#sec-11-8). Total datagram не превышает security limit `1024` bytes из `NFR-SEC-03`; header/payload/auth-tag widths берутся только из current schema-generated contract.
 
 Session lifecycle:
 
@@ -122,7 +122,7 @@ Session lifecycle:
 - `sequence` строго возрастает отдельно по направлению внутри session, начинается с `1` после handshake, wrap запрещён;
 - защита от L2/UDP replay-DoS не заявляется как криптографическая гарантия v1; trusted/isolated LAN остаётся обязательным допущением [Требования к продукту §4.6](product-requirements.md#sec-3-2-6).
 
-Нормативным single source of truth **структуры** wire format является `/protocol/wire_schema.yaml`. Он обязан задавать для **каждого** message type точный порядок полей, scalar type/width, enum numeric values, bit positions, fixed array lengths, reserved bytes и exact payload length; machine-readable межреализационная semantics принадлежит `/protocol/semantics.yaml`, human-readable mirror генерируется как `docs/protocol-wire-reference.md`, а [§4](#sec-11-8) задаёт ownership/generation policy. Контекстные ranges/transition guards, зависящие от active `CommissioningBundle`, остаются в owning prose. Из sources генерируются structural/semantic/contract canonical artifacts, C++14/C# constants/size maps и golden vectors. Production codecs могут быть hand-written, но CI проверяет их общими vectors. Build manifests содержат `protocol_schema_hash`, `protocol_semantics_hash` и `protocol_contract_hash`; `HELLO_ACK` передаёт compatibility `protocol_contract_hash`. Whitespace/line endings authoring files не входят в identity.
+Нормативным single source of truth **структуры** wire format является `/config/shared/protocol/wire-schema.json`. Он обязан задавать для **каждого** message type точный порядок полей, scalar type/width, enum numeric values, bit positions, fixed array lengths, reserved bytes и exact payload length; machine-readable межреализационная semantics принадлежит `/config/shared/protocol/semantics.json`, human-readable mirror генерируется как `docs/protocol-wire-reference.md`, а [§4](#sec-11-8) задаёт ownership/generation policy. Контекстные ranges/transition guards, зависящие от active `CommissioningBundle`, остаются в owning prose. Из sources генерируются structural/semantic/contract canonical artifacts, C++14/C# constants/size maps и golden vectors. Production codecs могут быть hand-written, но CI проверяет их общими vectors. Build manifests содержат `protocol_schema_hash`, `protocol_semantics_hash` и `protocol_contract_hash`; `HELLO_ACK` передаёт compatibility `protocol_contract_hash`. Whitespace/line endings authoring files не входят в identity.
 
 <a id="sec-4-7-4"></a>
 ### 2.4. Типы сообщений
@@ -151,7 +151,7 @@ Session lifecycle:
 | `PING` | оба | RTT/доступность |
 | `PONG` | оба | ответ |
 
-Exact numeric `message_type` values принадлежат `protocol/wire_schema.yaml` и generated `docs/protocol-wire-reference.md`; они намеренно не дублируются в hand-written spec.
+Exact numeric `message_type` values принадлежат `config/shared/protocol/wire-schema.json` и generated `docs/protocol-wire-reference.md`; они намеренно не дублируются в hand-written spec.
 Операции, изменяющие persistent/session state или физическое состояние (`FAULT_ACK`, `RESET_STOPPED`, `SET_PAYLOAD_PROFILE`, `SET_PAYLOAD_STATE`, `COMMISSIONING_SAMPLE`, `CALIBRATION_JOG`, reference/calibration writes) сериализованы: Quest не отправляет вторую state-changing transaction, пока первая не завершена/не истёк её bounded retry policy. `transaction_id:u64` строго возрастает **в пределах одной session**.
 
 Transaction layer начинается только после успешных HMAC, session/boot, wire-sequence и exact type-length checks, когда `transaction_id` безопасно доступен. Для `id==last+1` controller вычисляет `canonical_request_hash = SHA-256(message_type_le_u16 || exact_payload_bytes)` **до semantic field/range/state checks**, затем выполняет operation validation. Любой сформированный operation-specific ACK (`OK` или детерминированный `ERR_FORMAT/ERR_RANGE/ERR_STATE/ERR_REFERENCE/ERR_FAULT/ERR_HASH_MISMATCH/...`) считается завершённой transaction: `{id,hash,response_message_type,ack_payload_bytes}` сохраняется и `last_transaction_id` продвигается. Исправленная операция поэтому использует **следующий** transaction id; повтор того же id с изменённым payload является conflict. Пакеты, отброшенные до transaction layer (bad HMAC/session/boot/wire sequence/exact length), transaction id не consume-ят. `ERR_TRANSACTION_STALE/CONFLICT/GAP` также не продвигают `last_transaction_id`.
@@ -235,7 +235,7 @@ Motor-disabled safety-observed axis поэтому никогда не полу�
 ### 2.6. `COMMAND`
 
 Exact `COMMAND` field order/types/reserved bytes и numeric bit positions задаются
-`protocol/wire_schema.yaml`/generated `docs/protocol-wire-reference.md`.
+`config/shared/protocol/wire-schema.json`/generated `docs/protocol-wire-reference.md`.
 
 Behavioral fields, используемые control semantics: `motion_flags`, `q_base_rad`,
 `q_shoulder_rad`, `q_elbow_rad`, `grip_intent`; reserved fields всегда проходят
@@ -320,7 +320,7 @@ CommissioningBundle/profile hash compatible
 
 Wire `state` по-прежнему остаётся `COMMISSIONING`, но active subphase должна быть наблюдаема: `TELEMETRY.status_flags.commissioning_actuator_qualification_active`. Бит устанавливается **только EV3** после успешного локального `ENTER` и всех qualification prerequisites и сбрасывается при reconnect/session loss, `LOCAL_STOP`, fault или выходе из phase. Quest может показывать собственный workflow-state, но разрешает qualification UI/moving command только когда видит authoritative `commissioning_actuator_qualification_active` flag в свежей telemetry; UI-state сам по себе actuator authority не создаёт.
 
-`status_flags` bit layout v1 задан `protocol/wire_schema.yaml` и generated `docs/protocol-wire-reference.md` согласно [§4](#sec-11-8) и включает `joint_reference_valid`, `gripper_reference_valid`, `commissioning_bundle_valid`, `local_stop_active`, `safety_supervisor_alive`, `grasp_contact`, `battery_derated`, `payload_profile_valid`, `active_joint_safe_set_valid` и authoritative `commissioning_actuator_qualification_active`; остальные reserved bits остаются нулевыми.
+`status_flags` bit layout v1 задан `config/shared/protocol/wire-schema.json` и generated `docs/protocol-wire-reference.md` согласно [§4](#sec-11-8) и включает `joint_reference_valid`, `gripper_reference_valid`, `commissioning_bundle_valid`, `local_stop_active`, `safety_supervisor_alive`, `grasp_contact`, `battery_derated`, `payload_profile_valid`, `active_joint_safe_set_valid` и authoritative `commissioning_actuator_qualification_active`; остальные reserved bits остаются нулевыми.
 
 `loop_health_flags` сообщает нормальное состояние или факт недавнего overrun без передачи полного массива диагностических timing-счётчиков.
 
@@ -330,7 +330,7 @@ Wire `state` по-прежнему остаётся `COMMISSIONING`, но active
 ## 3. Семантика состояний и ошибок
 
 Exact numeric values `TELEMETRY.state` и `TELEMETRY.fault_code` принадлежат
-`protocol/wire_schema.yaml` и generated `docs/protocol-wire-reference.md`; здесь они намеренно не
+`config/shared/protocol/wire-schema.json` и generated `docs/protocol-wire-reference.md`; здесь они намеренно не
 дублируются.
 
 Переходы состояний описаны в [Архитектура системы §5](system-architecture.md#sec-4-3);
@@ -357,16 +357,16 @@ hand-written, но не являются отдельным source of truth.
 
 | file | role |
 |---|---|
-| [protocol/wire_schema.yaml](../protocol/wire_schema.yaml) | normative machine-readable Quest↔EV3 wire source (JSON syntax, also valid YAML; the host generator uses the Python standard library) |
-| [protocol/semantics.yaml](../protocol/semantics.yaml) | shared protocol semantics and compatibility inputs |
-| [protocol/ipc_schema.yaml](../protocol/ipc_schema.yaml) | normative machine-readable source for the EV3-local `phantom-network` ↔ `phantom-controller` boundary |
+| [config/shared/protocol/wire-schema.json](../config/shared/protocol/wire-schema.json) | normative machine-readable Quest↔EV3 wire source (JSON syntax, also valid YAML; the host generator uses the Python standard library) |
+| [config/shared/protocol/semantics.json](../config/shared/protocol/semantics.json) | shared protocol semantics and compatibility inputs |
+| [config/shared/protocol/ipc-schema.json](../config/shared/protocol/ipc-schema.json) | normative machine-readable source for the EV3-local `phantom-network` ↔ `phantom-controller` boundary |
 | [protocol/jcs.py](../protocol/jcs.py) | reference RFC 8785 canonicalizer for host tools; codec implementations must derive identical canonical bytes |
 | [protocol/phantom_protocol.py](../protocol/phantom_protocol.py) | Python reference codec for host tools and test fixtures |
 | [docs/protocol-wire-reference.md](protocol-wire-reference.md) | **generated** human-readable mirror of both schemas |
 | [protocol/generated/](../protocol/generated/) | canonical projections, C++/C#/Python constants and layouts, schema hashes |
 | [protocol/golden_vectors/](../protocol/golden_vectors/) | cross-language fixtures: `v1.json` (wire), `ipc_v1.json` (IPC layout), `jcs_v1.json` (canonicalization) |
 
-If generated artifacts disagree with `wire_schema.yaml`, CI must fail. If behavioral prose in
+If generated artifacts disagree with `wire-schema.json`, CI must fail. If behavioral prose in
 this document disagrees with the machine schema, the change is incomplete: resolve the
 semantic disagreement deliberately before release; do not silently pick whichever side makes
 a test pass.
@@ -374,12 +374,12 @@ a test pass.
 After changing structure or semantics, run at minimum:
 
 ```powershell
-python tools/protocolgen.py
-python tools/protocolgen.py --check
-python tools/test_protocol.py
+python tooling generate --target protocol
+python tooling check --target schemas
+python tooling self-test
 ```
 
-A semantic protocol change must first update `protocol/semantics.yaml`, relevant
+A semantic protocol change must first update `config/shared/protocol/semantics.json`, relevant
 tests/evidence and the owning normative prose. Documentation checks run separately from BUILD.
 
 
@@ -405,9 +405,9 @@ layout меняет semantics и contract hashes. Любое несовпаде�
 
 CI обязан:
 
-1. parse `wire_schema.yaml` → deterministic structural projection → RFC 8785 JCS `wire_schema.structural.json`; отдельно canonicalize `semantics.yaml` и сформировать contract object из обоих hashes;
+1. parse `wire-schema.json` → deterministic structural projection → RFC 8785 JCS `wire_schema.structural.json`; отдельно canonicalize `semantics.json` и сформировать contract object из обоих hashes;
 2. сгенерировать C++14/C# constants/size maps, все три identity constants/canonical artifacts и compile-time size assertions; hand-written production codecs скомпилировать против этих definitions;
 3. выполнить cross-codec golden-vector decode/round-trip для каждого message type и отдельные semantic/negative vectors для каждого enum/error path;
 4. проверить corrupted length/reserved/NaN/Inf/endian/HMAC/fuzz cases;
 
-5. проверить machine-readable extractor-ом, что generated `docs/protocol-wire-reference.md`, constants/size maps и golden vectors соответствуют текущему `wire_schema.yaml`; [§4](#sec-11-8) проверяет ownership/generation policy, а hand-written PHANTOM prose не содержит competing exact wire tables.
+5. проверить machine-readable extractor-ом, что generated `docs/protocol-wire-reference.md`, constants/size maps и golden vectors соответствуют текущему `wire-schema.json`; [§4](#sec-11-8) проверяет ownership/generation policy, а hand-written PHANTOM prose не содержит competing exact wire tables.

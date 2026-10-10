@@ -14,10 +14,9 @@ description: "Изменять и реорганизовывать докуме�
    замени дубликаты ссылками. Машинный layout исправляй в источнике схемы;
    поле будущего этапа обозначь явно.
 3. Сохрани anchors, обнови file/section links и `implementation-map.json`.
-   Оглавления обновляй только через `tools/docindex.py`.
-4. Для нормативной правки выполни `tools/docindex.py`, затем `--check`,
-   `tools/doclint.py`, `tools/implementation_map_check.py`, `tools/spec_contract_check.py`.
-   Все Python-команды запускаются через `python`. Для ненормативной правки достаточно
+   Оглавления обновляй только через `python tooling generate --target docs`.
+4. Для нормативной правки выполни `python tooling generate --target docs`, затем
+   `python tooling check --target docs`. Для ненормативной правки достаточно
    применимых link/lint checks; машинные схемы требуют своих generators/checks.
 5. Проверь diff на потерю смысла и новые дубликаты. Если изменились требования к
    безопасности/проверкам, оцени применимость прежних результатов, не переименовывай

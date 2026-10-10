@@ -1,0 +1,28 @@
+#!/bin/sh
+# Internal launcher; checks are implemented by the native C++ executable.
+set -eu
+expected=${1:?expected build id required}
+root=/opt/phantom/current
+helper=/usr/local/libexec/phantom-maintenance/phantom-maintenance
+test "$($helper get "$root/build-manifest.json" build_id)" = "$expected"
+finish() {
+  code=$?
+  trap - EXIT HUP INT TERM
+  if test "$code" != 0; then
+  systemctl stop phantom-mdns.service phantom-network.service phantom-controller.service phantom-safety.service phantom.target || true
+  safe=ZERO_OUTPUT_BRAKE
+  for motor in /sys/class/tacho-motor/motor*; do
+    test -d "$motor" || continue
+    printf '0' > "$motor/duty_cycle_sp" || safe=SAFE_STATE_UNVERIFIED
+    printf 'brake' > "$motor/stop_action" || safe=SAFE_STATE_UNVERIFIED
+    printf 'stop' > "$motor/command" || safe=SAFE_STATE_UNVERIFIED
+    test "$(cat "$motor/duty_cycle")" = 0 || safe=SAFE_STATE_UNVERIFIED
+    test "$(cat "$motor/speed")" = 0 || safe=SAFE_STATE_UNVERIFIED
+  done
+  "$helper" integration-failure-report "$expected" "$safe"
+  fi
+  exit "$code"
+}
+trap finish EXIT
+trap 'exit 130' HUP INT TERM
+timeout -k 8 340 "$root/bin/phantom-device-integration-test" "$expected"

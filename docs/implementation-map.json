@@ -16,28 +16,28 @@
       "normative_owner": "protocol-specification.md#sec-4-7; protocol-specification.md#sec-11-8",
       "stage": 1,
       "status": "IMPLEMENTED",
-      "verification": "tools/test_protocol.py; protocol/golden_vectors/v1.json; GoldenVectorInterop"
+      "verification": "tooling/tests/test_protocol.py; protocol/golden_vectors/v1.json; GoldenVectorInterop"
     },
     {
       "id": "protocol-generated-mirror",
       "normative_owner": "protocol-specification.md#sec-11-8",
       "stage": 1,
       "status": "IMPLEMENTED",
-      "verification": "tools/protocolgen.py --check --include-docs (docs/protocol-wire-reference.md)"
+      "verification": "tooling/internal/protocolgen.py --check --include-docs (docs/protocol-wire-reference.md)"
     },
     {
       "id": "canonicalization-jcs",
       "normative_owner": "protocol-specification.md#sec-11-8; ev3-specification.md#sec-7-21",
       "stage": 1,
       "status": "IMPLEMENTED",
-      "verification": "tools/test_jcs.py; protocol/golden_vectors/jcs_v1.json"
+      "verification": "tooling/tests/test_jcs.py; protocol/golden_vectors/jcs_v1.json"
     },
     {
       "id": "ev3-local-ipc",
       "normative_owner": "ev3-specification.md#sec-7-2-2",
       "stage": 3,
       "status": "IMPLEMENTED",
-      "verification": "tools/test_ipc_contract.py; ev3 phantom-ipc-vector-tests; phantom-network-ipc-tests"
+      "verification": "tooling/tests/test_ipc_contract.py; ev3 phantom-ipc-vector-tests; phantom-network-ipc-tests"
     },
     {
       "id": "controller-telemetry-snapshot",
@@ -121,14 +121,14 @@
       "normative_owner": "implementation-stages.md#sec-10-5",
       "stage": 3,
       "status": "IMPLEMENTED",
-      "verification": "scripts/quest-test.ps1 -Suite Host -Category Functional (native interop)"
+      "verification": "python tooling test --target quest --suite host --category functional (native interop)"
     },
     {
       "id": "provisioning-audit",
       "normative_owner": "engineering.md#sec-engineering-build-validation",
       "stage": 1,
       "status": "IMPLEMENTED",
-      "verification": "tools/security_scan.py; tools/test_security_scan.py"
+      "verification": "tooling/internal/security_scan.py; tooling/tests/test_security_scan.py"
     },
     {
       "id": "absolute-arm-mapping",

@@ -71,7 +71,7 @@ crash и необоснованного skip.
 Подмены являются частью C++/C# тестовых проектов и создаются test fixtures.
 Для Quest функциональные тесты подменяют сетевые ответы EV3; проверка совместимости
 дополнительно запускает настоящую C++ сетевую службу с тестовой controller-зависимостью.
-Запуск — `scripts/phantom.cmd TEST QUEST`; отдельного Python-сервера нет.
+Запуск — `python tooling test --target quest`; отдельного Python-сервера нет.
 Подмена не подтверждает работу физического EV3 и не выполняет motor I/O.
 
 Stub EV3 воспроизводит применимые протокол и состояния устройства по
@@ -134,8 +134,8 @@ Wakeup не гарантирует продолжительное выполне
 UI, haptics, live tracking/QR и dynamic XR lifecycle без пользователя не проверяются.
 
 Каждый case имеет timeout и машинный результат. Автоматические entry points —
-[Quest runner](../scripts/quest-device-integration-test.ps1) и
-[EV3 runner](../scripts/ev3-device-integration-test.ps1). Настройка —
+[PHANTOM CLI](tooling.md) и
+[PHANTOM CLI](tooling.md). Настройка —
 [engineering.md](engineering.md#sec-8-5-1); текущие ограничения — [current-status.md](current-status.md).
 
 <a id="sec-test-plan-integration-quest"></a>
