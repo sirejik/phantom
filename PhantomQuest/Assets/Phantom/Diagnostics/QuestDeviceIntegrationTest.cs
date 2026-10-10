@@ -24,7 +24,6 @@ namespace Phantom.Diagnostics
         public string build_profile;
         public bool qualification_eligible;
         public int protocol_version;
-        public string specification_sha256;
         public string protocol_schema_hash;
         public string protocol_semantics_hash;
         public string protocol_contract_hash;
@@ -64,7 +63,6 @@ namespace Phantom.Diagnostics
         public string build_profile;
         public bool qualification_eligible;
         public string git_commit;
-        public string specification_sha256;
         public string protocol_schema_hash;
         public string protocol_semantics_hash;
         public string protocol_contract_hash;
@@ -123,8 +121,8 @@ namespace Phantom.Diagnostics
             if(_finished)return;
             _finished=true;
             var checks=new List<QuestDeviceIntegrationCheck>();
-            Add(checks,"embedded-build-identity",_identity!=null&&_identity.schema_version==7&&
-                _identity.build_identity_schema=="PHANTOM-BUILD-V3"&&!string.IsNullOrEmpty(_identity.build_id),
+            Add(checks,"embedded-build-identity",_identity!=null&&_identity.schema_version==8&&
+                _identity.build_identity_schema=="PHANTOM-BUILD-V4"&&!string.IsNullOrEmpty(_identity.build_id),
                 _identity==null?"embedded build manifest missing":$"build_id={_identity.build_id}; profile={_identity.build_profile}; identity={_identity.build_identity_schema}");
 
             var config=Resources.Load<TextAsset>("phantom-quest-config");
@@ -219,7 +217,6 @@ namespace Phantom.Diagnostics
                 build_profile=_identity?.build_profile??"UNKNOWN",
                 qualification_eligible=_identity!=null&&_identity.qualification_eligible,
                 git_commit=_identity?.git_commit??"UNKNOWN",
-                specification_sha256=_identity?.specification_sha256??"UNKNOWN",
                 protocol_schema_hash=_identity?.protocol_schema_hash??"UNKNOWN",
                 protocol_semantics_hash=_identity?.protocol_semantics_hash??"UNKNOWN",
                 protocol_contract_hash=_identity?.protocol_contract_hash??"UNKNOWN",
@@ -265,7 +262,7 @@ namespace Phantom.Diagnostics
                 $"log_storage_degraded={(runtime!=null&&runtime.LoggingDegraded)}");
             Add(checks,"runtime-error-log",_errorLogs==0,$"error_exception_assert_count={_errorLogs}");
             var incomplete=checks.Exists(value=>value.status=="NOT_RUN");var failed=checks.Exists(value=>value.status=="FAIL");var now=DateTime.UtcNow;
-            var report=new QuestDeviceIntegrationReport{status=failed?"FAIL":incomplete?"INCOMPLETE":"PASS",build_id=_identity?.build_id??"UNKNOWN",build_profile=_identity?.build_profile??"UNKNOWN",qualification_eligible=_identity!=null&&_identity.qualification_eligible,git_commit=_identity?.git_commit??"UNKNOWN",specification_sha256=_identity?.specification_sha256??"UNKNOWN",protocol_schema_hash=_identity?.protocol_schema_hash??"UNKNOWN",protocol_semantics_hash=_identity?.protocol_semantics_hash??"UNKNOWN",protocol_contract_hash=_identity?.protocol_contract_hash??"UNKNOWN",config_hash=_identity?.config_hash??"UNKNOWN",unity_version=Application.unityVersion,device_model=SystemInfo.deviceModel,operating_system=SystemInfo.operatingSystem,started_utc=_startedUtc.ToString("o"),finished_utc=now.ToString("o"),duration_ms=(long)((Time.realtimeSinceStartup-_startedMonotonic)*1000),motor_authority=false,xr_session_active=false,xr_focus_active=Application.isFocused,live_observation_available=false,body_provider_state="N_A_NETWORK_ONLY",body_provider_reason="required_user_inputs=NONE",error_log_count=_errorLogs,checks=checks.ToArray()};
+            var report=new QuestDeviceIntegrationReport{status=failed?"FAIL":incomplete?"INCOMPLETE":"PASS",build_id=_identity?.build_id??"UNKNOWN",build_profile=_identity?.build_profile??"UNKNOWN",qualification_eligible=_identity!=null&&_identity.qualification_eligible,git_commit=_identity?.git_commit??"UNKNOWN",protocol_schema_hash=_identity?.protocol_schema_hash??"UNKNOWN",protocol_semantics_hash=_identity?.protocol_semantics_hash??"UNKNOWN",protocol_contract_hash=_identity?.protocol_contract_hash??"UNKNOWN",config_hash=_identity?.config_hash??"UNKNOWN",unity_version=Application.unityVersion,device_model=SystemInfo.deviceModel,operating_system=SystemInfo.operatingSystem,started_utc=_startedUtc.ToString("o"),finished_utc=now.ToString("o"),duration_ms=(long)((Time.realtimeSinceStartup-_startedMonotonic)*1000),motor_authority=false,xr_session_active=false,xr_focus_active=Application.isFocused,live_observation_available=false,body_provider_state="N_A_NETWORK_ONLY",body_provider_reason="required_user_inputs=NONE",error_log_count=_errorLogs,checks=checks.ToArray()};
             var json=JsonUtility.ToJson(report,true);File.WriteAllText(Path.Combine(Application.persistentDataPath,"quest-device-integration-test.json"),json+Environment.NewLine);Debug.Log("PHANTOM DEVICE INTEGRATION TEST RESULT "+JsonUtility.ToJson(report));
         }
 

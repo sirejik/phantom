@@ -1,0 +1,30 @@
+{
+  "axes": {
+    "base": {
+      "limits": "MEASURED_REQUIRED"
+    },
+    "elbow": {
+      "limits": "MEASURED_REQUIRED"
+    },
+    "gripper": {
+      "limits": "MEASURED_REQUIRED"
+    },
+    "shoulder": {
+      "limits": "MEASURED_REQUIRED"
+    }
+  },
+  "gripper_home": {
+    "required": true
+  },
+  "local_stop": {
+    "required": true
+  },
+  "network": {
+    "rx_burst_packets": null,
+    "rx_rate_limit_pps": null
+  },
+  "safety": {
+    "external_power_cut_required": true,
+    "ready_gate": "FAIL_CLOSED_UNTIL_COMMISSIONED"
+  }
+}

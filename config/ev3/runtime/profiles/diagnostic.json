@@ -1,0 +1,30 @@
+{
+  "axes": {
+    "base": {
+      "limits": "OUT_OF_SCOPE"
+    },
+    "elbow": {
+      "limits": "OUT_OF_SCOPE"
+    },
+    "gripper": {
+      "limits": "OUT_OF_SCOPE"
+    },
+    "shoulder": {
+      "limits": "OUT_OF_SCOPE"
+    }
+  },
+  "gripper_home": {
+    "required": false
+  },
+  "local_stop": {
+    "required": false
+  },
+  "network": {
+    "rx_burst_packets": 20,
+    "rx_rate_limit_pps": 100
+  },
+  "safety": {
+    "external_power_cut_required": false,
+    "ready_gate": "NETWORK_ONLY_NO_ACTUATOR_AUTHORITY"
+  }
+}

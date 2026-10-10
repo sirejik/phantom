@@ -118,6 +118,7 @@ void ControllerCore::tick(std::uint64_t now,std::uint32_t dt)noexcept{
   if(dt>=40000)loop_health_flags_|=wire::kLoopHealthFlagsSeriousOverrunOver40Ms;
   if(dt>fault_us){loop_fault=true;loop_health_flags_|=wire::kLoopHealthFlagsSafeHoldOverrunSeen;}
   else if(dt>safe_hold_us){loop_safe_hold=true;loop_health_flags_|=wire::kLoopHealthFlagsSafeHoldOverrunSeen;}
+  loop_fault_active_=loop_fault;
   if(log_&&log_->degraded())loop_health_flags_|=wire::kLoopHealthFlagsLoggerBackpressureSeen;
 
   const bool safety_grace=!safety_ever_seen_&&now-first_tick_us_<=kSafetyStartupGraceUs;
@@ -135,6 +136,10 @@ void ControllerCore::tick(std::uint64_t now,std::uint32_t dt)noexcept{
     fault_latched_=true;
     if(log_)log_->emit(now,"SAFETY_PROCESS_LOST","SAFETY",{EventLog::number("timeout_ms",config_.heartbeat_timeout_ms)});
   }
+  if(loop_fault&&!fault_latched_){
+    fault_latched_=true;
+    fault_=Fault::LoopOverrun;
+  }
 
   // --- State selection ------------------------------------------------------
   if(stop_latched_||fault_latched_){
@@ -142,9 +147,6 @@ void ControllerCore::tick(std::uint64_t now,std::uint32_t dt)noexcept{
     const Fault latched=fault_latched_?(safety_lost||fault_==Fault::ControllerProcess?Fault::ControllerProcess:fault_):Fault::None;
     enter(State::Stopped,latched,"STOPPED");
     open_incident(now,stop_latched_?"local_stop":"latched_fault");
-  }else if(loop_fault){
-    brake_and_disarm();
-    enter(State::SafeHold,Fault::LoopOverrun,"SAFE_HOLD");
   }else if(loop_safe_hold){
     brake_and_disarm();
     enter(State::SafeHold,Fault::None,"SAFE_HOLD");
@@ -197,6 +199,8 @@ RecoveryResult ControllerCore::acknowledge_fault(std::uint16_t fault_code) noexc
   if(!fault_latched_)return RecoveryResult::NotLatched;
   if(fault_code!=(std::uint16_t)fault_)return RecoveryResult::FaultStillLatched;
   if(!safety_alive_)return RecoveryResult::FaultStillLatched;  // cause not objectively removed
+  if(!motors_stationary_)return RecoveryResult::MotorsMoving;
+  if(fault_==Fault::LoopOverrun&&loop_fault_active_)return RecoveryResult::FaultStillLatched;
   fault_latched_=false;fault_=Fault::None;motion_allowed_=false;incident_open_=false;
   if(log_)log_->emit(snapshot_.monotonic_us,"FAULT_ACK_ACCEPTED","CONTROLLER",{EventLog::number("fault_code",fault_code)});
   return RecoveryResult::Ok;

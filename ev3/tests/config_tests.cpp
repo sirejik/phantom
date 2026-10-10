@@ -26,8 +26,8 @@ std::string write_temp(const std::string& suffix,const std::string& contents){
 
 int main(){
   const std::string root=PHANTOM_REPO_ROOT;
-  const std::string config_source=read_file(root+"/config/generated/ev3-network-only.generated.json");
-  const std::string bundle_source=read_file(root+"/config/generated/commissioning_bundle-network-only.generated.json");
+  const std::string config_source=read_file(root+"/config/ev3/generated/diagnostic.json");
+  const std::string bundle_source=read_file(root+"/config/shared/generated/commissioning-bundle-diagnostic.json");
   check(!config_source.empty()&&!bundle_source.empty(),"generated configuration fixtures are readable");
 
   const std::string config_path=write_temp("config",config_source);
@@ -56,8 +56,8 @@ int main(){
   check(!profile.external_power_cut_tested,"unqualified POWER_CUT must not be reported as tested");
 
   // The Release runtime configuration must also satisfy the loader contract.
-  const std::string release_config=write_temp("release-config",read_file(root+"/config/generated/ev3.generated.json"));
-  const std::string release_bundle=write_temp("release-bundle",read_file(root+"/config/generated/commissioning_bundle.generated.json"));
+  const std::string release_config=write_temp("release-config",read_file(root+"/config/ev3/generated/release.json"));
+  const std::string release_bundle=write_temp("release-bundle",read_file(root+"/config/shared/generated/commissioning-bundle-release.json"));
   phantom::RuntimeProfile release;
   check(phantom::load_runtime_profile(release_config,release_bundle,release,error),("Release profile must load: "+error).c_str());
   check(!release.diagnostic&&!release.qualification_only,"Release profile identity");
@@ -72,6 +72,11 @@ int main(){
     ::unlink(path.c_str());
   };
   std::string broken=config_source;
+  for(const auto& item:{std::make_pair(std::string("\"loop_safe_hold_ms\":60"),std::string("\"loop_safe_hold_ms\":61")),std::make_pair(std::string("\"loop_fault_ms\":100"),std::string("\"loop_fault_ms\":101"))}){
+    const auto offset=config_source.find(item.first);
+    check(offset!=std::string::npos,"fixture contains loop deadline");
+    expect_rejection(config_source.substr(0,offset)+item.second+config_source.substr(offset+item.first.size()),"loop deadline cannot exceed safety budget");
+  }
   const std::size_t safe_hold=broken.find("\"loop_safe_hold_ms\":60");
   check(safe_hold!=std::string::npos,"fixture contains loop_safe_hold_ms");
   expect_rejection(broken.substr(0,safe_hold)+"\"loop_safe_hold_ms\":150"+broken.substr(safe_hold+std::string("\"loop_safe_hold_ms\":60").size()),

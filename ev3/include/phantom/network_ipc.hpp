@@ -13,7 +13,7 @@ namespace phantom {
 // and it is the only path by which controller state leaves the controller.
 //
 // Byte offsets and lengths come from protocol/generated/ipc_constants.hpp,
-// which is generated from protocol/ipc_schema.yaml together with the Python
+// which is generated from config/shared/protocol/ipc-schema.json together with the Python
 // layout module and the shared golden vectors.
 class NetworkIpcBoundary {
 public:

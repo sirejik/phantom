@@ -1,30 +1,31 @@
 ---
 name: phantom-protocol-change
-description: Изменить PHANTOM Quest↔EV3 protocol/wire semantics ("wire_schema", HELLO, TELEMETRY, COMMAND, HMAC, enum/bit/layout). Использовать schema-first; generated constants/size maps не редактировать вручную, production codecs проверять общими vectors.
+description: "Изменять wire/IPC схемы, семантику, кодеки или совместимость Quest↔EV3 и проверять производные артефакты."
 ---
 
-# Изменение протокола PHANTOM
+# Изменение протокола и IPC
 
-1. Прочитай только relevant sections
-   `docs/PHANTOM/PROTOCOL_SPECIFICATION.md`, `docs/PHANTOM/SAFETY.md`,
-   `docs/PHANTOM/TEST_PLAN.md` и `protocol/wire_schema.yaml`.
-2. Классифицируй изменение: статическая wire structure, contextual behavioral/session semantics, production codec implementation или их комбинация.
-3. Для field order/type/width, enum numeric values/bit positions, reserved bytes и fixed payload length сначала измени `protocol/wire_schema.yaml`. Для wire-visible authentication/session/admission/authority/validation semantics сначала измени `protocol/semantics.yaml`; contextual component rules вне общего wire contract меняй в owning normative prose/tests.
-4. Generated full/structural/semantic/contract projections, hashes, constants и size maps являются производными. Production C++/C#/Python codecs могут быть hand-written, но не являются source of truth.
-5. Запусти:
-   `python tools/protocolgen.py`
-   `python tools/protocolgen.py --check`
-   `python tools/test_protocol.py`
-6. Обнови cross-language golden/negative vectors и parser/HMAC/malformed/replay tests; каждым production codec декодируй/проверяй общие bytes.
-7. `docs/PHANTOM/PROTOCOL_SPECIFICATION.md` обновляй для contextual behavioral semantics, которые не являются статической structural schema. Не создавай competing offsets/packet-size owner.
-8. Считай semantic changes compatibility changes даже если fixed payload sizes и numeric
-   major/minor не изменились: `protocol_schema_hash` меняется только от structural projection,
-   `protocol_semantics_hash` — от canonical semantic source, а handshake/build compatibility
-   использует derived `protocol_contract_hash`, связывающий оба значения.
-9. Проверь auth-before-state-change, session/sequence/transaction ordering,
-   reserved/unknown validation, finite/range checks и fail-closed behavior.
-10. Запусти более широкие Quest/EV3 network regressions, требуемые
-    `docs/PHANTOM/TEST_PLAN.md`.
-11. Если изменился нормативный prose, regenerate/check PHANTOM spec/index/docs.
-12. В отчёте укажи old/new schema/semantics/contract identities и real-device gates, которые остаются
-    `NOT_RUN`.
+Определи, меняется контракт или только его реализация. Владение задано в
+[правилах спецификации](../../../docs/specification-governance.md#sec-specification-governance-2).
+
+| Изменение | Начать с |
+|---|---|
+| Wire layout, enum, bits, widths | `config/shared/protocol/wire-schema.json` |
+| Межреализационная семантика | `config/shared/protocol/semantics.json` |
+| EV3-local IPC | `config/shared/protocol/ipc-schema.json` |
+| Контекстные state/profile/bundle ограничения | Спецификация протокола или компонента |
+| Ошибка codec при неизменном контракте | Production codec и регрессионные vectors/tests |
+
+1. При изменении контракта исправь его источник и пересоздай производные файлы.
+   При исправлении codec сохрани контракт; не меняй schema для оправдания ошибки.
+2. Выполни `python tooling generate --target protocol`, затем `python tooling check --target schemas`.
+   Generated Markdown также проверяется командой `check --target docs`.
+3. Выполни `python tooling self-test` для wire и IPC.
+   Выполни общие golden/negative vectors затронутыми production codecs: генерация
+   не подтверждает совместимость языков. Для parser/session/admission проверь malformed
+   length, reserved/unknown values, NaN/Inf, replay и действия до аутентификации.
+4. Проверь изменения hashes и зависимые config/build artifacts по
+   [техническим контрактам](../../../docs/tooling.md).
+   Изменения документации проведи через [phantom-spec-sync](../phantom-spec-sync/SKILL.md).
+
+Укажи изменённые identities, проверенные codecs/regressions и непроверенные device cases.

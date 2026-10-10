@@ -105,6 +105,8 @@ public final class PhantomNsdBridge {
         resolveQueue.addLast(service); resolveNext();
     }
 
+    // Keep the resolver supported by the project's older Android baseline.
+    @SuppressWarnings("deprecation")
     private synchronized void resolveNext() {
         if (resolving || discovery == null || resolveQueue.isEmpty()) return;
         resolving = true;

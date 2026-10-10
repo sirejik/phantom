@@ -1,28 +1,25 @@
 ---
 name: phantom-audit
-description: Провести review/audit кода или документации PHANTOM ("проверь", "аудит", "противоречия", "что пропущено"). Ищет gaps и drift; не использовать как основной implementation или hardware-gate workflow.
+description: "Проверять код, спецификации или результаты проверок PHANTOM на дефекты, противоречия и пропущенные требования."
 ---
 
-# Рабочий процесс аудита PHANTOM
+# Аудит
 
-1. Не перечитывай `AGENTS.md`: он уже является активной проектной инструкцией.
-2. Ограничь audit указанным component/stage. Известные `§...` разрешай через
-   `python tools/docindex.py --locate <section>` и загружай только relevant ranges.
-3. Читай `docs/PHANTOM/SYSTEM_ARCHITECTURE.md` только при аудите cross-component boundaries.
-4. Никогда не используй status или ADR вместо нормативного requirement/evidence report.
-5. Построй traceability:
-   `requirement → primary owner → implementation → test/gate → repository result/evidence → status`.
-6. Проверь competing same-layer owners, contradictory refinements, generated drift,
-   вручную продублированные protocol/config constants, missing implementation/tests, ложную
-   hardware readiness, stale status, safety bypass, secrets, broken references и malformed
-   Markdown.
-7. Классифицируй:
-   - P0: safety, actuator authority, auth/compatibility, false evidence;
-   - P1: functional/reliability/acceptance gap;
-   - P2: maintainability, duplication, stale documentation.
-8. Для каждого finding укажи owner, evidence и минимальное исправление.
-9. Если пользователь попросил исправить — исправляй в порядке ownership и добавляй regression
-   coverage; иначе не выполняй скрытый redesign.
-10. После изменений документации запускай relevant checks плюс spec/index/doc lint.
-11. В конце перечисли unresolved items и точные hardware gates, которые остаются `NOT_RUN`
-    или `FAIL`.
+Определи охват: diff, компонент, документ или этап. Найди требования у владельцев по
+[правилам спецификации](../../../docs/specification-governance.md#sec-specification-governance-2).
+Для этапа используй [карту реализации](../../../docs/implementation-map.json) и статус,
+чтобы отличить будущую функцию от пропуска.
+
+1. Свяжи проверяемое поведение с требованием, реализацией и тестом.
+2. Проверь затронутые риски: допуск управления, обработку отказов, соответствие codecs
+   схемам и применимость результатов. Для документации проверь владельцев,
+   противоречия, дублирование, ссылки и сохранение смысла.
+3. Подтверди дефект воспроизводимым сценарием, конкретным требованием или участком diff.
+   Отделяй доказанный дефект от гипотезы и отсутствующей проверки.
+4. Укажи последствия, файл/строку и минимальное исправление. Приоритет назначай по
+   последствиям: P0 — критическое нарушение безопасности/допуска; P1 — серьёзный
+   дефект функциональности или надёжности; P2 — остальные дефекты.
+
+При запросе review представь выводы без изменения файлов. Если поручены исправления,
+внеси их и проверь затронутую область. При отсутствии дефектов укажи охват и ограничения;
+просмотр исходников не подтверждает работу устройств.

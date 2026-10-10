@@ -1,0 +1,20 @@
+{
+  "format_version": 5,
+  "normative_files": [
+    "docs/specification-governance.md",
+    "docs/product-requirements.md",
+    "docs/system-architecture.md",
+    "docs/quest-specification.md",
+    "docs/mechanical-specification.md",
+    "docs/ev3-specification.md",
+    "docs/protocol-specification.md",
+    "docs/safety.md",
+    "docs/engineering.md",
+    "docs/code-guidelines.md",
+    "docs/tooling.md",
+    "docs/test-plan.md",
+    "docs/metrics-and-logs.md",
+    "docs/implementation-stages.md",
+    "docs/reference.md"
+  ]
+}

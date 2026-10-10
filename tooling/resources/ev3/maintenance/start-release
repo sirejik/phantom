@@ -1,0 +1,188 @@
+#!/bin/sh
+# START phase only: activate the installed EV3 release and stop at the first failed unit.
+set -eu
+
+root=/opt/phantom/current
+result=/var/lib/phantom/start-result.json
+start_order="phantom-safety.service phantom-controller.service phantom-network.service phantom-mdns.service"
+stop_order="phantom-mdns.service phantom-network.service phantom-controller.service phantom-safety.service phantom.target"
+step_timeout=${PHANTOM_START_STEP_TIMEOUT_SECONDS:-15}
+started_at=$(date -u +%Y-%m-%dT%H:%M:%SZ)
+helper=/usr/local/libexec/phantom-maintenance/phantom-maintenance
+now_ms() { "$helper" time; }
+started_ms=$(now_ms)
+steps_file=$(mktemp /tmp/phantom-start-steps.XXXXXX)
+first_failed=
+first_failure_at_ms=
+failure_detail=
+diagnostics=
+start_verbosity=${PHANTOM_START_VERBOSITY:-normal}
+terminal_state=RUNTIME_STATE_UNVERIFIED
+build_id=unknown
+build_profile=N_A
+result_written=0
+
+finish() {
+  code=$?
+  trap - EXIT HUP INT TERM
+  if test "$code" != 0 && test "$result_written" = 0; then
+    test -n "$first_failed" || first_failed=start-runner
+    test -n "$failure_detail" || failure_detail="START aborted before completion"
+    capture_failure
+    if stop_runtime && force_and_verify_zero_output; then terminal_state=RUNTIME_STOPPED_ZERO_OUTPUT; else terminal_state=SAFE_STATE_VERIFICATION_FAILED; fi
+    capture_context
+    write_result FAIL
+  fi
+  rm -f "$steps_file"
+  exit "$code"
+}
+trap finish EXIT
+trap 'exit 130' HUP INT TERM
+
+force_and_verify_zero_output() {
+  for motor in /sys/class/tacho-motor/motor*; do
+    test -d "$motor" || continue
+    echo 0 > "$motor/duty_cycle_sp"
+    echo brake > "$motor/stop_action"
+    echo stop > "$motor/command"
+  done
+  for motor in /sys/class/tacho-motor/motor*; do
+    test -d "$motor" || continue
+    test "$(cat "$motor/duty_cycle_sp")" = 0 || return 1
+    test "$(cat "$motor/duty_cycle")" = 0 || return 1
+    test "$(cat "$motor/speed")" = 0 || return 1
+    test "$(cat "$motor/stop_action")" = brake || return 1
+  done
+}
+
+network_ready() {
+  timeout 5 sh -c '
+    ip -4 route show default | grep -q . || exit 1
+    ip -4 -o addr show scope global | grep -q . || exit 1
+  '
+}
+
+stop_runtime() {
+  timeout "$step_timeout" sh -c 'for unit in $1; do systemctl stop "$unit" >/dev/null 2>&1 || true; done' sh "$stop_order" || true
+  for unit in $stop_order; do
+    if systemctl is-active --quiet "$unit" 2>/dev/null; then return 1; fi
+  done
+}
+
+capture_failure() {
+  stamp=$(date -u +%Y%m%dT%H%M%SZ)
+  diagnostics="/var/lib/phantom/startup-failures/${build_id}-${stamp}"
+  mkdir -p "$diagnostics"
+  for unit in $start_order phantom.target; do
+    timeout "$step_timeout" systemctl show -p LoadState -p ActiveState -p SubState -p Result -p ExecMainCode -p ExecMainStatus -p Requires -p Wants -p After -p Before "$unit" > "$diagnostics/$unit.show.txt" 2>&1 || true
+    timeout "$step_timeout" journalctl -u "$unit" -n 120 --no-pager > "$diagnostics/$unit.journal.txt" 2>&1 || true
+  done
+  timeout "$step_timeout" systemctl list-dependencies --all phantom.target > "$diagnostics/phantom.target.dependencies.txt" 2>&1 || true
+  capture_context
+}
+
+capture_context() {
+  ip -4 -o address show > "$diagnostics/ip-address.txt" 2>&1 || true
+  ip -4 route show > "$diagnostics/ip-route.txt" 2>&1 || true
+  readlink -f /opt/phantom/current > "$diagnostics/current-release.txt" 2>&1 || true
+  readlink -f /opt/phantom/previous > "$diagnostics/previous-release.txt" 2>&1 || true
+  : > "$diagnostics/motor-terminal-state.txt"
+  for motor in /sys/class/tacho-motor/motor*; do
+    test -d "$motor" || continue
+    printf '%s duty_sp=%s duty=%s speed=%s stop_action=%s\n' "$motor" "$(cat "$motor/duty_cycle_sp" 2>/dev/null || echo unreadable)" "$(cat "$motor/duty_cycle" 2>/dev/null || echo unreadable)" "$(cat "$motor/speed" 2>/dev/null || echo unreadable)" "$(cat "$motor/stop_action" 2>/dev/null || echo unreadable)" >> "$diagnostics/motor-terminal-state.txt"
+  done
+  ps -eo pid,ppid,user,stat,rss,vsz,comm,args > "$diagnostics/processes.txt" 2>&1 || true
+}
+
+capture_debug() {
+  test "$start_verbosity" = debug || return 0
+  stamp=$(date -u +%Y%m%dT%H%M%SZ)
+  diagnostics="/var/lib/phantom/startup-debug/${build_id}-${stamp}"
+  mkdir -p "$diagnostics"
+  for unit in $start_order phantom.target; do
+    timeout "$step_timeout" systemctl show -p LoadState -p ActiveState -p SubState -p Result -p ExecMainCode -p ExecMainStatus -p MainPID -p Requires -p Wants -p After -p Before "$unit" > "$diagnostics/$unit.show.txt" 2>&1 || true
+    timeout "$step_timeout" journalctl -u "$unit" -n 200 --no-pager > "$diagnostics/$unit.journal.txt" 2>&1 || true
+  done
+  timeout "$step_timeout" systemctl list-dependencies --all phantom.target > "$diagnostics/phantom.target.dependencies.txt" 2>&1 || true
+  capture_context
+}
+
+write_result() {
+  status=$1
+  finished_at=$(date -u +%Y-%m-%dT%H:%M:%SZ)
+  finished_ms=$(now_ms)
+  mkdir -p /var/lib/phantom
+  "$helper" start-report "$result" "$status" "$started_at" "$finished_at" "$started_ms" "$finished_ms" "$build_id" "$build_profile" "$first_failed" "$first_failure_at_ms" "$failure_detail" "$terminal_state" "$diagnostics" "$steps_file"
+  result_written=1
+}
+
+record_step() {
+  unit=$1
+  status=$2
+  duration=$3
+  properties=$(timeout "$step_timeout" systemctl show -p Result -p ExecMainCode -p ExecMainStatus "$unit" 2>/dev/null || true)
+  service_result=$(printf '%s\n' "$properties" | sed -n 's/^Result=//p')
+  main_code=$(printf '%s\n' "$properties" | sed -n 's/^ExecMainCode=//p')
+  main_status=$(printf '%s\n' "$properties" | sed -n 's/^ExecMainStatus=//p')
+  printf '%s\t%s\t%s\t%s\t%s\t%s\n' "$unit" "$status" "${service_result:-unknown}" "${main_code:-unknown}" "${main_status:-unknown}" "$duration" >> "$steps_file"
+}
+
+fail_start() {
+  first_failed=$1
+  test -n "$first_failure_at_ms" || first_failure_at_ms=$(( $(now_ms) - started_ms ))
+  failure_detail=$2
+  capture_failure
+  if stop_runtime && force_and_verify_zero_output; then terminal_state=RUNTIME_STOPPED_ZERO_OUTPUT; else terminal_state=SAFE_STATE_VERIFICATION_FAILED; fi
+  capture_context
+  write_result FAIL
+  echo "EV3 START: FAIL first_failed_service=$first_failed diagnostics=$diagnostics" >&2
+  exit 1
+}
+
+test "$(id -u)" = 0 || { echo "root required" >&2; exit 1; }
+case "$step_timeout" in ''|*[!0-9]*) echo "PHANTOM_START_STEP_TIMEOUT_SECONDS must be a positive integer" >&2; exit 1;; esac
+test "$step_timeout" -gt 0 || { echo "PHANTOM_START_STEP_TIMEOUT_SECONDS must be positive" >&2; exit 1; }
+test -L "$root" && test -f "$root/build-manifest.json" || fail_start start-admission "installed current release is missing"
+(cd "$root" && sha256sum -c SHA256SUMS >/dev/null) || fail_start start-admission "installed release integrity check failed"
+build_id=$("$helper" get "$root/build-manifest.json" build_id) || fail_start start-admission "installed build manifest is invalid"
+build_profile=$("$helper" get "$root/build-manifest.json" build_profile) || fail_start start-admission "installed build profile is invalid"
+"$helper" manifest "$root/build-manifest.json" "$build_id" >/dev/null || fail_start start-admission "installed manifest schema is invalid"
+if test "$#" -gt 0 && test "$build_id" != "$1"; then
+  fail_start start-admission "installed build does not match the requested candidate"
+fi
+
+stop_runtime || fail_start pre-start-stop "existing runtime could not be stopped cleanly"
+force_and_verify_zero_output || fail_start pre-start-safe-state "could not establish zero-output before activation"
+terminal_state=RUNTIME_STOPPED_ZERO_OUTPUT
+
+for unit in $start_order; do
+  if test "$unit" = phantom-network.service && ! network_ready; then
+    fail_start network-prerequisite "NETWORK_NOT_READY: provisioned EV3 network is not ready"
+  fi
+  echo "EV3 START: starting $unit (deadline ${step_timeout}s)"
+  step_started=$(now_ms)
+  if timeout "$step_timeout" systemctl start "$unit" && systemctl is-active --quiet "$unit"; then
+    step_finished=$(now_ms)
+    record_step "$unit" PASS "$((step_finished-step_started))"
+  else
+    step_finished=$(now_ms)
+    record_step "$unit" FAIL "$((step_finished-step_started))"
+    fail_start "$unit" "service did not reach active state within its bounded start step"
+  fi
+done
+
+target_started=$(now_ms)
+if timeout "$step_timeout" systemctl start phantom.target && systemctl is-active --quiet phantom.target; then
+  target_finished=$(now_ms)
+  record_step phantom.target PASS "$((target_finished-target_started))"
+else
+  target_finished=$(now_ms)
+  record_step phantom.target FAIL "$((target_finished-target_started))"
+  fail_start phantom.target "target did not reach active state"
+fi
+
+force_and_verify_zero_output || fail_start startup-zero-output "runtime started but zero-output verification failed"
+terminal_state=RUNTIME_ACTIVE_ZERO_OUTPUT
+capture_debug
+write_result PASS
+echo "EV3 START: PASS build_id=$build_id"

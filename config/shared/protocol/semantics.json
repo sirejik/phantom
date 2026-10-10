@@ -1,0 +1,46 @@
+{
+  "schema_version": 1,
+  "protocol_version": 1,
+  "authentication": {
+    "algorithm": "HMAC-SHA-256",
+    "minimum_key_bytes": 32,
+    "authenticate_before_state_change": true,
+    "role_key_slot_binding": {"CONTROL": 0, "COMMISSIONING": 1}
+  },
+  "session": {
+    "hello_session_id": "ZERO",
+    "hello_sequence": 0,
+    "accepted_hello_ack_session_id": "NONZERO",
+    "rejected_hello_ack_session_id": "ZERO",
+    "non_handshake_sequence_min": 1,
+    "duplicate_or_replay_rule": "sequence_must_strictly_increase",
+    "boot_id_change_invalidates_session": true
+  },
+  "authority": {
+    "quest_sends_intent_not_pwm": true,
+    "ev3_is_authoritative": true,
+    "local_stop_precedes_network": true,
+    "actuator_scope_source": "CommissioningBundle",
+    "out_of_scope_motor_write": "PROHIBITED"
+  },
+  "admission": {
+    "compatibility_identity": "protocol_contract_hash",
+    "protocol_minor_is_not_compatibility_proof": true,
+    "schema_or_semantics_mismatch": "FAIL_CLOSED"
+  },
+  "validation": {
+    "payload_length": "EXACT",
+    "reserved_bytes": "ZERO",
+    "hello_ack_reserved0": "ZERO_32_BYTES",
+    "all_f32": "FINITE",
+    "command_joint_range_rad": [-6.4, 6.4],
+    "grip_intent_range": [0.0, 1.0],
+    "unknown_enum_or_bit": "REJECT",
+    "invalid_context_or_transition": "REJECT"
+  },
+  "transactions": {
+    "ordering": "STRICT_MONOTONIC",
+    "ack_loss": "QUERY_OR_RECONCILE_WITH_SAME_TRANSACTION_ID",
+    "stale_or_gap": "REJECT"
+  }
+}

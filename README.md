@@ -1,53 +1,44 @@
 # PHANTOM
 
-PHANTOM is a safety-oriented teleoperation system: Meta Quest 3 supplies user intent and
-LEGO Mindstorms EV3 remains authoritative for state, safety gates, and motor I/O. The
-normative specification is generated as `docs/PHANTOM_SPECIFICATION.md`; engineering
-commands and lifecycle rules are owned by `docs/PHANTOM/ENGINEERING.md`.
+PHANTOM — система телемеханического управления манипулятором. Meta Quest 3 отслеживает
+намерение пользователя и передаёт целевые положения; LEGO Mindstorms EV3 управляет
+приводами и обеспечивает локальные ограничения безопасности.
 
-The lifecycle has explicit, independently invoked phases:
+## Требования и устройство системы
 
-```text
-TEST → BUILD → PROVISION → TRANSFER → INSTALL → START → DEBUG
-     → DEVICE INTEGRATION TEST → HIL → MANUAL ACCEPTANCE → RECOVERY
-```
+| Документ | Назначение |
+|---|---|
+| [Требования к продукту](docs/product-requirements.md) | Цель, критерии результата, FR/NFR |
+| [Архитектура](docs/system-architecture.md) | Компоненты, ответственность и состояния |
+| [Безопасность](docs/safety.md) | Инварианты и условия допуска движения |
+| [Quest](docs/quest-specification.md) | Отслеживание, вычисления и интерфейс шлема |
+| [EV3](docs/ev3-specification.md) | Службы, управление приводами и защита |
+| [Механика](docs/mechanical-specification.md) | Конструкция, передачи, крепления и сборка |
+| [Протокол](docs/protocol-specification.md) | Обнаружение, сообщения, сессии и операции |
+| [Генерируемый wire/IPC справочник](docs/protocol-wire-reference.md) | Точный формат из машинных схем; не редактируется вручную |
 
-No phase silently runs another phase. In particular, BUILD does not run tests, INSTALL does
-not build or test, START does not provision, and DEVICE INTEGRATION TEST does not install.
-`build/**` and `results/**` are disposable local data and are not prerequisites for installing
-already selected bytes.
+## Разработка и проверка
 
-Cleanup is explicit and dry-run by default: `scripts/build-clean.ps1` for build outputs and
-`scripts/results-clean.ps1` for local reports; add `-Apply` only after reviewing the targets.
+| Документ | Назначение |
+|---|---|
+| [Разработка и развёртывание](docs/engineering.md) | Стек, инструменты, сборка, установка и запуск |
+| [Правила исходного кода](docs/code-guidelines.md) | C++ EV3, C#/Unity Quest и инструменты |
+| [Единый инструмент PHANTOM](docs/tooling.md) | Команды CLI, идентификаторы, пакеты и назначение пары |
+| [План тестирования](docs/test-plan.md) | Программные, интеграционные и ручные проверки |
+| [Метрики и журналы](docs/metrics-and-logs.md) | Сбор, анализ, инциденты и отчёты |
+| [Этапы реализации](docs/implementation-stages.md) | Результаты и границы этапов разработки |
+| [Текущий статус](docs/current-status.md) | Реализованное и незакрытые проверки |
 
-Typical off-device development commands:
+## Оснастка и справочные материалы
 
-```powershell
-scripts\phantom.cmd TEST QUEST
-scripts\phantom.cmd TEST EV3
-scripts\phantom.cmd BUILD QUEST -Profile Diagnostic
-scripts\phantom.cmd BUILD EV3 -Profile Diagnostic
-```
+| Документ | Назначение |
+|---|---|
+| [Справочник](docs/reference.md) | Термины, формулы и измеряемые параметры |
+| [Внешние источники](docs/references.md) | Документация платформ и стандартов |
+| [Правила спецификаций](docs/specification-governance.md) | Владельцы требований и правила изменения документов |
+| [Нормативный набор](docs/spec-set.json) | Машинный перечень нормативных документов |
+| [Карта реализации](docs/implementation-map.json) | Связи требований, этапов, реализации и проверок |
 
-Provisioning is a separate, infrequent administrative operation. One idempotent fixed-pair
-command creates the exact Quest ADB identity, pinned EV3 SSH trust, separate deployment key,
-CONTROL credential and maintenance/platform state. Private state lives outside the repository
-under `%LOCALAPPDATA%\PHANTOM` by default.
-
-```powershell
-scripts\phantom.cmd PROVISION PAIR -HostFingerprint <trusted-SHA256:...>
-```
-
-The project is deployed to one designated Quest 3 and one designated EV3. EV3 maintenance
-uses the standard ev3dev mDNS hostname `ev3dev.local` directly; the pinned SSH host
-fingerprint, not a saved IP address or an extra alias, authenticates the brick. The
-private SSH policy accepts the resolved IPv4 or IPv6 transport only when the pinned host key
-matches. Routine Quest operations likewise address only the stored exact ADB serial.
-
-Deployment commands consume existing artifacts and installed/provisioned state. See §8.5 of
-`docs/PHANTOM/ENGINEERING.md` for exact arguments and error categories.
-
-No checked-in configuration authorizes physical movement. Simulator output, builds, and
-software tests are never hardware PASS. Physical DEVICE INTEGRATION TEST, HIL, safety
-inspection, and applicable P0/acceptance gates remain required for the named installed
-artifacts and physical assembly.
+Документация проекта хранится в `docs`. `AGENTS.md` и `.agents/skills/` остаются
+на штатных местах: это загружаемые инструкции агентам. Результаты прогонов и
+документация установленных зависимостей не входят в этот каталог исходной документации.

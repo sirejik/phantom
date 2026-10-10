@@ -1,36 +1,25 @@
 ---
 name: phantom-spec-sync
-description: Синхронизировать или реструктурировать документацию PHANTOM ("обнови спецификацию", "разнеси доку", "убери противоречия"). Использовать для ownership/migration; не выводить нормативное поведение из status или исторического evidence.
+description: "Изменять и реорганизовывать документацию PHANTOM с сохранением владельцев требований, нумерации и ссылок."
 ---
 
-# Синхронизация спецификаций PHANTOM
+# Изменение документации
 
-1. Не перечитывай `AGENTS.md`: он уже является активной проектной инструкцией.
-2. Используй `docs/PHANTOM/SPECIFICATION_GOVERNANCE.md`, чтобы классифицировать каждый
-   изменяемый факт по нормативному layer/primary owner либо по ненормативной lifecycle role.
-3. Строго разделяй жизненные циклы:
-   - финальное требуемое поведение → normative owner;
-   - определение development stage/gate → `docs/PHANTOM/IMPLEMENTATION_STAGES.md`;
-   - task-local plan/progress → `docs/PHANTOM/exec-plans/`;
-   - current implementation summary → `docs/PHANTOM/status/CURRENT_STATUS.md`;
-   - реально выполненный automated/device/HIL report → локальный Git-ignored `results/**`,
-     затем immutable CI/release artifact для долговечного evidence;
-   - долговечный rationale → ADR;
-   - unresolved exposure/disposition → risk;
-   - наблюдаемый test result → evidence/report, а не requirement prose.
-4. Не создавай новых mutable mirrors. Byte-level wire layout остаётся у schema/generated
-   owner.
-5. До удаления информации перенеси её к текущему owner или в долговечный provenance.
-6. Legacy `§...` разрешай через `python tools/docindex.py --locate <section>`; после
-   перемещения проверяй section/file links.
-7. Regenerate/check:
-   `python tools/specgen.py`
-   `python tools/specgen.py --check`
-   `python tools/docindex.py`
-   `python tools/docindex.py --check`
-   `python tools/doclint.py`
-8. Если изменились protocol/config sources, запусти их generators.
-9. Просмотри diff на semantic loss, accidental de-normativization, duplicate mutable facts и
-   stale paths.
-10. В отчёте укажи, что перемещено, что стало ненормативным/history, что намеренно удалено и
-    какой source доказывает отсутствие потери нужной информации.
+Определи владельца по [правилам спецификации](../../../docs/specification-governance.md).
+
+1. Раздели требуемое поведение, текущий статус и порядок работы: они принадлежат
+   спецификациям, `current-status.md` и временному плану соответственно.
+   В навыках оставляй инструкции агенту; общие правила разработки — в `docs`.
+2. При переносе текста сначала сохрани уникальные ограничения у владельца, затем
+   замени дубликаты ссылками. Машинный layout исправляй в источнике схемы;
+   поле будущего этапа обозначь явно.
+3. Сохрани anchors, обнови file/section links и `implementation-map.json`.
+   Оглавления обновляй только через `python tooling generate --target docs`.
+4. Для нормативной правки выполни `python tooling generate --target docs`, затем
+   `python tooling check --target docs`. Для ненормативной правки достаточно
+   применимых link/lint checks; машинные схемы требуют своих generators/checks.
+5. Проверь diff на потерю смысла и новые дубликаты. Если изменились требования к
+   безопасности/проверкам, оцени применимость прежних результатов, не переименовывай
+   прежний PASS в подтверждение нового требования.
+
+Сообщи, что перенесено, удалено и проверено. Не загружай все спецификации ради одной правки.

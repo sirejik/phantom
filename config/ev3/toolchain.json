@@ -1,0 +1,14 @@
+{
+  "schema_version":1,
+  "target":"ARMv5TEJ-armel-gnueabi",
+  "ev3dev_image":"UNRESOLVED_MEASURED_REQUIRED",
+  "ev3dev_image_sha256":null,
+  "cross_image":"ev3dev/debian-stretch-cross",
+  "cross_image_digest":"sha256:819ea7442bbe109d2b39c6c7766e7d1fe635bb98b86c4f6c3b636c0ce176a29f",
+  "cross_toolchain":"arm-linux-gnueabi-g++ 6.3.0-18",
+  "cross_toolchain_binary_sha256":"57d50f50faa7ac5a82d2ebe4066124e15249189a994cbd0f8d1da7a6d733e6b8",
+  "sbom_status":"PENDING_DEVICE_IMAGE",
+  "risk_record":null,
+  "cross_build_gate":"PINNED",
+  "release_gate":"BLOCKED_PENDING_EXACT_EV3DEV_BRICK_IMAGE_AND_DEVICE_SBOM"
+}

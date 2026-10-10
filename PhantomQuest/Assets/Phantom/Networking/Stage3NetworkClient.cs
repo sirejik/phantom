@@ -29,7 +29,7 @@ namespace Phantom.Networking
         public string RobotId="phantom01",ServiceType="_phantom-ev3._udp",ControlKeyId="phantom01-control";
         public int ProtocolMajor=1,ProtocolMinor=0,ControlKeySlot=0,TelemetryMaxAgeMs=100,HelloRetryMs=250,HelloMaxAttempts=5,PingIntervalMs=500,PingTimeoutMs=750,MaxMissedPongs=3,ReconnectDelayMs=250;
         public byte ExpectedBuildProfile=1;
-        public byte[] ExpectedBundleHash,ExpectedSpecificationHash;
+        public byte[] ExpectedBundleHash;
         public void Validate()
         {
             if(string.IsNullOrWhiteSpace(RobotId)||RobotId.Length>32||!string.Equals(ServiceType,"_phantom-ev3._udp",StringComparison.Ordinal)||string.IsNullOrWhiteSpace(ControlKeyId))throw new ArgumentException("network identity");
@@ -37,7 +37,6 @@ namespace Phantom.Networking
             // reports back is normalized (see AndroidNsdDiscoveryBackend).
             if(ProtocolMajor!=1||ProtocolMinor!=0||ControlKeySlot!=(int)WireV1.KeySlot.Control||TelemetryMaxAgeMs<1||HelloRetryMs<10||HelloMaxAttempts<1||HelloMaxAttempts>20||PingIntervalMs<10||PingTimeoutMs<10||MaxMissedPongs<1||ReconnectDelayMs<10)throw new ArgumentException("network bounds");
             if(ExpectedBundleHash==null||ExpectedBundleHash.Length!=32)throw new ArgumentException("expected bundle hash");
-            if(ExpectedSpecificationHash!=null&&ExpectedSpecificationHash.Length!=32)throw new ArgumentException("expected specification hash");
             if(ExpectedBuildProfile>1)throw new ArgumentException("build profile");
         }
     }
@@ -60,7 +59,7 @@ namespace Phantom.Networking
     public sealed class NetworkSnapshot
     {
         public NetworkState State;public TelemetryFreshness Freshness;public bool ServiceFound,SessionActive;
-        public string RobotId,BuildId,Endpoint,ControllerBootId,SessionId,SpecificationHash,ProtocolHash,BundleHash,RobotGeometryHash,DriveCalibrationHash,ActiveJointSafeSetHash,PayloadProfilesHash,IncidentId;
+        public string RobotId,BuildId,Endpoint,ControllerBootId,SessionId,ProtocolHash,BundleHash,RobotGeometryHash,DriveCalibrationHash,ActiveJointSafeSetHash,PayloadProfilesHash,IncidentId;
         public RobotRuntimeState RemoteState;public ushort Fault,BatteryMv;public uint CommandAgeMs,StatusFlags,LoopHealthFlags;
         public double RttMilliseconds;public long TelemetryAgeMilliseconds;public ulong ReceivedSequence,SentSequence;
         public long AcceptedPackets,RejectedPackets,AuthenticationFailures,ReplayDrops,UnexpectedEndpointDrops;
@@ -200,11 +199,11 @@ namespace Phantom.Networking
             HelloAckPacket ack;
             if(!ServerProtocol.TryDecodeHelloAck(decoded,out ack)){RejectHandshake(NetworkState.ProtocolMismatch,"malformed_ack");return;}
             if(!Equal(ack.ClientNonce,_nonce)||!string.Equals(ack.RobotId,_options.RobotId,StringComparison.Ordinal)){RejectHandshake(NetworkState.ProtocolMismatch,"ack_identity");return;}
-            if(ack.ProtocolMinor!=_options.ProtocolMinor||ack.KeySlot!=_options.ControlKeySlot||ack.Role!=0||!Equal(ack.ProtocolContractHash,ProtocolContractHash())||_options.ExpectedSpecificationHash!=null&&!Equal(ack.SpecificationHash,_options.ExpectedSpecificationHash)||!string.IsNullOrEmpty(_active.BuildId)&&!string.Equals(ack.BuildId,_active.BuildId,StringComparison.Ordinal)){RejectHandshake(NetworkState.ProtocolMismatch,"ack_protocol_or_build_identity");return;}
+            if(ack.ProtocolMinor!=_options.ProtocolMinor||ack.KeySlot!=_options.ControlKeySlot||ack.Role!=0||!Equal(ack.ProtocolContractHash,ProtocolContractHash())||!string.IsNullOrEmpty(_active.BuildId)&&!string.Equals(ack.BuildId,_active.BuildId,StringComparison.Ordinal)){RejectHandshake(NetworkState.ProtocolMismatch,"ack_protocol_or_build_identity");return;}
             if(!Equal(ack.BundleHash,_options.ExpectedBundleHash)||ack.BuildProfile!=_options.ExpectedBuildProfile){RejectHandshake(NetworkState.ConfigurationMismatch,"ack_configuration");return;}
             if(ack.State!=RobotRuntimeState.ConnectedUnreferenced||ack.ReferenceFlags!=0||ack.GripperCapabilities!=0||!Zero(ack.Capabilities.Limits.Min)||!Zero(ack.Capabilities.Limits.Max)||!Zero(ack.Capabilities.MaxVelocity)||!Zero(ack.Capabilities.MaxAcceleration)){RejectHandshake(NetworkState.ConfigurationMismatch,"ack_not_network_only");return;}
             if(ack.ResultCode!=0||IsZero(decoded.Header.SessionId)){var detail="hello_rejected_"+ack.ResultCode;Emit("handshake_rejected",detail);InvalidateSession(detail);SetState(ack.ResultCode==12?NetworkState.Reconnecting:ack.ResultCode==2?NetworkState.AuthenticationFailure:NetworkState.ProtocolMismatch);if(Snapshot.State==NetworkState.Reconnecting)_nextReconnect=_clock.NowMilliseconds+_options.ReconnectDelayMs;return;}
-            _session=(byte[])decoded.Header.SessionId.Clone();_safeSetHash=(byte[])ack.ActiveJointSafeSetHash.Clone();_txSequence=_rxSequence=0;Snapshot.SessionActive=true;Snapshot.SessionId=ShortHex(_session);Snapshot.BuildId=ack.BuildId;Snapshot.SpecificationHash=ShortHex(ack.SpecificationHash);Snapshot.ProtocolHash=ShortHex(ack.ProtocolContractHash);Snapshot.BundleHash=ShortHex(ack.BundleHash);Snapshot.RobotGeometryHash=ShortHex(ack.RobotGeometryHash);Snapshot.DriveCalibrationHash=ShortHex(ack.DriveCalibrationHash);Snapshot.ActiveJointSafeSetHash=ShortHex(ack.ActiveJointSafeSetHash);Snapshot.PayloadProfilesHash=ShortHex(ack.PayloadProfilesHash);Snapshot.RemoteState=ack.State;Snapshot.Freshness=TelemetryFreshness.NoTelemetry;_nextPing=_clock.NowMilliseconds;_missedPongs=0;_pingOutstanding=false;SetState(NetworkState.Connected);Emit("handshake_accepted","");Emit("session_created","");
+            _session=(byte[])decoded.Header.SessionId.Clone();_safeSetHash=(byte[])ack.ActiveJointSafeSetHash.Clone();_txSequence=_rxSequence=0;Snapshot.SessionActive=true;Snapshot.SessionId=ShortHex(_session);Snapshot.BuildId=ack.BuildId;Snapshot.ProtocolHash=ShortHex(ack.ProtocolContractHash);Snapshot.BundleHash=ShortHex(ack.BundleHash);Snapshot.RobotGeometryHash=ShortHex(ack.RobotGeometryHash);Snapshot.DriveCalibrationHash=ShortHex(ack.DriveCalibrationHash);Snapshot.ActiveJointSafeSetHash=ShortHex(ack.ActiveJointSafeSetHash);Snapshot.PayloadProfilesHash=ShortHex(ack.PayloadProfilesHash);Snapshot.RemoteState=ack.State;Snapshot.Freshness=TelemetryFreshness.NoTelemetry;_nextPing=_clock.NowMilliseconds;_missedPongs=0;_pingOutstanding=false;SetState(NetworkState.Connected);Emit("handshake_accepted","");Emit("session_created","");
         }
 
         void RejectHandshake(NetworkState state,string detail){Emit("handshake_rejected",detail);InvalidateSession(detail);SetState(state);Emit(state==NetworkState.ConfigurationMismatch?"configuration_mismatch":"protocol_mismatch",detail);}

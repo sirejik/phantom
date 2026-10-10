@@ -97,8 +97,8 @@ bool load_runtime_profile(const std::string& config_path, const std::string& bun
       !required_uint(config, "network/session_stale_ms", 200, 300000, profile.session_stale_ms, error) ||
       !required_uint(config, "safety/controller_heartbeat_rate_hz", 20, 100, profile.controller_heartbeat_rate_hz, error) ||
       !required_uint(config, "safety/controller_heartbeat_timeout_ms", 20, 1000, profile.controller_heartbeat_timeout_ms, error) ||
-      !required_uint(config, "safety/loop_safe_hold_ms", 25, 1000, profile.loop_safe_hold_ms, error) ||
-      !required_uint(config, "safety/loop_fault_ms", 30, 2000, profile.loop_fault_ms, error) ||
+      !required_uint(config, "safety/loop_safe_hold_ms", 25, 60, profile.loop_safe_hold_ms, error) ||
+      !required_uint(config, "safety/loop_fault_ms", 30, 100, profile.loop_fault_ms, error) ||
       !required_uint(config, "logging/flight_recorder_seconds", 1, 60, profile.flight_recorder_seconds, error) ||
       !required_uint(config, "logging/flight_recorder_rate_hz", 10, 100, profile.flight_recorder_rate_hz, error) ||
       !required_uint(config, "logging/release_retention_days", 1, 365, profile.release_retention_days, error) ||

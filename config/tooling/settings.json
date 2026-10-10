@@ -1,0 +1,18 @@
+{
+  "python_minimum": [
+    3,
+    12
+  ],
+  "timeout_max_seconds": 3600,
+  "timeouts": {
+    "process": 60,
+    "wsl": 600,
+    "test": 600,
+    "build": 1800,
+    "ev3_start": 30,
+    "ev3_integration": 360,
+    "quest_install": 180,
+    "ev3_logs": 15,
+    "quest_logs": 60
+  }
+}

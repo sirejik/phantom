@@ -1,8 +1,0 @@
-{
-  "schema_version":1,"robot_id":"phantom01","build_profile":"Diagnostic","qualification_only":true,"qualification_evidence_manifest_hash":"0000000000000000000000000000000000000000000000000000000000000000","actuator_scope_mask":0,"safety_observation_mask":0,
-  "axes":{"base":{"motor_port":"outA","motor_type":"ev3-large","limits":"OUT_OF_SCOPE"},"shoulder":{"motor_port":"outB","motor_type":"ev3-large","flexion_max_deg":90,"limits":"OUT_OF_SCOPE"},"elbow":{"motor_port":"outC","motor_type":"ev3-large","flexion_max_deg":90,"limits":"OUT_OF_SCOPE"},"gripper":{"motor_port":"outD","motor_type":"ev3-medium","limits":"OUT_OF_SCOPE"}},
-  "local_stop":{"sensor_port":"in4","required":false},"gripper_home":{"sensor_port":"in3","required":false,"debounce_ms":null},
-  "network":{"discovery_service_type":"_phantom-ev3._udp","discovery_domain":"local.","ip_family":"IPV4","listen_port_udp":30470,"command_timeout_ms":120,"max_packet_bytes":1024,"max_payload_bytes":928,"rx_rate_limit_pps":100,"rx_burst_packets":20,"hello_retry_window_ms":2000,"session_stale_ms":5000,"max_concurrent_control_sessions":1},
-  "safety":{"ready_gate":"NETWORK_ONLY_NO_ACTUATOR_AUTHORITY","external_power_cut_required":false,"controller_heartbeat_rate_hz":20,"controller_heartbeat_timeout_ms":100,"loop_safe_hold_ms":60,"loop_fault_ms":100,"motor_output_default":"BRAKE_ZERO","measured_limits_complete":false},
-  "logging":{"flight_recorder_seconds":10,"flight_recorder_rate_hz":50,"release_retention_days":7,"release_max_mb":250}
-}

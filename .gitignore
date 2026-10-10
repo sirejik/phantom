@@ -15,6 +15,7 @@
 .vs/
 .vscode/
 *.csproj
+!/PhantomQuest/Tests/Host/Phantom.HostTests.csproj
 *.sln
 *.slnx
 *.user
@@ -36,8 +37,9 @@ __pycache__/
 *.jks
 *.p12
 
-# EV3 bench: retain reproducible tooling and summary reports, not local captures.
+# Local build outputs.
 /build/
+/PhantomQuest/Tests/Host/bin/
 
 # Local/CI evidence workspace. Runners recreate it; publish required release or
 # qualification evidence in the external artifact store, never in Git history.

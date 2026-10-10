@@ -1,59 +1,40 @@
 name: phantom-test-and-build
-# CI owns the full off-hardware software regression. BUILD remains a separate
-# component/profile operation and no job provisions, transfers or starts devices.
+# No device deployment; Unity licensing and the Editor build are separate prerequisites.
 on: [push, pull_request]
 jobs:
-  schemas-python-ev3-host:
+  checks-and-host-tests:
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v4
-      - name: Specification identity and documentation lint
-        run: python3 tools/specgen.py --check && python3 tools/docindex.py --check && python3 tools/doclint.py && python3 tools/implementation_map_check.py
-      - name: Generated protocol, IPC and configuration artifacts
-        run: python3 tools/protocolgen.py --check && python3 tools/spec_contract_check.py && python3 tools/configgen.py --check
-      - name: Canonicalization, protocol and identity regressions
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - uses: actions/setup-dotnet@v4
+        with:
+          global-json-file: PhantomQuest/Tests/Host/global.json
+      - name: Documentation, schemas and secrets
         run: |
-          python3 tools/test_jcs.py
-          python3 tools/test_protocol.py
-          python3 tools/test_ipc_contract.py
-          python3 tools/test_build_identity.py
-          python3 tools/test_configgen.py
-      - name: EV3 worker, device integration and simulation regressions
-        run: |
-          python3 ev3/network/test_phantom_network.py
-          python3 tools/test_ev3_device_integration.py
-          python3 tools/test_artifact_check.py
-          python3 tools/test_apk_repro_diff.py
-          python3 sim/ev3-simulator/test_simulator.py
-          python3 sim/tracking-replay/test_tracking_replay.py
-      - name: Report analyzers
-        run: python3 tools/quest_validation/test_analyze.py && python3 tools/ev3_validation/test_analyze.py
-      - name: Quest static contracts
-        run: python3 tools/quest_android_nsd_check.py && python3 tools/quest_provider_compatibility_check.py && python3 tools/spec_test_duration_check.py
-      - name: Lifecycle boundary regressions
-        run: python3 tools/test_lifecycle.py
-      - name: Secret and provisioning scan
-        run: python3 tools/security_scan.py && python3 tools/test_security_scan.py
-      - name: EV3 host build and tests
-        run: cmake -S ev3 -B build/ev3-host -G Ninja -DCMAKE_BUILD_TYPE=Debug && cmake --build build/ev3-host && ctest --test-dir build/ev3-host --output-on-failure
+          python tooling check --target docs
+          python tooling check --target schemas
+          python tooling check --target security
+      - name: Tooling regressions
+        run: python tooling self-test
+      - name: EV3 C++ host tests
+        run: python tooling test --target ev3
       - name: EV3 host sanitizers
-        run: cmake -S ev3 -B build/ev3-sanitize -G Ninja -DCMAKE_BUILD_TYPE=Debug -DCMAKE_CXX_FLAGS='-fsanitize=address,undefined -fno-omit-frame-pointer' && cmake --build build/ev3-sanitize && ASAN_OPTIONS=detect_leaks=1 ctest --test-dir build/ev3-sanitize --output-on-failure
-      - name: EV3 on-host self-tests
-        run: ./build/ev3-host/phantom-controller --self-test && ./build/ev3-host/phantom-safety --self-test
+        run: python tooling test --target ev3 --sanitize
+      - name: Quest CSharp unit and functional tests
+        run: python tooling test --target quest --suite host
   armel-cross:
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v4
-      - name: Pull pinned ev3dev Stretch cross image
-        run: docker pull ev3dev/debian-stretch-cross@sha256:819ea7442bbe109d2b39c6c7766e7d1fe635bb98b86c4f6c3b636c0ce176a29f
-      - name: Build ARMv5TEJ armel artifacts in pinned image
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Fetch the pinned image
         run: |
-          mkdir -p "$RUNNER_TEMP/phantom-ev3-armel"
-          for profile in Diagnostic; do
-            out="$RUNNER_TEMP/phantom-ev3-armel/$(echo "$profile" | tr A-Z a-z)"
-            mkdir -p "$out"
-            docker run --rm --entrypoint sh \
-              -v "$PWD:/workspace:ro" -v "$out:/out" \
-              ev3dev/debian-stretch-cross@sha256:819ea7442bbe109d2b39c6c7766e7d1fe635bb98b86c4f6c3b636c0ce176a29f \
-              /workspace/scripts/ev3-armel-build /out "$profile"
-          done
+          image=$(python -c "import json; x=json.load(open('config/ev3/toolchain.json')); print(x['cross_image']+'@'+x['cross_image_digest'])")
+          docker pull "$image"
+      - name: Build and validate Diagnostic ARM package
+        run: python tooling build --target ev3 --profile diagnostic
