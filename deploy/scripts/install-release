@@ -289,7 +289,7 @@ if file_digest(root / "config.generated.json") != manifest.get("config_hash"):
     raise SystemExit("config hash mismatch")
 if canonical_digest(root / "commissioning-bundle.generated.json") != manifest.get("commissioning_bundle_hash"):
     raise SystemExit("commissioning bundle hash mismatch")
-if config.get("build_profile") != manifest.get("build_profile") and not (manifest.get("build_profile") == "DeepDebug" and config.get("build_profile") == "Diagnostic"):
+if config.get("build_profile") != manifest.get("build_profile"):
     raise SystemExit("config profile mismatch")
 if config.get("qualification_only") != bundle.get("qualification_only") or config.get("actuator_scope_mask") != bundle.get("actuator_scope_mask") or config.get("safety_observation_mask") != bundle.get("safety_observation_mask"):
     raise SystemExit("config/bundle qualification mismatch")

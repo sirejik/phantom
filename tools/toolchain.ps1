@@ -14,6 +14,19 @@ function Get-PhantomRepositoryRoot
     return (Resolve-Path (Join-Path $PSScriptRoot "..")).Path
 }
 
+function Get-PhantomDotnetExe
+{
+    $declaration=(Get-PhantomHostToolsManifest).dotnet
+    $candidates=@()
+    $explicit=[Environment]::GetEnvironmentVariable($declaration.override_environment_variable,'Process')
+    if($explicit){$candidates+=$explicit}
+    $installed=Get-Command dotnet.exe -ErrorAction SilentlyContinue
+    if($installed){$candidates+=$installed.Source}
+    $candidates+=Join-Path $env:USERPROFILE $declaration.user_install_relative_path
+    foreach($candidate in $candidates){if(Test-Path -LiteralPath $candidate -PathType Leaf){return $candidate}}
+    throw 'A .NET SDK is required for Quest host tests; install the pinned SDK or set PHANTOM_DOTNET'
+}
+
 function Get-PhantomHostToolsManifest
 {
     $path = Join-Path (Get-PhantomRepositoryRoot) "toolchains/host-tools.json"

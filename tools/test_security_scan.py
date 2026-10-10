@@ -53,10 +53,10 @@ class DetectionTests(unittest.TestCase):
 
 
 class JsonArtifactTests(unittest.TestCase):
-    def scan_document(self, document):
+    def scan_document(self, document, name="artifact.json"):
         findings = []
         with tempfile.TemporaryDirectory() as directory:
-            path = pathlib.Path(directory) / "artifact.json"
+            path = pathlib.Path(directory) / name
             path.write_text(json.dumps(document), encoding="utf-8")
             SCAN.scan_json_artifact("artifact.json", path, findings)
         return findings
@@ -75,6 +75,15 @@ class JsonArtifactTests(unittest.TestCase):
 
     def test_public_key_identifier_field_is_skipped(self):
         self.assertFalse(self.scan_document({"network": {"control_key_id": "ab" * 32}}))
+
+    def test_nuget_content_hash_exception_is_narrow(self):
+        import base64
+        digest = base64.b64encode(bytes(range(64))).decode("ascii")
+        document = {"version": 1, "dependencies": {"net8.0": {"NUnit": {"contentHash": digest}}}}
+        self.assertFalse(self.scan_document(document, "packages.lock.json"))
+        self.assertTrue(self.scan_document(document))
+        document["dependencies"]["net8.0"]["NUnit"]["secret"] = digest
+        self.assertTrue(self.scan_document(document, "packages.lock.json"))
 
     def test_legacy_device_report_hash_detail_is_narrowly_allowed(self):
         digest = "ab" * 32

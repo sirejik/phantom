@@ -9,6 +9,10 @@ wifi_service=${3:-}
 wifi_file=${4:-}
 maintenance=/usr/local/libexec/phantom-maintenance
 
+# Application services use native C++; system Python remains an installer/probe helper.
+ldconfig -p | grep -q 'libavahi-client.so.3' || { echo "PROVISION_REQUIRED: install libavahi-client3" >&2; exit 1; }
+ldconfig -p | grep -q 'libcrypto.so.1.0.2' || { echo "PROVISION_REQUIRED: install libssl1.0.2" >&2; exit 1; }
+
 for group in phantom-ipc phantom-safety-ipc phantom-motor; do
   getent group "$group" >/dev/null 2>&1 || addgroup --system "$group"
 done

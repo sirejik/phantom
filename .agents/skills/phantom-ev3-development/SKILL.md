@@ -12,8 +12,7 @@ license: MIT
 [правилах кода](../../../docs/code-guidelines.md#sec-code-guidelines-ev3).
 
 1. Определи процесс: core/backend в `ev3/include` и `ev3/src`, supervisor в `ev3/safety`,
-   сеть в `ev3/network`. Сверь фактическую реализацию со
-   [статусом переноса](../../../docs/current-status.md), прежде чем заменять Python-службу.
+   сеть и mDNS в `ev3/src/network_*`, `controller_ipc_client.cpp` и `mdns_main.cpp`.
 2. Проведи поведение и ошибки через существующие core/`MotorBackend` и штатные состояния.
    Для motor I/O сверь обнаружение, единицы, reference и обработку отказов с EV3-контрактом;
    прямой обход владельца приводов недопустим.
@@ -21,7 +20,7 @@ license: MIT
    и очередей. Для IPC используй [phantom-protocol-change](../phantom-protocol-change/SKILL.md).
 4. Проверь поведение в `ev3/tests` с MockMotorBackend и применимых сетевых suites.
    Host runner: `scripts/phantom.cmd TEST EV3 -Profile Diagnostic`.
-   Пока Python-сеть поставляется, её регрессии: `python ev3/network/test_phantom_network.py`.
+   Сетевые регрессии и общий wire codec проверяет `phantom-network-server-tests`.
 5. Для C++/ABI/package изменений выполни применимую ARM-сборку закреплённым toolchain.
    Для systemd/helpers проверь поддержку целевой средой и ограничения служб.
 

@@ -10,9 +10,31 @@ import implementation_map_check
 import configgen
 import spec_contract_check
 import copy
+import re
 
 
 class DocumentationTests(unittest.TestCase):
+    def test_tools_catalog_covers_project_owned_tools_and_helpers(self):
+        root = doclint.ROOT
+        expected = set()
+        for directory in ('scripts', 'tools', 'protocol', 'sim',
+                          'deploy/scripts', 'provision/ev3'):
+            for path in (root / directory).rglob('*'):
+                if path.is_file() and (path.suffix in ('.py', '.ps1', '.cmd', '.cs', '.cpp')
+                                       or not path.suffix):
+                    expected.add(path.relative_to(root).as_posix())
+        for directory, suffixes in (
+                ('.github/workflows', ('.yml', '.yaml')),
+                ):
+            expected.update(path.relative_to(root).as_posix()
+                            for path in (root / directory).rglob('*')
+                            if path.is_file() and path.suffix in suffixes)
+        catalog = (root / 'docs/python-scripts.md').read_text(encoding='utf-8')
+        links = re.findall(r'^\| \[[^]]+\]\(\.\./([^)#]+)\)', catalog, re.M)
+        self.assertEqual(set(links), expected)
+        self.assertEqual(len(links), len(set(links)), 'each tool belongs to one catalogue group')
+        self.assertTrue(all((root / link).is_file() for link in links))
+
     def test_local_links_require_anchor_in_the_destination_file(self):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)

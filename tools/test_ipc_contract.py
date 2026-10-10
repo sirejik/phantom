@@ -109,14 +109,6 @@ class GeneratedHeaderAgreementTests(unittest.TestCase):
 
 
 class WorkerUsesGeneratedLayoutTests(unittest.TestCase):
-    def test_worker_does_not_carry_a_hand_written_struct_format(self):
-        source = (ROOT / "ev3" / "network" / "phantom_network.py").read_text(encoding="utf-8")
-        self.assertIn("ipc_layout.CONTROLLER_REQUEST", source)
-        self.assertIn("ipc_layout.CONTROLLER_TELEMETRY_SNAPSHOT", source)
-        # The old hand-written formats must not come back.
-        self.assertNotIn('struct.Struct("<4sHHI16sQ16sBBBB4sHH16sQQ24s")', source)
-        self.assertNotIn('struct.Struct("<4sHHI16sQ16sQHH")', source)
-
     def test_request_packing_places_fields_at_generated_offsets(self):
         offsets = ipc_layout.CONTROLLER_REQUEST_OFFSETS
         packed = ipc_layout.CONTROLLER_REQUEST.pack(

@@ -15,7 +15,7 @@ class BuildIdentityTests(unittest.TestCase):
         self.assertNotIn("git_commit",obj)
         self.assertNotEqual(digest,identity("QUEST","Release",*args)[0])
         self.assertNotEqual(digest,identity("EV3","Diagnostic",*args)[0])
-        self.assertNotEqual(digest,identity("EV3","DeepDebug",*args)[0])
+        with self.assertRaises(ValueError):identity("EV3","DeepDebug",*args)
 
     def test_rejects_noncanonical_hex(self):
         with self.assertRaises(ValueError):identity("EV3","Release","A"*64,*(["0"*64]*3))
@@ -58,10 +58,10 @@ class BuildIdentityTests(unittest.TestCase):
             root=pathlib.Path(directory)
             files={
                 "ev3/src/controller_main.cpp": b"controller-v1",
-                "ev3/network/phantom_network.py": b"network-v1",
+                "ev3/src/network_server.cpp": b"network-v1",
                 "ev3/tests/core_tests.cpp": b"test-v1",
-                "ev3/network/test_phantom_network.py": b"network-test-v1",
-                "toolchains/ev3-armel.cmake": b"flags-v1",
+                "ev3/tests/network_server_tests.cpp": b"network-test-v1",
+                "ev3/toolchains/armel.cmake": b"flags-v1",
             }
             for name,data in files.items():
                 path=root/name
@@ -69,11 +69,11 @@ class BuildIdentityTests(unittest.TestCase):
                 path.write_bytes(data)
             before=source_hash(root,EV3_SOURCE_INPUTS)
             for name in ("ev3/tests/core_tests.cpp",
-                         "ev3/network/test_phantom_network.py"):
+                         "ev3/tests/network_server_tests.cpp"):
                 (root/name).write_bytes(b"unrelated-v2")
                 self.assertEqual(before,source_hash(root,EV3_SOURCE_INPUTS),name)
-            for name in ("ev3/src/controller_main.cpp", "ev3/network/phantom_network.py",
-                         "toolchains/ev3-armel.cmake"):
+            for name in ("ev3/src/controller_main.cpp", "ev3/src/network_server.cpp",
+                         "ev3/toolchains/armel.cmake"):
                 path=root/name
                 original=path.read_bytes()
                 path.write_bytes(b"runtime-v2")

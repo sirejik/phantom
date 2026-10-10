@@ -16,8 +16,6 @@
   - [1.3. Исходники и рабочие файлы](#sec-engineering-source-layout)
 - [2. Правила разработки](#sec-8-2)
 - [3. Тестовые подмены](#sec-engineering-test-doubles)
-  - [3.1. Stub EV3 для тестов](#sec-8-3)
-  - [3.2. Stub Quest3 для тестов](#sec-8-4)
 - [4. Конвейер разработки и проверки](#sec-8-5)
   - [4.1. Последовательность](#sec-engineering-pipeline)
   - [4.2. Инструменты и место выполнения](#sec-8-5-1)
@@ -41,6 +39,7 @@
   - [7.1. EV3](#sec-8-7)
   - [7.2. Quest](#sec-engineering-deploy-quest)
 - [8. Совместимость конфигурации](#sec-8-9)
+- [9. Диагностика и сопровождение](#sec-engineering-diagnostics)
 
 </details>
 <!-- END GENERATED TOC -->
@@ -59,7 +58,7 @@
 | Unity Editor | Сборка Quest и тесты C# | Версия из `PhantomQuest/ProjectSettings/ProjectVersion.txt`, установленная через Unity Hub |
 | `adb` | Установка, запуск и проверки Quest | Android SDK из Unity, затем `PATH` |
 | WSL | Сборка и тесты C++ на компьютере | `Ubuntu` с `cmake`, `ninja-build`, `g++` |
-| Docker | Кросс-сборка EV3 | Образ по digest из `toolchains/ev3dev-stretch.lock.json` |
+| Docker | Кросс-сборка EV3 | Образ по digest из `ev3/toolchains/ev3dev-stretch.lock.json` |
 
 При нестандартной установке используются `PHANTOM_UNITY_ROOT`, `PHANTOM_ADB`,
 `PHANTOM_WSL_DISTRO`. Они задают расположение, а не другие версии.
@@ -70,15 +69,16 @@
 | Область | Технологии | Источники версий |
 |---|---|---|
 | Quest 3 | Android/Meta Horizon OS, Unity/C#, IL2CPP, Java; OpenXR, Meta XR Core/MRUK >=v83, Meta XR Movement | [Unity](../PhantomQuest/ProjectSettings/ProjectVersion.txt), [пакеты](../PhantomQuest/Packages/manifest.json), [закреплённые зависимости](../PhantomQuest/Packages/packages-lock.json) |
-| EV3 | ev3dev Debian Stretch, ARMv5TEJ/armel/gnueabi/soft-float, C++14, systemd 232 | [CMake](../ev3/CMakeLists.txt), [компилятор и образ](../toolchains/ev3dev-stretch.lock.json) |
+| EV3 | ev3dev Debian Stretch, ARMv5TEJ/armel/gnueabi/soft-float, C++14, systemd 232 | [CMake](../ev3/CMakeLists.txt), [компилятор и образ](../ev3/toolchains/ev3dev-stretch.lock.json) |
 | Компьютер разработчика | Windows/PowerShell, Python для инструментов, WSL/Linux, Docker, Unity Editor, Android SDK/adb | [Инструменты](../toolchains/host-tools.json) |
 | Обмен данными | UDP Quest↔EV3, локальный Unix datagram IPC, генерируемые кодеки и конфигурации | [Протокол](../protocol/wire_schema.yaml), [IPC](../protocol/ipc_schema.yaml), [конфигурации](../config/schema/) |
 
 Все прикладные службы EV3, включая сетевой обмен и обнаружение, разрабатываются на C++14.
 Сеть, discovery и файловый ввод-вывод остаются отдельными от моторного цикла процессами.
-Python используется для инструментов на компьютере; наличие системного Python в ev3dev
-не определяет язык приложения. Состояние переноса существующих Python-служб —
-[current-status.md](current-status.md).
+Python используется для инструментов на компьютере и вспомогательных установщиков/проверок
+на EV3. Прикладные службы не требуют интерпретатора Python.
+Сеть использует OpenSSL для HMAC/SHA-256 и случайных идентификаторов;
+`phantom-mdns` публикует сервис через системный Avahi.
 
 Для Quest возможности C#/BCL/JNI определяются выбранной Unity и Android.
 Unity должна поддерживать используемые Multimodal APIs; обновление Unity/Meta packages
@@ -115,33 +115,8 @@ Unity должна поддерживать используемые Multimodal 
 
 Подмены внешних источников позволяют тестировать настоящий код приложения на компьютере.
 
-<a id="sec-8-3"></a>
-### 3.1. Stub EV3 для тестов
-
-Stub EV3 воспроизводит протокол и состояния устройства для разработки и тестов Quest.
-Он поддерживает handshake/discovery, калибровочные отсчёты и привязку, команды и телеметрию,
-ограничения движения, ошибки приводов/привязки/захвата, потерю и задержки пакетов,
-смену адреса/boot identity, остановку и восстановление.
-Проверки состояния `SAFE_HOLD`, `STOPPED`, `STOPPED + fault_code`, валидной/невалидной
-`DriveCalibration`, shaping `q_ref`, maintenance lock, reorder/duplicate остаются обязательными.
-
-<a id="sec-8-4"></a>
-### 3.2. Stub Quest3 для тестов
-
-Подменяет входные данные и внешние зависимости Quest; состав расширяется по потребностям тестов.
-Для последовательности tracking frames используется C#
-[TrackingReplaySource](../PhantomQuest/Assets/Phantom/Replay/TrackingReplaySource.cs),
-реализующий тот же tracking interface, что и live provider. Тесты должны подавать
-эти frames в настоящие алгоритмы приложения. Запись включается явно.
-
-| Данные | Что сохраняется и воспроизводится |
-|---|---|
-| Голова | Поза для XR lifecycle |
-| `Body_RightShoulder` | Поза, validity/quality/fidelity, время измерения/запроса и получения, неопределённость времени |
-| Wrist | Поза, validity/quality, время измерения/запроса и получения, неопределённость времени |
-| Захват | Степень сжатия и валидность |
-| Левый контроллер | Left Grip и валидность Controller |
-| Последовательность | Receive timestamps и frame IDs |
+Состав, запуск и ограничения подмен EV3/Quest описаны в
+[плане тестирования](test-plan.md#sec-8-3).
 
 <a id="sec-8-5"></a>
 ## 4. Конвейер разработки и проверки
@@ -156,7 +131,7 @@ Stub EV3 воспроизводит протокол и состояния ус�
 ```mermaid
 flowchart TD
   C[Изменение кода] --> L[Линтеры и статический анализ]
-  L --> U[Unit и функциональные тесты на компьютере]
+  L --> U[Сборка и запуск unit и функциональных тестов на компьютере]
   U --> B[Отладочная сборка Quest и EV3]
   B --> D[Установка и запуск на назначенной паре]
   D --> I[Интеграционные тесты: Quest на столе, EV3 без движения]
@@ -167,18 +142,20 @@ flowchart TD
 <a id="sec-8-5-1"></a>
 ### 4.2. Инструменты и место выполнения
 
-Ниже указаны существующие скрипты. Их имена соответствуют работе;
-тесты, сборка, установка и запуск вызываются отдельно.
+Ниже — основные команды этапов. Полный [каталог инструментов](python-scripts.md)
+включает генераторы, внутренние helpers, host harnesses и их регрессии.
+Тесты, сборка, установка и запуск вызываются отдельно.
 
 | Работа | Скрипт | Где выполняется |
 |---|---|---|
+| Схемы, документация и статические проверки | [Инструменты проверок](python-scripts.md) | Компьютер разработчика; CI выполняет доступную часть |
+| Регрессии инструментов | [Python suites и test_pair_state.ps1](python-scripts.md) | Python — компьютер или CI; PowerShell — Windows, без устройств |
 | Unit/functional tests EV3 | [ev3-test.ps1](../scripts/ev3-test.ps1) | Windows-компьютер разработчика; C++-тесты запускаются в WSL |
-| Unit/functional tests Quest | [quest-test.ps1](../scripts/quest-test.ps1) | Компьютер разработчика, Unity Editor |
+| Unit/functional tests Quest | [quest-test.ps1](../scripts/quest-test.ps1) | Компьютер разработчика, .NET SDK и Unity Editor; native interop в WSL |
 | Сборка EV3 | [ev3-build.ps1](../scripts/ev3-build.ps1) | Компьютер разработчика, Docker с ARM cross compiler |
 | Сборка Quest | [quest-build.ps1](../scripts/quest-build.ps1) | Компьютер разработчика, Unity Editor и Android SDK |
-| Настройка пары | [provision-fixed-pair.ps1](../scripts/provision-fixed-pair.ps1) | Компьютер, назначенные EV3 через SSH и Quest через ADB |
-| Передача и установка EV3 | [ev3-deploy-install.ps1](../scripts/ev3-deploy-install.ps1) | Компьютер отправляет пакет; установщик выполняется на EV3 |
-| Установка Quest | [quest-install.ps1](../scripts/quest-install.ps1) | Компьютер через ADB устанавливает APK на назначенный Quest |
+| Установка EV3 с настройкой | [ev3-install.ps1](../scripts/ev3-install.ps1) | Компьютер настраивает назначенный EV3, передаёт и устанавливает ARM-пакет через SSH |
+| Установка Quest с настройкой | [quest-install.ps1](../scripts/quest-install.ps1) | Компьютер через ADB устанавливает APK с разрешениями и подготавливает credential назначенного Quest |
 | Запуск EV3 | [ev3-start.ps1](../scripts/ev3-start.ps1) | Компьютер через SSH запускает службы установленного пакета EV3 |
 | Запуск Quest | [quest-start.ps1](../scripts/quest-start.ps1) | Компьютер через ADB запускает установленное приложение Quest |
 | Интеграционные тесты EV3 | [ev3-device-integration-test.ps1](../scripts/ev3-device-integration-test.ps1) | Runner на компьютере и проверки на назначенном EV3 |
@@ -186,7 +163,8 @@ flowchart TD
 
 Dispatcher [phantom.cmd](../scripts/phantom.cmd) вызывает эти скрипты по машинным именам
 операций (`TEST`, `BUILD`, `INSTALL`, `START`, `DEVICE`); это не отдельные виды проверок.
-Каждая операция имеет timeout и показывает первый отказ; установка не запускает тесты.
+Установка, запуск и интеграционные проверки ограничивают время ожидания и показывают
+первый отказ; установка не запускает тесты.
 
 <a id="sec-engineering-static-checks"></a>
 ### 4.3. Линтеры и статический анализ
@@ -203,11 +181,16 @@ C++ проверяется `clang-tidy` или эквивалентом, C# — 
 
 CI — автоматический запуск проверок в GitHub Actions при push и pull request.
 Конфигурация уже есть в [.github/workflows/ci.yml](../.github/workflows/ci.yml).
-Она описывает проверки документации, схем и Python-инструментов, host-тесты C++,
+Она описывает проверки документации, схем и Python-инструментов, host-тесты C++ и C#,
 ASan/UBSan и кросс-сборку EV3 на GitHub runner `ubuntu-24.04`.
 Наличие workflow не подтверждает успешный запуск. Полнота проверок отражается в статусе;
 текущий workflow не содержит полного Unity test/build job и не устанавливает ПО на устройства.
-Локальные тесты Quest выполняются через Unity Editor; требования к покрытию —
+Локальные тесты Quest включают .NET/NUnit host-проект и Unity EditMode,
+оба запускает `scripts/quest-test.ps1`. Host unit и functional части выбираются
+через `-Category`, host/Unity — через `-Suite`. .NET SDK закреплён в
+[global.json](../PhantomQuest/Tests/Host/global.json), пакеты — в
+[packages.lock.json](../PhantomQuest/Tests/Host/packages.lock.json).
+Требования к покрытию —
 [план тестирования](test-plan.md#sec-9-1-2).
 
 <a id="sec-engineering-dependency-checks"></a>
@@ -264,9 +247,22 @@ Quest и EV3 имеют отдельные идентификаторы. SHA-256
 
 На компьютере кросс-компилируются C++14-службы для EV3 и создаётся пакет с бинарниками,
 конфигурацией и systemd units. На EV3 компиляция не выполняется.
-Образ и компилятор выбираются по [закреплённым версиям](../toolchains/ev3dev-stretch.lock.json).
+Образ и компилятор выбираются по [закреплённым версиям](../ev3/toolchains/ev3dev-stretch.lock.json).
 Команда отладочной сборки: `scripts/ev3-build.ps1 -Profile Diagnostic`.
 Точный состав — [контракт пакета EV3](engineering-contracts.md#sec-engineering-contracts-ev3-package).
+
+| Конфигурационный файл | Назначение |
+|---|---|
+| [ev3/CMakeLists.txt](../ev3/CMakeLists.txt) | Состав C++ проекта, зависимости, C++14 и CTest. Используется для ARM-сборки и тестов на компьютере. |
+| [ev3/toolchains/armel.cmake](../ev3/toolchains/armel.cmake) | Компилятор и параметры ARM/soft-float. Применяется только при кросс-сборке. |
+| [ev3/toolchains/ev3dev-stretch.lock.json](../ev3/toolchains/ev3dev-stretch.lock.json) | Единственный источник Docker image/digest, идентификатора платформы и ожидаемых версии/хэша компилятора. |
+
+Общий [host-tools.json](../toolchains/host-tools.json) задаёт поиск инструментов
+компьютера и путь к EV3 lock-файлу; значения EV3 в нём не повторяются.
+Локальный сборщик и ARM job CI используют общую команду из `build-environment.ps1`.
+Имя фактически выбранного компилятора экспортирует CMake, версия и SHA-256
+измеряются при сборке и сравниваются с lock-файлом.
+CMake остаётся версии закреплённого образа; presets в этой версии не поддерживаются.
 
 <a id="sec-8-8"></a>
 ### 5.5. Quest
@@ -315,7 +311,13 @@ APK содержит выбранную конфигурацию, идентиф
 Ключи здесь — секреты для проверки подлинности сетевых сообщений, а не параметры движения.
 CONTROL обслуживает обычную связь; commissioning key даёт право запрашивать инженерные
 операции, но не заменяет локальное разрешение и safety-проверки.
-Команда первичной настройки — `scripts/provision-fixed-pair.ps1`.
+Настройка входит в `INSTALL EV3` и `INSTALL QUEST`; отдельной команды настройки нет.
+При первом назначении пары установщик принимает доверенный `-HostFingerprint` EV3
+и `-QuestSerial` (либо выбирает единственный подключённый и авторизованный Quest 3).
+Явный serial позволяет установить EV3 без подключённого шлема. Повторная установка
+использует локальное назначение пары, сохраняет ключи и не меняет fingerprint.
+Изменение Wi-Fi, восстановление credential или ротация требуют явного `-Repair`;
+ротация SSH/CONTROL и repin EV3 дополнительно требуют соответствующего флага установщика EV3.
 Секреты не передаются исполнительным UDP и не выводятся в журналы.
 
 <a id="sec-8-11-1"></a>
@@ -329,7 +331,8 @@ CONTROL обслуживает обычную связь; commissioning key да
 <a id="sec-8-12"></a>
 ### 6.3. EV3
 
-Подготовить ev3dev, службы и пользователей, SSH по ключу, автоматическое подключение LAN,
+Подготовить ev3dev с `libssl1.0.2`, `avahi-daemon`, `libavahi-client3`, службы и пользователей,
+SSH по ключу, автоматическое подключение LAN,
 закрытые файлы сетевых ключей и firewall. Сеть не получает доступа к моторному вводу-выводу.
 CONTROL/COMMISSIONING UDP доступен только из доверенной подсети; публикация порта в интернете
 запрещена. На EV3 работает один менеджер сети ConnMan; штатный запуск PHANTOM сеть не ремонтирует.
@@ -352,8 +355,11 @@ CONTROL/COMMISSIONING UDP доступен только из доверенно�
 установить файлы с правильными правами и атомарно выбрать новую версию.
 Неподтверждённая безопасная остановка блокирует установку. Незавершённая установка
 не должна повреждать прежнюю версию; это атомарность, а не откат после ошибки запуска.
+Настройка пользователей и credentials допускается только при остановленных службах EV3;
+активная система блокирует этот шаг до штатной безопасной остановки.
 
-`scripts/ev3-deploy-install.ps1` объединяет передачу и установку.
+`scripts/ev3-install.ps1 -Package <архив>` выполняет настройку EV3, передачу
+пакета и установку. `build_id` и SHA-256 берутся из проверенного пакета и sidecar.
 `scripts/ev3-start.ps1` отдельно запускает safety → controller → network → mDNS,
 показывает результат каждой службы и первый отказ. Во время `TRACKING` установка запрещена.
 Форматы, права и порядок переключения — [контракт установки EV3](engineering-contracts.md#sec-engineering-contracts-ev3-install).
@@ -361,8 +367,10 @@ CONTROL/COMMISSIONING UDP доступен только из доверенно�
 <a id="sec-engineering-deploy-quest"></a>
 ### 7.2. Quest
 
-`scripts/quest-install.ps1` проверяет APK, выполняет `adb install -r` на назначенном Quest
-и сверяет установленную версию. Данные и ключи приложения сохраняются;
+`scripts/quest-install.ps1` проверяет APK, выполняет `adb install -r -g` на назначенном Quest
+и сверяет установленную версию. Первая установка требует Diagnostic APK и подготавливает
+CONTROL credential для импорта при запуске. При обновлении credential повторно не передаётся;
+данные и ключи приложения сохраняются;
 `adb uninstall` и `pm clear` не выполняются.
 `scripts/quest-start.ps1` отдельно запускает приложение и проверяет процесс и готовность.
 Отсутствующий или повреждённый ключ даёт ошибку, а не скрытую повторную настройку.
@@ -376,3 +384,17 @@ Quest и EV3 должны использовать согласованный п
 Изменение механики требует новой соответствующей калибровки; перезапуск сохраняет её,
 но требует новой runtime-привязки. Изменение только интерфейса калибровку не инвалидирует.
 Условия смены ревизий и хэширования — [контракт конфигурации](engineering-contracts.md#sec-engineering-contracts-configuration).
+
+<a id="sec-engineering-diagnostics"></a>
+## 9. Диагностика и сопровождение
+
+При обнаружении проблемы получите данные через `scripts/ev3-pull-logs.ps1` или
+`scripts/quest-pull-logs.ps1`. Оба сборщика по умолчанию вызывают `tools/analyze_logs.py`;
+`-SkipAnalysis` оставляет только сбор. Сохранённые данные можно анализировать повторно
+через `python tools/analyze_logs.py EV3|QUEST <inputs> --out <directory>`.
+Правила сбора, анализа и хранения — в [метриках и журналах](metrics-and-logs.md).
+После исправления повторите затронутые этапы конвейера. Сбор данных не ограничен тестами.
+
+Очистка рабочих данных выполняется отдельно: `scripts/build-clean.ps1` сохраняет свежие
+пакеты, `scripts/results-clean.ps1` выбирает временные отчёты. Сначала выполните
+предпросмотр; `-Apply` удаляет показанные файлы.

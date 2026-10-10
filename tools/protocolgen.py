@@ -263,9 +263,31 @@ def render_cpp(schema, schema_digest, semantics_digest, contract_digest):
         for bit in values.values(): mask |= 1 << bit
         lines.append("constexpr std::uint32_t k%sMask = 0x%08Xu;"%(title(field_name),mask))
     for m in schema["messages"]: lines.append("constexpr std::size_t k%sPayloadBytes = %d;"%("".join(x.title() for x in m["name"].lower().split("_")),m["length"]))
+    for m in schema["messages"]:
+        for name,kind,count,offset,size in offsets(schema,m):
+            lines.append("constexpr std::size_t k%sOffset%s = %d;"%(title(m["name"]),title(name),offset))
     lines += ["constexpr std::size_t PayloadBytes(MessageType type) {","  switch(type) {"]
     lines += ["    case MessageType::%s: return %d;"%(m["name"],m["length"]) for m in schema["messages"]]
     lines += ["  } return 0;","}"]
+    # Runtime codecs share structural checks generated from the owning schema.
+    lines += ["inline bool PayloadFieldsValid(MessageType type,const std::uint8_t* data,std::size_t size) {",
+              "  if(size!=PayloadBytes(type)||!size)return false;", "  switch(type) {"]
+    def checks(fields, base=0):
+        result=[];offset=base
+        for field in fields:
+            name,kind=field[:2];count=field_count(field);width=type_size(schema,kind)
+            if name.startswith("reserved"):
+                result.append("      for(std::size_t i=%d;i<%d;++i)if(data[i])return false;"%(offset,offset+width*count))
+            elif kind=="f32":
+                for i in range(count):
+                    result.append("      {std::uint32_t bits=0;for(int i=0;i<4;++i)bits|=std::uint32_t(data[%d+i])<<(8*i);if((bits&0x7f800000u)==0x7f800000u)return false;}"%(offset+i*4))
+            elif kind in schema["types"]:
+                for i in range(count):result.extend(checks(schema["types"][kind],offset+i*width))
+            offset+=width*count
+        return result
+    for message in schema["messages"]:
+        lines += ["    case MessageType::%s: {"%message["name"],*checks(message["fields"]),"      return true;}"]
+    lines += ["  } return false;","}"]
     lines += ["static_assert(kHeaderBytes+kHmacBytes+436<=kMaxDatagramBytes, \"largest v1 packet must fit\");","} } // namespace phantom::wire",""]
     return "\n".join(lines)
 

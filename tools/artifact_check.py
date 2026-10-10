@@ -103,7 +103,7 @@ def verify_ev3_archive(package, directory=None):
 def main():
     parser=argparse.ArgumentParser(description="Validate one BUILD artifact")
     parser.add_argument("--component",required=True,choices=("QUEST","EV3"))
-    parser.add_argument("--profile",default="Diagnostic",choices=("Release","Diagnostic","DeepDebug"))
+    parser.add_argument("--profile",default="Diagnostic",choices=("Release","Diagnostic"))
     parser.add_argument("--artifact",help="exact Quest APK or EV3 package path")
     parser.add_argument("--ev3-directory",help="exact unpacked EV3 BUILD directory")
     args=parser.parse_args()
@@ -113,15 +113,12 @@ def main():
     protocol_semantics=(ROOT/"protocol/generated/semantics.sha256").read_text().split()[0]
     protocol_contract=(ROOT/"protocol/generated/contract.sha256").read_text().split()[0]
     expected_config={"quest":{"release":sha(ROOT/"config/generated/quest.generated.json"),
-                              "diagnostic":sha(ROOT/"config/generated/quest-network-only.generated.json"),
-                              "deepdebug":sha(ROOT/"config/generated/quest-network-only.generated.json")},
+                              "diagnostic":sha(ROOT/"config/generated/quest-network-only.generated.json")},
                      "ev3":{"release":sha(ROOT/"config/generated/ev3.generated.json"),
-                            "diagnostic":sha(ROOT/"config/generated/ev3-network-only.generated.json"),
-                            "deepdebug":sha(ROOT/"config/generated/ev3-network-only.generated.json")}}
+                            "diagnostic":sha(ROOT/"config/generated/ev3-network-only.generated.json")}}
     config_manifest=load(ROOT/"config/generated/config-manifest.json")
     expected_bundle={"release":config_manifest["artifact_hashes"]["commissioning_bundle"],
-                     "diagnostic":config_manifest["artifact_hashes"]["commissioning_bundle-network-only"],
-                     "deepdebug":config_manifest["artifact_hashes"]["commissioning_bundle-network-only"]}
+                     "diagnostic":config_manifest["artifact_hashes"]["commissioning_bundle-network-only"]}
     if quest:
         package_manifest=load(ROOT/"PhantomQuest/Packages/manifest.json")
         package_lock=load(ROOT/"PhantomQuest/Packages/packages-lock.json")
@@ -158,7 +155,7 @@ def main():
         for field,version in expected_versions.items():require(manifest.get(field)==version,f"Quest {field} mismatch")
         require(manifest.get("body_tracking_provider")=="OVRBody/com.meta.xr.sdk.core","Quest body tracking provider mismatch")
         require(manifest.get("multimodal_required") is (profile=="release"),"Quest multimodal requirement/profile mismatch")
-        require(manifest.get("qualification_eligible") is (profile!="deepdebug"),"Quest qualification eligibility/profile mismatch")
+        require(manifest.get("qualification_eligible") is True,"Quest qualification eligibility/profile mismatch")
         require(manifest.get("signing_key_id")=="phantom-quest-release","Quest signing identity is missing")
         require(re.fullmatch(r"[0-9a-f]{64}",manifest.get("apk_signing_certificate_sha256","")) is not None,"Quest signing certificate SHA-256 is missing")
         require(manifest.get("body_provider_joint_set")=="UpperBody","Quest body joint set mismatch")
@@ -177,8 +174,9 @@ def main():
         for permission in ("android.permission.INTERNET","com.oculus.permission.HAND_TRACKING","com.oculus.permission.BODY_TRACKING","com.oculus.permission.USE_SCENE","com.oculus.permission.USE_ANCHOR_API"):
             require(permission.encode("utf-16le") in android_manifest,"Quest APK permission missing: "+permission)
     else:
-        lock=load(ROOT/"toolchains/ev3dev-stretch.lock.json")
-        require(lock["cross_image_digest"]=="sha256:819ea7442bbe109d2b39c6c7766e7d1fe635bb98b86c4f6c3b636c0ce176a29f","cross image digest not pinned")
+        lock_path=ROOT/load(ROOT/"toolchains/host-tools.json")["docker"]["ev3_toolchain_lock"]
+        lock=load(lock_path)
+        require(re.fullmatch(r"sha256:[0-9a-f]{64}",lock["cross_image_digest"]) is not None,"cross image digest not pinned")
         expected_source=source_hash("--component","EV3")
         directory=pathlib.Path(args.ev3_directory).resolve() if args.ev3_directory else ROOT/f"build/ev3-armel/{profile}"
         manifest=load(directory/"build-manifest.json")
@@ -188,17 +186,18 @@ def main():
         require(manifest["config_hash"]==expected_config["ev3"][profile],"EV3 config hash mismatch")
         require(manifest.get("commissioning_bundle_hash")==expected_bundle[profile],"EV3 bundle hash mismatch")
         require(manifest["source_tree_hash"]==expected_source,"EV3 artifact was not built from current sources")
-        require(manifest.get("toolchain_or_package_lock_hash")==sha(ROOT/"toolchains/ev3dev-stretch.lock.json"),"EV3 identity lock hash mismatch")
+        require(manifest.get("toolchain_or_package_lock_hash")==sha(lock_path),"EV3 identity lock hash mismatch")
         expected_build_id,_=identity("EV3",manifest["build_profile"],expected_source,protocol_contract,expected_config["ev3"][profile],manifest["toolchain_or_package_lock_hash"])
         require(manifest.get("build_id")==expected_build_id,"EV3 build_id mismatch")
-        require(manifest.get("qualification_eligible") is (profile!="deepdebug"),"EV3 qualification eligibility/profile mismatch")
+        require(manifest.get("qualification_eligible") is True,"EV3 qualification eligibility/profile mismatch")
         verify_checksum_manifest(directory)
-        require(manifest["cross_image"].endswith(lock["cross_image_digest"]),"armel image mismatch")
+        require(manifest["cross_image"]==lock["cross_image"]+"@"+lock["cross_image_digest"],"armel image mismatch")
+        require(manifest["target"]==lock["target"],"EV3 target mismatch")
         require(compiler_matches(lock["cross_toolchain"],manifest["toolchain_facts"]),"armel compiler version mismatch")
         require(lock["cross_toolchain_binary_sha256"] in manifest["toolchain_facts"],"armel compiler hash mismatch")
         require(manifest["controller_sha256"]==sha(directory/"bin/phantom-controller"),"controller hash mismatch")
         require(manifest["safety_sha256"]==sha(directory/"bin/phantom-safety"),"safety hash mismatch")
-        for name in ("phantom-controller","phantom-safety"):verify_ev3_elf(directory/"bin"/name)
+        for name in ("phantom-controller","phantom-safety","phantom-network","phantom-mdns"):verify_ev3_elf(directory/"bin"/name)
         ev3_manifest=manifest
         package=pathlib.Path(args.artifact).resolve() if args.artifact else ROOT/"build/ev3-packages"/ev3_package_name(ev3_manifest["build_id"])
         provenance=pathlib.Path(str(package)+".build-manifest.json")

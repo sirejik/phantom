@@ -23,8 +23,13 @@
     "distribution": "Ubuntu",
     "required_packages": ["cmake", "ninja-build", "g++"]
   },
+  "dotnet": {
+    "override_environment_variable": "PHANTOM_DOTNET",
+    "sdk_specification": "PhantomQuest/Tests/Host/global.json",
+    "user_install_relative_path": ".dotnet/dotnet.exe"
+  },
   "docker": {
     "required": true,
-    "pinned_ev3_cross_image": "ev3dev/debian-stretch-cross@sha256:819ea7442bbe109d2b39c6c7766e7d1fe635bb98b86c4f6c3b636c0ce176a29f"
+    "ev3_toolchain_lock": "ev3/toolchains/ev3dev-stretch.lock.json"
   }
 }

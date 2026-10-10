@@ -29,10 +29,9 @@
 `source_tree_hash` исключает Markdown, reStructuredText, AsciiDoc, `docs/`,
 сгенерированный `docs/protocol-wire-reference.md`, кэши интерпретатора, результаты и готовые пакеты.
 Входы EV3 объявлены в `EV3_SOURCE_INPUTS` в [source_hash.py](../tools/source_hash.py):
-штатные C++-исходники и заголовки, действующие сетевые entrypoints, протокол, deployment
+штатные C++-исходники и заголовки, протокол, deployment
 и общий ARM toolchain. Тестовые исходники исключены; builder и проверка пакета
-используют один список через `--component EV3`. После переноса network/mDNS список
-обновляется по фактическим входам C++-сборки.
+используют один список через `--component EV3`.
 
 `build_id` — SHA-256, передаваемый как 32 байта; в тексте используется 64 символа
 lowercase hex. До упаковки он вычисляется из UTF-8 представления следующего
@@ -106,11 +105,11 @@ SDK или временные характеристики из-за логир�
 <a id="sec-engineering-contracts-ev3-package"></a>
 ## 3. Пакет EV3
 
-Кросс-сборка использует образ `ev3dev/debian-stretch-cross:latest`, закреплённый по digest.
-Изменяемый тег используется только для первоначального поиска образа, а не как вход CI/Release.
+Кросс-сборка использует репозиторий образа и точный digest из toolchain lock;
+изменяемые Docker-теги не являются входом BUILD/CI/Release.
 Платформа — `ARMv5TEJ / armel / gnueabi`; обязательные флаги:
 `-march=armv5te -mfloat-abi=soft`. Версии, digest и SHA-256 компилятора берутся из
-[toolchain lock](../toolchains/ev3dev-stretch.lock.json); требования CMake — из
+[toolchain lock](../ev3/toolchains/ev3dev-stretch.lock.json); требования CMake — из
 [проекта EV3](../ev3/CMakeLists.txt).
 
 Для релиза также фиксируются образ, установленный на EV3, его SHA-256, снимок пакетов,
@@ -378,14 +377,17 @@ Quest и EV3 вычисляют хэш кандидата из одинаков�
 Ротация выполняется независимо при запрещённом движении, инвалидирует соответствующие
 сессии и требует одинакового нового ключа на обеих сторонах.
 
-Для фиксированной пары используется `phantom.cmd PROVISION PAIR`.
+Настройка фиксированной пары входит в `phantom.cmd INSTALL EV3` и `INSTALL QUEST`.
 Состояние хранится в `%LOCALAPPDATA%\PHANTOM\pair.json`; SSH key, `known_hosts` и CONTROL PSK —
 в соседних закрытых каталогах с ограниченным ACL. Запись пары выполняется атомарно
-после успешной настройки обеих сторон. Повтор с корректным состоянием возвращает
-`ALREADY_PROVISIONED`. Частичное или повреждённое состояние требует явного `-Repair`.
+как локальное назначение устройств и ключей, до настройки соответствующего устройства.
+Наличие pair.json не подтверждает установку, готовность credential или аппаратный PASS.
+Повторная установка сохраняет назначение и ключи. Частичное или повреждённое состояние
+блокирует установку до проверки и явного восстановления.
 Смена доверенного отпечатка и ключей задаётся отдельно через `-RepinHost`, `-RotateSshKey`,
-`-RotateControlSecret`, при запрещённом движении. Обычные тесты, сборка, установка
-и запуск не создают и не меняют состояние пары.
+`-RotateControlSecret` в установщике EV3 вместе с `-Repair`, при запрещённом движении.
+После ротации CONTROL повторно установить Diagnostic Quest для подготовки того же ключа.
+Обычное обновление не ротирует ключи; тесты, сборка и запуск не настраивают пару.
 
 CONTROL key EV3 хранится в `/var/lib/phantom/secrets/control.psk`, `key_slot=0`:
 каталог `root:phantom-net 0750`, файл `root:phantom-net 0640`.
@@ -399,7 +401,9 @@ Commissioning key хранится отдельным файлом с той ж�
 
 Без установленного ключа CONTROL-сессия невозможна. Настройка входит в условия Stage 3.
 
-1. На доверенном компьютере выполнить `scripts/quest-provision-credential.ps1 -KeyFile <вне репозитория>`.
+1. На доверенном компьютере выполнить `scripts/quest-install.ps1 -Apk <Diagnostic APK>`:
+   установка использует CONTROL key назначенной пары, хранимый вне репозитория,
+   и при первой настройке подготавливает импорт credential. При восстановлении указать `-Repair`.
 2. Передать файл через ADB в каталог подготовки приложения.
 3. При первом запуске отладочной сборки выполнить `importProvisioningDrop()`:
    записать AES-GCM ciphertext в закрытые preferences, ключ шифрования — в Android Keystore.
@@ -423,9 +427,9 @@ Commissioning PSK использует отдельный key id и тот же 
 Package id, preferences namespace, Android Keystore alias и версия формата шифрования
 не меняются при таких обновлениях. Повторная настройка нужна только для нового/reset Quest,
 явного удаления данных, ротации или восстановления хранилища.
-Сборка, установка, запуск и тесты не копируют, не меняют и не удаляют ключ.
+Сборка и обычное обновление не меняют ключ. Первичная установка и явный `-Repair` подготавливают импорт существующего ключа назначенной пары.
 
-Проверка `scripts/quest-credential-persistence-test.ps1` запускается на реальном Quest явно:
+Проверка `scripts/quest-device-integration-test.ps1 -ApkA <A.apk> -ApkB <B.apk>` запускается на реальном Quest явно:
 настроить ключ → установить и запустить A → обновить через `adb install -r` до B → запустить B.
 Требуются два разных `build_id`. Проверяются сохранение
 `dev.phantom.questprototype`, `phantom.credentials.v1`, `dev.phantom.control-credential.v1`
@@ -501,8 +505,7 @@ IPC использует отдельные группы `phantom-ipc` и `phant
 Команды для назначенного EV3:
 
 ```powershell
-scripts\phantom.cmd TRANSFER EV3 -Package <package.tar.gz>
-scripts\phantom.cmd INSTALL EV3 -BuildId <ev3_build_id> -PackageSha256 <package_sha256>
+scripts\phantom.cmd INSTALL EV3 -Package <package.tar.gz>
 scripts\phantom.cmd START EV3 -BuildId <ev3_build_id>
 scripts\phantom.cmd DEVICE EV3 -BuildId <ev3_build_id>
 ```

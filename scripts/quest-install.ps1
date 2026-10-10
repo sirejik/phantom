@@ -1,6 +1,9 @@
 param(
     [string]$Apk='build/quest/PhantomQuest-diagnostic.apk',
     [string]$Package='dev.phantom.questprototype',
+    [string]$HostFingerprint='', [string]$QuestSerial='',
+    [string]$RobotId='', [string]$ControlKeyId='',
+    [switch]$Repair,
     [ValidateRange(1,600)][int]$TimeoutSeconds=180,
     [string]$Destination='results/quest/install',[string]$StateRoot=''
 )
@@ -27,6 +30,8 @@ trap
 }
 . "$PSScriptRoot/../tools/toolchain.ps1"
 . "$PSScriptRoot/pair-state.ps1"
+. "$PSScriptRoot/install-common.ps1"
+. "$PSScriptRoot/install-device.ps1"
 $adb=Get-PhantomAdb
 $apkPath=[System.IO.Path]::GetFullPath($Apk)
 $manifestPath=$apkPath+'.build-manifest.json'
@@ -35,26 +40,17 @@ $manifest=Get-Content -LiteralPath $manifestPath -Encoding UTF8 -Raw|ConvertFrom
 $apkHash=(Get-FileHash -LiteralPath $apkPath -Algorithm SHA256).Hash.ToLowerInvariant()
 if($apkHash-ne$manifest.apk_sha256){throw 'APK hash does not match build manifest'}
 if($manifest.schema_version-ne 8 -or $manifest.build_identity_schema-ne'PHANTOM-BUILD-V4' -or $manifest.component-ne'QUEST' -or $manifest.build_id-notmatch'^[0-9a-f]{64}$'){throw 'Invalid Quest build manifest'}
+$pair=Initialize-PhantomInstallPair -StateRoot $StateRoot -HostFingerprint $HostFingerprint -QuestSerial $QuestSerial -RobotId $RobotId -ControlKeyId $ControlKeyId -Repair:$Repair
+$setupCredential=$Repair -or ($pair.State.PSObject.Properties.Name-contains'quest_credential_staged' -and !$pair.State.quest_credential_staged)
+if($setupCredential -and $manifest.build_profile-ne'Diagnostic'){throw 'PROVISION_REQUIRED: first credential setup requires a Diagnostic APK'}
 $serial=Get-PhantomQuestDevice $adb $StateRoot
 $model=(@(Invoke-PhantomAdb $adb $serial @('shell','getprop','ro.product.model') 8)-join'').Trim()
 $device=(@(Invoke-PhantomAdb $adb $serial @('shell','getprop','ro.product.device') 8)-join'').Trim()
 if($model-ne'Quest 3' -or $device-ne'eureka'){throw "Physical Quest 3 required; found model=$model device=$device"}
 $installStarted=(Get-Date).ToUniversalTime()
 $phaseTerminal='APK_INSTALL_STARTED_RESULT_UNKNOWN'
-$installInfo=[System.Diagnostics.ProcessStartInfo]::new()
-$installInfo.FileName=$adb
-$installInfo.Arguments='-s "{0}" install -r -g "{1}"' -f $serial,$apkPath
-$installInfo.UseShellExecute=$false
-$installProcess=[System.Diagnostics.Process]::Start($installInfo)
-$completed=$installProcess.WaitForExit($TimeoutSeconds*1000)
-if(!$completed)
-{
-    $installProcess.Kill()
-    $installProcess.WaitForExit()
-    throw "adb install exceeded ${TimeoutSeconds}s deadline"
-}
-$installProcess.WaitForExit()
-$installExitCode=$installProcess.ExitCode
+$installResult=Invoke-PhantomProcess $adb @('-s',$serial,'install','-r','-g',$apkPath) $TimeoutSeconds 'INSTALL_TIMEOUT'
+$installExitCode=$installResult.ExitCode
 if($installExitCode-ne 0){throw "adb install failed with exit $installExitCode"}
 $phaseTerminal='APK_INSTALLED_IDENTITY_UNVERIFIED'
 $installDurationMs=[long]((Get-Date).ToUniversalTime()-$installStarted).TotalMilliseconds
@@ -69,6 +65,11 @@ if($installedPath-notmatch'^package:'){throw "Installed package was not found af
 $installedApk=$installedPath.Substring(8)
 $installedHash=(@(Invoke-PhantomAdb $adb $serial @('shell','toybox','sha256sum',$installedApk) 15)-join'').Trim().Split()[0].ToLowerInvariant()
 if($installedHash-ne$apkHash){throw "Installed APK hash mismatch: expected=$apkHash actual=$installedHash"}
+if($setupCredential){
+    Invoke-PhantomQuestCredentialSetup -KeyFile $pair.Paths.ControlSecret -KeyId $pair.State.control_key_id -Package $Package -Serial $serial -StateRoot $StateRoot -Destination (Join-Path $Destination 'credential')
+    $pair.State|Add-Member -NotePropertyName quest_credential_staged -NotePropertyValue $true -Force
+    Write-PhantomPairState $pair.State $StateRoot
+}
 $verifyDurationMs=[long]((Get-Date).ToUniversalTime()-$verifyStarted).TotalMilliseconds
 $phaseTerminal='APK_INSTALLED_EXACT_BYTES_APP_NOT_STARTED'
 $finished=(Get-Date).ToUniversalTime()

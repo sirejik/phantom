@@ -2,11 +2,26 @@ import importlib.util
 import pathlib
 import tempfile
 import unittest
+import sys
+
+sys.path.insert(0, str(pathlib.Path(__file__).resolve().parents[1]))
+import analyze_logs
 
 PATH=pathlib.Path(__file__).with_name("analyze.py")
 SPEC=importlib.util.spec_from_file_location("quest_analyze",str(PATH));analyze=importlib.util.module_from_spec(SPEC);SPEC.loader.exec_module(analyze)
 
 class AnalyzeTests(unittest.TestCase):
+    def test_ev3_journal_summary_is_not_hardware_evidence(self):
+        with tempfile.TemporaryDirectory() as value:
+            path=pathlib.Path(value)/'journal.jsonl'
+            path.write_text('{"_SYSTEMD_UNIT":"phantom-safety.service","PRIORITY":"3"}\n'
+                            '{"_SYSTEMD_UNIT":"phantom-network.service","PRIORITY":"6"}\n',encoding='utf-8')
+            result=analyze_logs.ev3_summary([path])
+            self.assertEqual(result['records'],2)
+            self.assertEqual(result['warning_or_error_records'],1)
+            self.assertEqual(result['hardware_verdict'],'NOT_MEASURED')
+            path.write_text('invalid\n',encoding='utf-8')
+            with self.assertRaises(ValueError):analyze_logs.ev3_summary([path])
     def test_no_data_never_confirms(self):
         for test in analyze.TESTS:self.assertEqual(analyze.evaluate([],test)[0],"NOT_MEASURED")
     def test_reports_are_created(self):

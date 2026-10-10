@@ -174,6 +174,168 @@ constexpr std::size_t kTelemetryPayloadBytes = 236;
 constexpr std::size_t kDiagnosticTelemetryPayloadBytes = 120;
 constexpr std::size_t kPingPayloadBytes = 16;
 constexpr std::size_t kPongPayloadBytes = 16;
+constexpr std::size_t kHelloOffsetRobotId = 0;
+constexpr std::size_t kHelloOffsetProtocolMinor = 32;
+constexpr std::size_t kHelloOffsetKeySlot = 34;
+constexpr std::size_t kHelloOffsetSessionRole = 35;
+constexpr std::size_t kHelloOffsetClientNonce = 36;
+constexpr std::size_t kHelloOffsetCapabilitiesRequested = 52;
+constexpr std::size_t kHelloAckOffsetClientNonceEcho = 0;
+constexpr std::size_t kHelloAckOffsetRobotId = 16;
+constexpr std::size_t kHelloAckOffsetBuildId = 48;
+constexpr std::size_t kHelloAckOffsetProtocolMinor = 80;
+constexpr std::size_t kHelloAckOffsetAcceptedKeySlot = 82;
+constexpr std::size_t kHelloAckOffsetAcceptedRole = 83;
+constexpr std::size_t kHelloAckOffsetReserved0 = 84;
+constexpr std::size_t kHelloAckOffsetProtocolContractHash = 116;
+constexpr std::size_t kHelloAckOffsetCommissioningBundleHash = 148;
+constexpr std::size_t kHelloAckOffsetRobotGeometryHash = 180;
+constexpr std::size_t kHelloAckOffsetDriveCalibrationHash = 212;
+constexpr std::size_t kHelloAckOffsetActiveJointSafeSetHash = 244;
+constexpr std::size_t kHelloAckOffsetPayloadProfilesHash = 276;
+constexpr std::size_t kHelloAckOffsetState = 308;
+constexpr std::size_t kHelloAckOffsetReferenceFlags = 310;
+constexpr std::size_t kHelloAckOffsetBuildProfile = 312;
+constexpr std::size_t kHelloAckOffsetGripperCapabilities = 313;
+constexpr std::size_t kHelloAckOffsetResultCode = 314;
+constexpr std::size_t kHelloAckOffsetSafeJointMinRad = 316;
+constexpr std::size_t kHelloAckOffsetSafeJointMaxRad = 328;
+constexpr std::size_t kHelloAckOffsetJointMaxVelocityRadS = 340;
+constexpr std::size_t kHelloAckOffsetJointMaxAccelerationRadS2 = 352;
+constexpr std::size_t kCalibrationQueryOffsetRequestId = 0;
+constexpr std::size_t kCalibrationSampleOffsetRequestId = 0;
+constexpr std::size_t kCalibrationSampleOffsetSampleId = 8;
+constexpr std::size_t kCalibrationSampleOffsetRawEncoderCount = 16;
+constexpr std::size_t kCalibrationSampleOffsetMotorSpeedCountsS = 32;
+constexpr std::size_t kCalibrationSampleOffsetDutyPermille = 48;
+constexpr std::size_t kCalibrationSampleOffsetBatteryMv = 56;
+constexpr std::size_t kCalibrationSampleOffsetStationaryFlags = 58;
+constexpr std::size_t kCalibrationSampleOffsetSampleMonotonicUs = 60;
+constexpr std::size_t kSetJointReferenceOffsetTransactionId = 0;
+constexpr std::size_t kSetJointReferenceOffsetCommissioningBundleHash = 8;
+constexpr std::size_t kSetJointReferenceOffsetDriveCalibrationHash = 40;
+constexpr std::size_t kSetJointReferenceOffsetSampleId = 72;
+constexpr std::size_t kSetJointReferenceOffsetQQrRad = 80;
+constexpr std::size_t kSetJointReferenceOffsetJawOpeningQrMm = 92;
+constexpr std::size_t kSetJointReferenceOffsetRawEncoderCount = 96;
+constexpr std::size_t kReferenceAckOffsetTransactionId = 0;
+constexpr std::size_t kReferenceAckOffsetResultCode = 8;
+constexpr std::size_t kReferenceAckOffsetReferenceFlags = 10;
+constexpr std::size_t kReferenceAckOffsetSampleId = 12;
+constexpr std::size_t kReferenceAckOffsetQActualRad = 20;
+constexpr std::size_t kReferenceAckOffsetGripActual = 32;
+constexpr std::size_t kCommissioningSampleOffsetTransactionId = 0;
+constexpr std::size_t kCommissioningSampleOffsetSampleId = 8;
+constexpr std::size_t kCommissioningSampleOffsetAxis = 16;
+constexpr std::size_t kCommissioningSampleOffsetDirection = 17;
+constexpr std::size_t kCommissioningSampleOffsetMeasurementKind = 18;
+constexpr std::size_t kCommissioningSampleOffsetReserved0 = 19;
+constexpr std::size_t kCommissioningSampleOffsetEncoderCount = 20;
+constexpr std::size_t kCommissioningSampleOffsetPhysicalValue = 24;
+constexpr std::size_t kCommissioningSampleOffsetQrResidual = 28;
+constexpr std::size_t kCommissioningSampleOffsetUncertainty95 = 32;
+constexpr std::size_t kCommissioningSampleOffsetQualityFlags = 36;
+constexpr std::size_t kCalibrationJogOffsetTransactionId = 0;
+constexpr std::size_t kCalibrationJogOffsetAxis = 8;
+constexpr std::size_t kCalibrationJogOffsetSignedDirection = 9;
+constexpr std::size_t kCalibrationJogOffsetReserved0 = 10;
+constexpr std::size_t kCalibrationJogOffsetMaxEncoderDelta = 12;
+constexpr std::size_t kCalibrationJogOffsetMaxDurationMs = 16;
+constexpr std::size_t kCalibrationJogOffsetMaxSpeedCountsS = 20;
+constexpr std::size_t kCalibrationJogOffsetMaxDutyPermille = 24;
+constexpr std::size_t kCalibrationJogOffsetReserved1 = 26;
+constexpr std::size_t kJogAckOffsetTransactionId = 0;
+constexpr std::size_t kJogAckOffsetResultCode = 8;
+constexpr std::size_t kJogAckOffsetAxis = 10;
+constexpr std::size_t kJogAckOffsetStopReason = 11;
+constexpr std::size_t kJogAckOffsetStartEncoderCount = 12;
+constexpr std::size_t kJogAckOffsetFinalEncoderCount = 16;
+constexpr std::size_t kJogAckOffsetFinalMotorSpeedCountsS = 20;
+constexpr std::size_t kJogAckOffsetSampleId = 24;
+constexpr std::size_t kJogAckOffsetDiagnosticsFlags = 32;
+constexpr std::size_t kSetDriveCalibrationOffsetTransactionId = 0;
+constexpr std::size_t kSetDriveCalibrationOffsetRobotGeometryHash = 8;
+constexpr std::size_t kSetDriveCalibrationOffsetCandidateDriveCalibrationHash = 40;
+constexpr std::size_t kSetDriveCalibrationOffsetCalibrationRevision = 72;
+constexpr std::size_t kSetDriveCalibrationOffsetAxis = 76;
+constexpr std::size_t kSetDriveCalibrationOffsetGripperEClosed = 124;
+constexpr std::size_t kSetDriveCalibrationOffsetGripperOpenLimitDeltaCounts = 128;
+constexpr std::size_t kSetDriveCalibrationOffsetGripperClosedMm = 132;
+constexpr std::size_t kSetDriveCalibrationOffsetGripperOpenLimitMm = 136;
+constexpr std::size_t kSetDriveCalibrationOffsetGripperBacklashCounts = 140;
+constexpr std::size_t kSetDriveCalibrationOffsetOpeningNodeCount = 144;
+constexpr std::size_t kSetDriveCalibrationOffsetClosingNodeCount = 145;
+constexpr std::size_t kSetDriveCalibrationOffsetReserved0 = 146;
+constexpr std::size_t kSetDriveCalibrationOffsetOpeningNodes = 148;
+constexpr std::size_t kSetDriveCalibrationOffsetClosingNodes = 276;
+constexpr std::size_t kSetDriveCalibrationOffsetValidationMaxError = 404;
+constexpr std::size_t kSetDriveCalibrationOffsetValidationRepeatability = 420;
+constexpr std::size_t kDriveCalibrationAckOffsetTransactionId = 0;
+constexpr std::size_t kDriveCalibrationAckOffsetResultCode = 8;
+constexpr std::size_t kDriveCalibrationAckOffsetReserved0 = 10;
+constexpr std::size_t kDriveCalibrationAckOffsetAcceptedDriveCalibrationHash = 12;
+constexpr std::size_t kFaultAckOffsetTransactionId = 0;
+constexpr std::size_t kFaultAckOffsetFaultCode = 8;
+constexpr std::size_t kFaultAckOffsetReserved0 = 10;
+constexpr std::size_t kControlAckOffsetTransactionId = 0;
+constexpr std::size_t kControlAckOffsetResultCode = 8;
+constexpr std::size_t kControlAckOffsetOperationType = 10;
+constexpr std::size_t kControlAckOffsetState = 12;
+constexpr std::size_t kControlAckOffsetFaultCode = 14;
+constexpr std::size_t kControlAckOffsetRelatedId = 16;
+constexpr std::size_t kResetStoppedOffsetTransactionId = 0;
+constexpr std::size_t kSetPayloadProfileOffsetTransactionId = 0;
+constexpr std::size_t kSetPayloadProfileOffsetPayloadProfileId = 8;
+constexpr std::size_t kSetPayloadStateOffsetTransactionId = 0;
+constexpr std::size_t kSetPayloadStateOffsetPayloadProfileId = 8;
+constexpr std::size_t kSetPayloadStateOffsetPayloadState = 40;
+constexpr std::size_t kSetPayloadStateOffsetReserved0 = 41;
+constexpr std::size_t kSetPayloadStateOffsetPayloadConfirmationNonce = 44;
+constexpr std::size_t kCommandOffsetMotionFlags = 0;
+constexpr std::size_t kCommandOffsetQBaseRad = 4;
+constexpr std::size_t kCommandOffsetQShoulderRad = 8;
+constexpr std::size_t kCommandOffsetQElbowRad = 12;
+constexpr std::size_t kCommandOffsetGripIntent = 16;
+constexpr std::size_t kCommandOffsetReserved0 = 20;
+constexpr std::size_t kTelemetryOffsetRobotId = 0;
+constexpr std::size_t kTelemetryOffsetBuildId = 32;
+constexpr std::size_t kTelemetryOffsetCommissioningBundleHash = 64;
+constexpr std::size_t kTelemetryOffsetActiveJointSafeSetHash = 96;
+constexpr std::size_t kTelemetryOffsetState = 128;
+constexpr std::size_t kTelemetryOffsetFaultCode = 130;
+constexpr std::size_t kTelemetryOffsetStatusFlags = 132;
+constexpr std::size_t kTelemetryOffsetIncidentId = 136;
+constexpr std::size_t kTelemetryOffsetLastAcceptedCommandSequence = 152;
+constexpr std::size_t kTelemetryOffsetCommandAgeMs = 160;
+constexpr std::size_t kTelemetryOffsetQActualRad = 164;
+constexpr std::size_t kTelemetryOffsetQSpeedRadS = 176;
+constexpr std::size_t kTelemetryOffsetGripActual = 188;
+constexpr std::size_t kTelemetryOffsetGripState = 192;
+constexpr std::size_t kTelemetryOffsetBatteryMv = 194;
+constexpr std::size_t kTelemetryOffsetLoopHealthFlags = 196;
+constexpr std::size_t kTelemetryOffsetActivePayloadProfileId = 200;
+constexpr std::size_t kTelemetryOffsetPayloadState = 232;
+constexpr std::size_t kTelemetryOffsetBuildProfile = 233;
+constexpr std::size_t kTelemetryOffsetReserved0 = 234;
+constexpr std::size_t kDiagnosticTelemetryOffsetRawEncoderCount = 0;
+constexpr std::size_t kDiagnosticTelemetryOffsetMotorSpeedCountsS = 16;
+constexpr std::size_t kDiagnosticTelemetryOffsetQRefRad = 32;
+constexpr std::size_t kDiagnosticTelemetryOffsetDutyPermille = 44;
+constexpr std::size_t kDiagnosticTelemetryOffsetMotorStressScore = 52;
+constexpr std::size_t kDiagnosticTelemetryOffsetLoopDtUs = 68;
+constexpr std::size_t kDiagnosticTelemetryOffsetLoopMaxRecentUs = 72;
+constexpr std::size_t kDiagnosticTelemetryOffsetRxDropCount = 76;
+constexpr std::size_t kDiagnosticTelemetryOffsetHmacFailCount = 80;
+constexpr std::size_t kDiagnosticTelemetryOffsetParserRejectCount = 84;
+constexpr std::size_t kDiagnosticTelemetryOffsetLastRxSequence = 88;
+constexpr std::size_t kDiagnosticTelemetryOffsetLastTransactionId = 96;
+constexpr std::size_t kDiagnosticTelemetryOffsetLoggerQueueDepth = 104;
+constexpr std::size_t kDiagnosticTelemetryOffsetNetworkQueueDepth = 106;
+constexpr std::size_t kDiagnosticTelemetryOffsetReserved0 = 108;
+constexpr std::size_t kPingOffsetPingId = 0;
+constexpr std::size_t kPingOffsetSenderTimeEchoToken = 8;
+constexpr std::size_t kPongOffsetPingId = 0;
+constexpr std::size_t kPongOffsetSenderTimeEchoToken = 8;
 constexpr std::size_t PayloadBytes(MessageType type) {
   switch(type) {
     case MessageType::HELLO: return 56;
@@ -198,6 +360,168 @@ constexpr std::size_t PayloadBytes(MessageType type) {
     case MessageType::PING: return 16;
     case MessageType::PONG: return 16;
   } return 0;
+}
+inline bool PayloadFieldsValid(MessageType type,const std::uint8_t* data,std::size_t size) {
+  if(size!=PayloadBytes(type)||!size)return false;
+  switch(type) {
+    case MessageType::HELLO: {
+      return true;}
+    case MessageType::HELLO_ACK: {
+      for(std::size_t i=84;i<116;++i)if(data[i])return false;
+      {std::uint32_t bits=0;for(int i=0;i<4;++i)bits|=std::uint32_t(data[316+i])<<(8*i);if((bits&0x7f800000u)==0x7f800000u)return false;}
+      {std::uint32_t bits=0;for(int i=0;i<4;++i)bits|=std::uint32_t(data[320+i])<<(8*i);if((bits&0x7f800000u)==0x7f800000u)return false;}
+      {std::uint32_t bits=0;for(int i=0;i<4;++i)bits|=std::uint32_t(data[324+i])<<(8*i);if((bits&0x7f800000u)==0x7f800000u)return false;}
+      {std::uint32_t bits=0;for(int i=0;i<4;++i)bits|=std::uint32_t(data[328+i])<<(8*i);if((bits&0x7f800000u)==0x7f800000u)return false;}
+      {std::uint32_t bits=0;for(int i=0;i<4;++i)bits|=std::uint32_t(data[332+i])<<(8*i);if((bits&0x7f800000u)==0x7f800000u)return false;}
+      {std::uint32_t bits=0;for(int i=0;i<4;++i)bits|=std::uint32_t(data[336+i])<<(8*i);if((bits&0x7f800000u)==0x7f800000u)return false;}
+      {std::uint32_t bits=0;for(int i=0;i<4;++i)bits|=std::uint32_t(data[340+i])<<(8*i);if((bits&0x7f800000u)==0x7f800000u)return false;}
+      {std::uint32_t bits=0;for(int i=0;i<4;++i)bits|=std::uint32_t(data[344+i])<<(8*i);if((bits&0x7f800000u)==0x7f800000u)return false;}
+      {std::uint32_t bits=0;for(int i=0;i<4;++i)bits|=std::uint32_t(data[348+i])<<(8*i);if((bits&0x7f800000u)==0x7f800000u)return false;}
+      {std::uint32_t bits=0;for(int i=0;i<4;++i)bits|=std::uint32_t(data[352+i])<<(8*i);if((bits&0x7f800000u)==0x7f800000u)return false;}
+      {std::uint32_t bits=0;for(int i=0;i<4;++i)bits|=std::uint32_t(data[356+i])<<(8*i);if((bits&0x7f800000u)==0x7f800000u)return false;}
+      {std::uint32_t bits=0;for(int i=0;i<4;++i)bits|=std::uint32_t(data[360+i])<<(8*i);if((bits&0x7f800000u)==0x7f800000u)return false;}
+      return true;}
+    case MessageType::CALIBRATION_QUERY: {
+      return true;}
+    case MessageType::CALIBRATION_SAMPLE: {
+      {std::uint32_t bits=0;for(int i=0;i<4;++i)bits|=std::uint32_t(data[32+i])<<(8*i);if((bits&0x7f800000u)==0x7f800000u)return false;}
+      {std::uint32_t bits=0;for(int i=0;i<4;++i)bits|=std::uint32_t(data[36+i])<<(8*i);if((bits&0x7f800000u)==0x7f800000u)return false;}
+      {std::uint32_t bits=0;for(int i=0;i<4;++i)bits|=std::uint32_t(data[40+i])<<(8*i);if((bits&0x7f800000u)==0x7f800000u)return false;}
+      {std::uint32_t bits=0;for(int i=0;i<4;++i)bits|=std::uint32_t(data[44+i])<<(8*i);if((bits&0x7f800000u)==0x7f800000u)return false;}
+      return true;}
+    case MessageType::SET_JOINT_REFERENCE: {
+      {std::uint32_t bits=0;for(int i=0;i<4;++i)bits|=std::uint32_t(data[80+i])<<(8*i);if((bits&0x7f800000u)==0x7f800000u)return false;}
+      {std::uint32_t bits=0;for(int i=0;i<4;++i)bits|=std::uint32_t(data[84+i])<<(8*i);if((bits&0x7f800000u)==0x7f800000u)return false;}
+      {std::uint32_t bits=0;for(int i=0;i<4;++i)bits|=std::uint32_t(data[88+i])<<(8*i);if((bits&0x7f800000u)==0x7f800000u)return false;}
+      {std::uint32_t bits=0;for(int i=0;i<4;++i)bits|=std::uint32_t(data[92+i])<<(8*i);if((bits&0x7f800000u)==0x7f800000u)return false;}
+      return true;}
+    case MessageType::REFERENCE_ACK: {
+      {std::uint32_t bits=0;for(int i=0;i<4;++i)bits|=std::uint32_t(data[20+i])<<(8*i);if((bits&0x7f800000u)==0x7f800000u)return false;}
+      {std::uint32_t bits=0;for(int i=0;i<4;++i)bits|=std::uint32_t(data[24+i])<<(8*i);if((bits&0x7f800000u)==0x7f800000u)return false;}
+      {std::uint32_t bits=0;for(int i=0;i<4;++i)bits|=std::uint32_t(data[28+i])<<(8*i);if((bits&0x7f800000u)==0x7f800000u)return false;}
+      {std::uint32_t bits=0;for(int i=0;i<4;++i)bits|=std::uint32_t(data[32+i])<<(8*i);if((bits&0x7f800000u)==0x7f800000u)return false;}
+      return true;}
+    case MessageType::COMMISSIONING_SAMPLE: {
+      for(std::size_t i=19;i<20;++i)if(data[i])return false;
+      {std::uint32_t bits=0;for(int i=0;i<4;++i)bits|=std::uint32_t(data[24+i])<<(8*i);if((bits&0x7f800000u)==0x7f800000u)return false;}
+      {std::uint32_t bits=0;for(int i=0;i<4;++i)bits|=std::uint32_t(data[28+i])<<(8*i);if((bits&0x7f800000u)==0x7f800000u)return false;}
+      {std::uint32_t bits=0;for(int i=0;i<4;++i)bits|=std::uint32_t(data[32+i])<<(8*i);if((bits&0x7f800000u)==0x7f800000u)return false;}
+      return true;}
+    case MessageType::CALIBRATION_JOG: {
+      for(std::size_t i=10;i<12;++i)if(data[i])return false;
+      for(std::size_t i=26;i<28;++i)if(data[i])return false;
+      return true;}
+    case MessageType::JOG_ACK: {
+      {std::uint32_t bits=0;for(int i=0;i<4;++i)bits|=std::uint32_t(data[20+i])<<(8*i);if((bits&0x7f800000u)==0x7f800000u)return false;}
+      return true;}
+    case MessageType::SET_DRIVE_CALIBRATION: {
+      {std::uint32_t bits=0;for(int i=0;i<4;++i)bits|=std::uint32_t(data[76+i])<<(8*i);if((bits&0x7f800000u)==0x7f800000u)return false;}
+      {std::uint32_t bits=0;for(int i=0;i<4;++i)bits|=std::uint32_t(data[80+i])<<(8*i);if((bits&0x7f800000u)==0x7f800000u)return false;}
+      {std::uint32_t bits=0;for(int i=0;i<4;++i)bits|=std::uint32_t(data[84+i])<<(8*i);if((bits&0x7f800000u)==0x7f800000u)return false;}
+      {std::uint32_t bits=0;for(int i=0;i<4;++i)bits|=std::uint32_t(data[88+i])<<(8*i);if((bits&0x7f800000u)==0x7f800000u)return false;}
+      {std::uint32_t bits=0;for(int i=0;i<4;++i)bits|=std::uint32_t(data[92+i])<<(8*i);if((bits&0x7f800000u)==0x7f800000u)return false;}
+      {std::uint32_t bits=0;for(int i=0;i<4;++i)bits|=std::uint32_t(data[96+i])<<(8*i);if((bits&0x7f800000u)==0x7f800000u)return false;}
+      {std::uint32_t bits=0;for(int i=0;i<4;++i)bits|=std::uint32_t(data[100+i])<<(8*i);if((bits&0x7f800000u)==0x7f800000u)return false;}
+      {std::uint32_t bits=0;for(int i=0;i<4;++i)bits|=std::uint32_t(data[104+i])<<(8*i);if((bits&0x7f800000u)==0x7f800000u)return false;}
+      {std::uint32_t bits=0;for(int i=0;i<4;++i)bits|=std::uint32_t(data[108+i])<<(8*i);if((bits&0x7f800000u)==0x7f800000u)return false;}
+      {std::uint32_t bits=0;for(int i=0;i<4;++i)bits|=std::uint32_t(data[112+i])<<(8*i);if((bits&0x7f800000u)==0x7f800000u)return false;}
+      {std::uint32_t bits=0;for(int i=0;i<4;++i)bits|=std::uint32_t(data[116+i])<<(8*i);if((bits&0x7f800000u)==0x7f800000u)return false;}
+      {std::uint32_t bits=0;for(int i=0;i<4;++i)bits|=std::uint32_t(data[120+i])<<(8*i);if((bits&0x7f800000u)==0x7f800000u)return false;}
+      {std::uint32_t bits=0;for(int i=0;i<4;++i)bits|=std::uint32_t(data[132+i])<<(8*i);if((bits&0x7f800000u)==0x7f800000u)return false;}
+      {std::uint32_t bits=0;for(int i=0;i<4;++i)bits|=std::uint32_t(data[136+i])<<(8*i);if((bits&0x7f800000u)==0x7f800000u)return false;}
+      for(std::size_t i=146;i<148;++i)if(data[i])return false;
+      {std::uint32_t bits=0;for(int i=0;i<4;++i)bits|=std::uint32_t(data[152+i])<<(8*i);if((bits&0x7f800000u)==0x7f800000u)return false;}
+      {std::uint32_t bits=0;for(int i=0;i<4;++i)bits|=std::uint32_t(data[160+i])<<(8*i);if((bits&0x7f800000u)==0x7f800000u)return false;}
+      {std::uint32_t bits=0;for(int i=0;i<4;++i)bits|=std::uint32_t(data[168+i])<<(8*i);if((bits&0x7f800000u)==0x7f800000u)return false;}
+      {std::uint32_t bits=0;for(int i=0;i<4;++i)bits|=std::uint32_t(data[176+i])<<(8*i);if((bits&0x7f800000u)==0x7f800000u)return false;}
+      {std::uint32_t bits=0;for(int i=0;i<4;++i)bits|=std::uint32_t(data[184+i])<<(8*i);if((bits&0x7f800000u)==0x7f800000u)return false;}
+      {std::uint32_t bits=0;for(int i=0;i<4;++i)bits|=std::uint32_t(data[192+i])<<(8*i);if((bits&0x7f800000u)==0x7f800000u)return false;}
+      {std::uint32_t bits=0;for(int i=0;i<4;++i)bits|=std::uint32_t(data[200+i])<<(8*i);if((bits&0x7f800000u)==0x7f800000u)return false;}
+      {std::uint32_t bits=0;for(int i=0;i<4;++i)bits|=std::uint32_t(data[208+i])<<(8*i);if((bits&0x7f800000u)==0x7f800000u)return false;}
+      {std::uint32_t bits=0;for(int i=0;i<4;++i)bits|=std::uint32_t(data[216+i])<<(8*i);if((bits&0x7f800000u)==0x7f800000u)return false;}
+      {std::uint32_t bits=0;for(int i=0;i<4;++i)bits|=std::uint32_t(data[224+i])<<(8*i);if((bits&0x7f800000u)==0x7f800000u)return false;}
+      {std::uint32_t bits=0;for(int i=0;i<4;++i)bits|=std::uint32_t(data[232+i])<<(8*i);if((bits&0x7f800000u)==0x7f800000u)return false;}
+      {std::uint32_t bits=0;for(int i=0;i<4;++i)bits|=std::uint32_t(data[240+i])<<(8*i);if((bits&0x7f800000u)==0x7f800000u)return false;}
+      {std::uint32_t bits=0;for(int i=0;i<4;++i)bits|=std::uint32_t(data[248+i])<<(8*i);if((bits&0x7f800000u)==0x7f800000u)return false;}
+      {std::uint32_t bits=0;for(int i=0;i<4;++i)bits|=std::uint32_t(data[256+i])<<(8*i);if((bits&0x7f800000u)==0x7f800000u)return false;}
+      {std::uint32_t bits=0;for(int i=0;i<4;++i)bits|=std::uint32_t(data[264+i])<<(8*i);if((bits&0x7f800000u)==0x7f800000u)return false;}
+      {std::uint32_t bits=0;for(int i=0;i<4;++i)bits|=std::uint32_t(data[272+i])<<(8*i);if((bits&0x7f800000u)==0x7f800000u)return false;}
+      {std::uint32_t bits=0;for(int i=0;i<4;++i)bits|=std::uint32_t(data[280+i])<<(8*i);if((bits&0x7f800000u)==0x7f800000u)return false;}
+      {std::uint32_t bits=0;for(int i=0;i<4;++i)bits|=std::uint32_t(data[288+i])<<(8*i);if((bits&0x7f800000u)==0x7f800000u)return false;}
+      {std::uint32_t bits=0;for(int i=0;i<4;++i)bits|=std::uint32_t(data[296+i])<<(8*i);if((bits&0x7f800000u)==0x7f800000u)return false;}
+      {std::uint32_t bits=0;for(int i=0;i<4;++i)bits|=std::uint32_t(data[304+i])<<(8*i);if((bits&0x7f800000u)==0x7f800000u)return false;}
+      {std::uint32_t bits=0;for(int i=0;i<4;++i)bits|=std::uint32_t(data[312+i])<<(8*i);if((bits&0x7f800000u)==0x7f800000u)return false;}
+      {std::uint32_t bits=0;for(int i=0;i<4;++i)bits|=std::uint32_t(data[320+i])<<(8*i);if((bits&0x7f800000u)==0x7f800000u)return false;}
+      {std::uint32_t bits=0;for(int i=0;i<4;++i)bits|=std::uint32_t(data[328+i])<<(8*i);if((bits&0x7f800000u)==0x7f800000u)return false;}
+      {std::uint32_t bits=0;for(int i=0;i<4;++i)bits|=std::uint32_t(data[336+i])<<(8*i);if((bits&0x7f800000u)==0x7f800000u)return false;}
+      {std::uint32_t bits=0;for(int i=0;i<4;++i)bits|=std::uint32_t(data[344+i])<<(8*i);if((bits&0x7f800000u)==0x7f800000u)return false;}
+      {std::uint32_t bits=0;for(int i=0;i<4;++i)bits|=std::uint32_t(data[352+i])<<(8*i);if((bits&0x7f800000u)==0x7f800000u)return false;}
+      {std::uint32_t bits=0;for(int i=0;i<4;++i)bits|=std::uint32_t(data[360+i])<<(8*i);if((bits&0x7f800000u)==0x7f800000u)return false;}
+      {std::uint32_t bits=0;for(int i=0;i<4;++i)bits|=std::uint32_t(data[368+i])<<(8*i);if((bits&0x7f800000u)==0x7f800000u)return false;}
+      {std::uint32_t bits=0;for(int i=0;i<4;++i)bits|=std::uint32_t(data[376+i])<<(8*i);if((bits&0x7f800000u)==0x7f800000u)return false;}
+      {std::uint32_t bits=0;for(int i=0;i<4;++i)bits|=std::uint32_t(data[384+i])<<(8*i);if((bits&0x7f800000u)==0x7f800000u)return false;}
+      {std::uint32_t bits=0;for(int i=0;i<4;++i)bits|=std::uint32_t(data[392+i])<<(8*i);if((bits&0x7f800000u)==0x7f800000u)return false;}
+      {std::uint32_t bits=0;for(int i=0;i<4;++i)bits|=std::uint32_t(data[400+i])<<(8*i);if((bits&0x7f800000u)==0x7f800000u)return false;}
+      {std::uint32_t bits=0;for(int i=0;i<4;++i)bits|=std::uint32_t(data[404+i])<<(8*i);if((bits&0x7f800000u)==0x7f800000u)return false;}
+      {std::uint32_t bits=0;for(int i=0;i<4;++i)bits|=std::uint32_t(data[408+i])<<(8*i);if((bits&0x7f800000u)==0x7f800000u)return false;}
+      {std::uint32_t bits=0;for(int i=0;i<4;++i)bits|=std::uint32_t(data[412+i])<<(8*i);if((bits&0x7f800000u)==0x7f800000u)return false;}
+      {std::uint32_t bits=0;for(int i=0;i<4;++i)bits|=std::uint32_t(data[416+i])<<(8*i);if((bits&0x7f800000u)==0x7f800000u)return false;}
+      {std::uint32_t bits=0;for(int i=0;i<4;++i)bits|=std::uint32_t(data[420+i])<<(8*i);if((bits&0x7f800000u)==0x7f800000u)return false;}
+      {std::uint32_t bits=0;for(int i=0;i<4;++i)bits|=std::uint32_t(data[424+i])<<(8*i);if((bits&0x7f800000u)==0x7f800000u)return false;}
+      {std::uint32_t bits=0;for(int i=0;i<4;++i)bits|=std::uint32_t(data[428+i])<<(8*i);if((bits&0x7f800000u)==0x7f800000u)return false;}
+      {std::uint32_t bits=0;for(int i=0;i<4;++i)bits|=std::uint32_t(data[432+i])<<(8*i);if((bits&0x7f800000u)==0x7f800000u)return false;}
+      return true;}
+    case MessageType::DRIVE_CALIBRATION_ACK: {
+      for(std::size_t i=10;i<12;++i)if(data[i])return false;
+      return true;}
+    case MessageType::FAULT_ACK: {
+      for(std::size_t i=10;i<12;++i)if(data[i])return false;
+      return true;}
+    case MessageType::CONTROL_ACK: {
+      return true;}
+    case MessageType::RESET_STOPPED: {
+      return true;}
+    case MessageType::SET_PAYLOAD_PROFILE: {
+      return true;}
+    case MessageType::SET_PAYLOAD_STATE: {
+      for(std::size_t i=41;i<44;++i)if(data[i])return false;
+      return true;}
+    case MessageType::COMMAND: {
+      {std::uint32_t bits=0;for(int i=0;i<4;++i)bits|=std::uint32_t(data[4+i])<<(8*i);if((bits&0x7f800000u)==0x7f800000u)return false;}
+      {std::uint32_t bits=0;for(int i=0;i<4;++i)bits|=std::uint32_t(data[8+i])<<(8*i);if((bits&0x7f800000u)==0x7f800000u)return false;}
+      {std::uint32_t bits=0;for(int i=0;i<4;++i)bits|=std::uint32_t(data[12+i])<<(8*i);if((bits&0x7f800000u)==0x7f800000u)return false;}
+      {std::uint32_t bits=0;for(int i=0;i<4;++i)bits|=std::uint32_t(data[16+i])<<(8*i);if((bits&0x7f800000u)==0x7f800000u)return false;}
+      for(std::size_t i=20;i<24;++i)if(data[i])return false;
+      return true;}
+    case MessageType::TELEMETRY: {
+      {std::uint32_t bits=0;for(int i=0;i<4;++i)bits|=std::uint32_t(data[164+i])<<(8*i);if((bits&0x7f800000u)==0x7f800000u)return false;}
+      {std::uint32_t bits=0;for(int i=0;i<4;++i)bits|=std::uint32_t(data[168+i])<<(8*i);if((bits&0x7f800000u)==0x7f800000u)return false;}
+      {std::uint32_t bits=0;for(int i=0;i<4;++i)bits|=std::uint32_t(data[172+i])<<(8*i);if((bits&0x7f800000u)==0x7f800000u)return false;}
+      {std::uint32_t bits=0;for(int i=0;i<4;++i)bits|=std::uint32_t(data[176+i])<<(8*i);if((bits&0x7f800000u)==0x7f800000u)return false;}
+      {std::uint32_t bits=0;for(int i=0;i<4;++i)bits|=std::uint32_t(data[180+i])<<(8*i);if((bits&0x7f800000u)==0x7f800000u)return false;}
+      {std::uint32_t bits=0;for(int i=0;i<4;++i)bits|=std::uint32_t(data[184+i])<<(8*i);if((bits&0x7f800000u)==0x7f800000u)return false;}
+      {std::uint32_t bits=0;for(int i=0;i<4;++i)bits|=std::uint32_t(data[188+i])<<(8*i);if((bits&0x7f800000u)==0x7f800000u)return false;}
+      for(std::size_t i=234;i<236;++i)if(data[i])return false;
+      return true;}
+    case MessageType::DIAGNOSTIC_TELEMETRY: {
+      {std::uint32_t bits=0;for(int i=0;i<4;++i)bits|=std::uint32_t(data[16+i])<<(8*i);if((bits&0x7f800000u)==0x7f800000u)return false;}
+      {std::uint32_t bits=0;for(int i=0;i<4;++i)bits|=std::uint32_t(data[20+i])<<(8*i);if((bits&0x7f800000u)==0x7f800000u)return false;}
+      {std::uint32_t bits=0;for(int i=0;i<4;++i)bits|=std::uint32_t(data[24+i])<<(8*i);if((bits&0x7f800000u)==0x7f800000u)return false;}
+      {std::uint32_t bits=0;for(int i=0;i<4;++i)bits|=std::uint32_t(data[28+i])<<(8*i);if((bits&0x7f800000u)==0x7f800000u)return false;}
+      {std::uint32_t bits=0;for(int i=0;i<4;++i)bits|=std::uint32_t(data[32+i])<<(8*i);if((bits&0x7f800000u)==0x7f800000u)return false;}
+      {std::uint32_t bits=0;for(int i=0;i<4;++i)bits|=std::uint32_t(data[36+i])<<(8*i);if((bits&0x7f800000u)==0x7f800000u)return false;}
+      {std::uint32_t bits=0;for(int i=0;i<4;++i)bits|=std::uint32_t(data[40+i])<<(8*i);if((bits&0x7f800000u)==0x7f800000u)return false;}
+      {std::uint32_t bits=0;for(int i=0;i<4;++i)bits|=std::uint32_t(data[52+i])<<(8*i);if((bits&0x7f800000u)==0x7f800000u)return false;}
+      {std::uint32_t bits=0;for(int i=0;i<4;++i)bits|=std::uint32_t(data[56+i])<<(8*i);if((bits&0x7f800000u)==0x7f800000u)return false;}
+      {std::uint32_t bits=0;for(int i=0;i<4;++i)bits|=std::uint32_t(data[60+i])<<(8*i);if((bits&0x7f800000u)==0x7f800000u)return false;}
+      {std::uint32_t bits=0;for(int i=0;i<4;++i)bits|=std::uint32_t(data[64+i])<<(8*i);if((bits&0x7f800000u)==0x7f800000u)return false;}
+      for(std::size_t i=108;i<120;++i)if(data[i])return false;
+      return true;}
+    case MessageType::PING: {
+      return true;}
+    case MessageType::PONG: {
+      return true;}
+  } return false;
 }
 static_assert(kHeaderBytes+kHmacBytes+436<=kMaxDatagramBytes, "largest v1 packet must fit");
 } } // namespace phantom::wire

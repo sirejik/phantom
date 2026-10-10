@@ -1,9 +1,56 @@
 param(
-    [Parameter(Mandatory=$true)][ValidatePattern('^[0-9a-f]{64}$')][string]$ExpectedBuildId,
+    [ValidatePattern('^[0-9a-f]{64}$')][string]$ExpectedBuildId,
     [string]$Package='dev.phantom.questprototype',[ValidateRange(1,60)][int]$ReportTimeoutSeconds=35,
-    [string]$Destination='results/quest/device-integration',[string]$StateRoot=''
+    [string]$Destination='results/quest/device-integration',[string]$StateRoot='',
+    [string]$ApkA='',[string]$ApkB=''
 )
-$ErrorActionPreference='Stop';$started=(Get-Date).ToUniversalTime();$phaseComplete=$false;$reportPath=$null
+$ErrorActionPreference='Stop'
+$started=(Get-Date).ToUniversalTime();$phaseComplete=$false;$reportPath=$null
+
+# Optional update-persistence scenario; all device checks share this entry point.
+if($ApkA -or $ApkB)
+{
+    if(!$ApkA -or !$ApkB -or $ExpectedBuildId){throw 'Specify both -ApkA and -ApkB, without -ExpectedBuildId'}
+    function Read-BuildId([string]$Apk)
+    {
+        $resolved=[IO.Path]::GetFullPath($Apk)
+        $sidecar=$resolved+'.build-manifest.json'
+        if(!(Test-Path -LiteralPath $resolved -PathType Leaf) -or !(Test-Path -LiteralPath $sidecar -PathType Leaf))
+        {throw "APK or sidecar is missing: $resolved"}
+        $manifest=Get-Content -LiteralPath $sidecar -Raw -Encoding UTF8|ConvertFrom-Json
+        if($manifest.component-ne'QUEST' -or $manifest.build_id-notmatch'^[0-9a-f]{64}$'){throw "Invalid Quest manifest: $sidecar"}
+        return $manifest.build_id
+    }
+
+    $started=(Get-Date).ToUniversalTime();$buildA=Read-BuildId $ApkA;$buildB=Read-BuildId $ApkB
+    if($buildA-eq$buildB){throw 'Persistence regression requires two distinct Quest builds'}
+
+    . "$PSScriptRoot/pair-state.ps1"
+    Read-PhantomPairState $StateRoot -RequirePrivateFiles|Out-Null
+    . "$PSScriptRoot/../tools/toolchain.ps1"
+    $adb=Get-PhantomAdb;$serial=Get-PhantomQuestDevice $adb $StateRoot
+
+    & powershell.exe -NoProfile -ExecutionPolicy Bypass -File "$PSScriptRoot/quest-install.ps1" -Apk $ApkA -Package $Package -StateRoot $StateRoot -Repair
+    if($LASTEXITCODE-ne 0){throw 'Build A INSTALL failed'}
+    & powershell.exe -NoProfile -ExecutionPolicy Bypass -File "$PSScriptRoot/quest-start.ps1" -Package $Package -ExpectedBuildId $buildA -StateRoot $StateRoot
+    if($LASTEXITCODE-ne 0){throw 'Build A credential was not ready'}
+    & powershell.exe -NoProfile -ExecutionPolicy Bypass -File "$PSScriptRoot/quest-install.ps1" -Apk $ApkB -Package $Package -StateRoot $StateRoot
+    if($LASTEXITCODE-ne 0){throw 'Build B in-place INSTALL failed'}
+    & powershell.exe -NoProfile -ExecutionPolicy Bypass -File "$PSScriptRoot/quest-start.ps1" -Package $Package -ExpectedBuildId $buildB -StateRoot $StateRoot
+    if($LASTEXITCODE-ne 0){throw 'Credential did not survive the in-place update to build B'}
+
+    $finished=(Get-Date).ToUniversalTime();$report=[ordered]@{schema_version=1;phase='DEVICE INTEGRATION TEST';test_id='quest-control-credential-persistence';status='PASS';build_a=$buildA;build_b=$buildB;install_mode='adb install -r -g';credential_contents_recorded=$false;started_at=$started.ToString('o');finished_at=$finished.ToString('o');duration_ms=[long]($finished-$started).TotalMilliseconds}
+    New-Item -ItemType Directory -Force -Path $Destination|Out-Null
+    $path=Join-Path ([IO.Path]::GetFullPath($Destination)) 'report.json'
+    Invoke-PhantomAdb $adb $serial @('shell','am','force-stop',$Package) 8|Out-Null
+    [IO.File]::WriteAllText($path,($report|ConvertTo-Json -Depth 6)+"`n",[Text.UTF8Encoding]::new($false))
+    $phaseComplete=$true
+    Write-Output "QUEST credential persistence: PASS build_a=$buildA build_b=$buildB report=$path"
+
+    exit 0
+}
+if(!$ExpectedBuildId){throw '-ExpectedBuildId is required for installed-build checks'}
+
 trap
 {
     $failureMessage=$_.Exception.Message
@@ -14,7 +61,8 @@ trap
         {
             try{Invoke-PhantomAdb $adb $serial @('shell','am','force-stop',$Package) 8|Out-Null;$terminalState='APP_FORCE_STOP_REQUESTED'}catch{}
         }
-        $runDirectory=Join-Path ([IO.Path]::GetFullPath($Destination)) $ExpectedBuildId;New-Item -ItemType Directory -Force -Path $runDirectory|Out-Null
+        $reportIdentity=if($ExpectedBuildId){$ExpectedBuildId}else{'credential-persistence'}
+        $runDirectory=Join-Path ([IO.Path]::GetFullPath($Destination)) $reportIdentity;New-Item -ItemType Directory -Force -Path $runDirectory|Out-Null
         $reportPath=Join-Path $runDirectory 'quest-device-integration-test.json';$finished=(Get-Date).ToUniversalTime();$reason=if($failureMessage-match'^([A-Z][A-Z0-9_]+):'){$Matches[1]}else{'DEVICE_CHECK_FAILED'};$failed=[ordered]@{schema_version=2;phase='DEVICE INTEGRATION TEST';gate='QUEST DEVICE INTEGRATION TEST';component='QUEST';profile='UNKNOWN';status='FAIL';reason=$reason;build_id=$ExpectedBuildId;artifact_sha256=$null;detail=$failureMessage;started_at=$started.ToString('o');finished_at=$finished.ToString('o');duration_ms=[long]($finished-$started).TotalMilliseconds;terminal_state=$terminalState;hardware_evidence_state='DEVICE'}
         [IO.File]::WriteAllText($reportPath,($failed|ConvertTo-Json -Depth 8)+"`n",[Text.UTF8Encoding]::new($false))
     }
@@ -50,7 +98,7 @@ $secondLog=@(Invoke-PhantomAdb $adb $serial @('logcat','-d') 10)
 Invoke-PhantomAdb $adb $serial @('shell','am','force-stop',$Package) 8|Out-Null
 $appReport=Get-Content -LiteralPath (Join-Path $runDirectory 'app-report.json') -Raw -Encoding UTF8|ConvertFrom-Json
 $relaunchReport=Get-Content -LiteralPath (Join-Path $runDirectory 'relaunch-report.json') -Raw -Encoding UTF8|ConvertFrom-Json
-if($appReport.schema_version-ne 2 -or $relaunchReport.schema_version-ne 2 -or $appReport.build_profile-notin @('Diagnostic','Release','DeepDebug')){throw 'MALFORMED_PHASE_RESULT: invalid Quest integration report schema or profile'}
+if($appReport.schema_version-ne 2 -or $relaunchReport.schema_version-ne 2 -or $appReport.build_profile-notin @('Diagnostic','Release')){throw 'MALFORMED_PHASE_RESULT: invalid Quest integration report schema or profile'}
 $crashPattern='FATAL EXCEPTION|Fatal signal|CRASH:|ANR in dev\.phantom\.questprototype';$checks=@(
     [ordered]@{test_id='installed-build-id';status=if($appReport.build_id-eq$ExpectedBuildId){'PASS'}else{'FAIL'};detail="expected=$ExpectedBuildId actual=$($appReport.build_id)"},
     [ordered]@{test_id='first-launch';status=if($firstPid-and!(($firstLog-join"`n")-match$crashPattern)){'PASS'}else{'FAIL'}},

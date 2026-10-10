@@ -25,13 +25,10 @@ jobs:
           python3 tools/test_ipc_contract.py
           python3 tools/test_build_identity.py
           python3 tools/test_configgen.py
-      - name: EV3 worker, device integration and simulation regressions
+      - name: EV3 device integration and package regressions
         run: |
-          python3 ev3/network/test_phantom_network.py
           python3 tools/test_ev3_device_integration.py
           python3 tools/test_artifact_check.py
-          python3 tools/test_apk_repro_diff.py
-          python3 sim/ev3-simulator/test_simulator.py
       - name: Report analyzers
         run: python3 tools/quest_validation/test_analyze.py
       - name: Secret and provisioning scan
@@ -46,16 +43,27 @@ jobs:
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v4
-      - name: Pull pinned ev3dev Stretch cross image
-        run: docker pull ev3dev/debian-stretch-cross@sha256:819ea7442bbe109d2b39c6c7766e7d1fe635bb98b86c4f6c3b636c0ce176a29f
       - name: Build ARMv5TEJ armel artifacts in pinned image
+        shell: pwsh
         run: |
-          mkdir -p "$RUNNER_TEMP/phantom-ev3-armel"
-          for profile in Diagnostic; do
-            out="$RUNNER_TEMP/phantom-ev3-armel/$(echo "$profile" | tr A-Z a-z)"
-            mkdir -p "$out"
-            docker run --rm --entrypoint sh \
-              -v "$PWD:/workspace:ro" -v "$out:/out" \
-              ev3dev/debian-stretch-cross@sha256:819ea7442bbe109d2b39c6c7766e7d1fe635bb98b86c4f6c3b636c0ce176a29f \
-              /workspace/scripts/ev3-armel-build /out "$profile"
-          done
+          $ErrorActionPreference='Stop'
+          . ./scripts/build-environment.ps1
+          $image=Get-PhantomEv3CrossImage
+          docker pull $image
+          if($LASTEXITCODE-ne 0){throw 'EV3 cross image pull failed'}
+          $out=Join-Path $env:RUNNER_TEMP 'phantom-ev3-armel/diagnostic'
+          New-Item -ItemType Directory -Force $out | Out-Null
+          $command=Get-PhantomEv3BuildCommand Diagnostic
+          docker run --rm --entrypoint sh -v "${PWD}:/workspace:ro" -v "${out}:/out" $image -lc $command
+          if($LASTEXITCODE-ne 0){throw 'EV3 cross-build failed'}
+
+  quest-host:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-dotnet@v4
+        with:
+          global-json-file: PhantomQuest/Tests/Host/global.json
+      - name: Quest CSharp unit and functional tests
+        working-directory: PhantomQuest/Tests/Host
+        run: dotnet test --configuration Debug -p:RestoreLockedMode=true

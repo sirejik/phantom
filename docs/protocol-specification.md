@@ -353,15 +353,18 @@ Exact byte layout, offsets, payload sizes and numeric enum/bit definitions, ко
 остаются нормативными в owning prose. Production serializers/deserializers могут быть
 hand-written, но не являются отдельным source of truth.
 
-Authoritative protocol identity sources:
+Источники протокола и производные файлы:
 
-1. `protocol/wire_schema.yaml` — machine-readable wire structure source;
-2. `protocol/semantics.yaml` — machine-readable cross-runtime behavioral contract;
-3. generated `wire_schema.structural.json`, `protocol_semantics.canonical.json` and
-   `protocol_contract.canonical.json` — RFC 8785 JCS identity inputs;
-4. `docs/protocol-wire-reference.md` — generated human-readable mirror;
-5. generated C++/C# constants/size maps/compile-time definitions;
-6. `protocol/golden_vectors/v1.json` — cross-language wire fixtures.
+| file | role |
+|---|---|
+| [protocol/wire_schema.yaml](../protocol/wire_schema.yaml) | normative machine-readable Quest↔EV3 wire source (JSON syntax, also valid YAML; the host generator uses the Python standard library) |
+| [protocol/semantics.yaml](../protocol/semantics.yaml) | shared protocol semantics and compatibility inputs |
+| [protocol/ipc_schema.yaml](../protocol/ipc_schema.yaml) | normative machine-readable source for the EV3-local `phantom-network` ↔ `phantom-controller` boundary |
+| [protocol/jcs.py](../protocol/jcs.py) | reference RFC 8785 canonicalizer for host tools; codec implementations must derive identical canonical bytes |
+| [protocol/phantom_protocol.py](../protocol/phantom_protocol.py) | Python reference codec for host tools and test fixtures |
+| [docs/protocol-wire-reference.md](protocol-wire-reference.md) | **generated** human-readable mirror of both schemas |
+| [protocol/generated/](../protocol/generated/) | canonical projections, C++/C#/Python constants and layouts, schema hashes |
+| [protocol/golden_vectors/](../protocol/golden_vectors/) | cross-language fixtures: `v1.json` (wire), `ipc_v1.json` (IPC layout), `jcs_v1.json` (canonicalization) |
 
 If generated artifacts disagree with `wire_schema.yaml`, CI must fail. If behavioral prose in
 this document disagrees with the machine schema, the change is incomplete: resolve the

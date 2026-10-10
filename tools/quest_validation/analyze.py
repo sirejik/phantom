@@ -1,6 +1,5 @@
 #!/usr/bin/env python3
 """Analyze pulled Phantom Quest JSONL without turning missing device data into evidence."""
-import argparse
 import json
 import math
 import pathlib
@@ -260,13 +259,3 @@ def write_reports(events,out_dir):
     (out_dir/"QUEST_ARCHITECTURE_RECOMMENDATIONS.md").write_text("\n".join(recommendations)+"\n",encoding="utf-8")
     calibration=["# User Calibration Report","",f"Run IDs: {', '.join(sorted({e.get('run_id','') for e in events if e.get('test_id')=='Q8_UserShoulderFit' and e.get('run_id')})) or 'none'}","", "Status: **NOT_MEASURED**" if not tracking_samples(events,"Q8_UserShoulderFit") else "Status: **INCONCLUSIVE** — raw samples exist, but labeled normal/bent/coverage/head-rotation/body-step series and fit-result events are incomplete.","","Required matrix: 10 normal, 5 bent elbow, 5 insufficient coverage, 5 head-rotation-only, 3 body-step negatives."]
     (out_dir/"USER_CALIBRATION_REPORT.md").write_text("\n".join(calibration)+"\n",encoding="utf-8")
-
-def main():
-    parser=argparse.ArgumentParser();parser.add_argument("inputs",nargs="*",type=pathlib.Path);parser.add_argument("--out",type=pathlib.Path,default=pathlib.Path("results/quest/summaries"));args=parser.parse_args()
-    paths=[]
-    for item in args.inputs:
-        paths.extend(sorted(item.rglob("*.jsonl")) if item.is_dir() else [item])
-    write_reports(load(paths),args.out)
-    print(f"analyzed {len(paths)} files -> {args.out}")
-
-if __name__=="__main__":main()

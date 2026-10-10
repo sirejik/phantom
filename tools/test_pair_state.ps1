@@ -2,9 +2,13 @@ $ErrorActionPreference='Stop'
 $repository=Split-Path -Parent $PSScriptRoot
 . "$repository/scripts/pair-state.ps1"
 . "$repository/scripts/ev3-deploy-common.ps1"
+. "$repository/scripts/install-common.ps1"
+. "$repository/scripts/install-device.ps1"
 $temporary=Join-Path ([IO.Path]::GetTempPath()) ('phantom-pair-test-'+[Guid]::NewGuid().ToString('N'))
 $failures=New-Object 'System.Collections.Generic.List[string]'
 $savedEnvironment=@{}
+foreach($name in @('PHANTOM_UNITY_ROOT','PHANTOM_TEST_UNITY_MODE','PHANTOM_TEST_INSTALL_HASH','PHANTOM_TEST_INSTALL_RECORD','PHANTOM_TEST_INSTALL_FAIL'))
+{$savedEnvironment[$name]=[Environment]::GetEnvironmentVariable($name,'Process')}
 foreach($name in @('PATH','PHANTOM_ADB','PHANTOM_TEST_PULL_RECORD','PHANTOM_TEST_PULL_EXIT','PHANTOM_TEST_ANALYZER_RECORD','PHANTOM_TEST_ANALYZER_EXIT','PHANTOM_TEST_LAUNCH_STATE','PHANTOM_TEST_LAUNCH_MODE','PHANTOM_TEST_BUILD_ID'))
 {$savedEnvironment[$name]=[Environment]::GetEnvironmentVariable($name,'Process')}
 function Assert-True([bool]$Condition,[string]$Message){if(!$Condition){$failures.Add($Message)}}
@@ -15,6 +19,39 @@ function Assert-Throws([scriptblock]$Action,[string]$Code)
 }
 try
 {
+    # Run the real Unity test entry point with a fake executable. Process success
+    # must not accept stale, missing, empty or failed NUnit reports.
+    $env:PHANTOM_UNITY_ROOT=Join-Path $temporary 'unity'
+    New-Item -ItemType Directory -Force -Path (Join-Path $env:PHANTOM_UNITY_ROOT 'Editor/Data') | Out-Null
+    Add-Type -OutputAssembly (Join-Path $env:PHANTOM_UNITY_ROOT 'Editor/Unity.exe') -OutputType ConsoleApplication -TypeDefinition @'
+using System;
+using System.IO;
+public class FakeUnity {
+    public static int Main(string[] args) {
+        int target=Array.IndexOf(args,"-buildTarget");
+        if(target<0 || target+1>=args.Length || args[target+1]!="Android") return 8;
+        string mode=Environment.GetEnvironmentVariable("PHANTOM_TEST_UNITY_MODE");
+        if(mode=="timeout") { System.Threading.Thread.Sleep(10000); return 0; }
+        string path=args[Array.IndexOf(args,"-testResults")+1];
+        if(mode=="missing") return 0;
+        string report=mode=="empty" ? "<test-run result='Passed' total='0' passed='0' failed='0'/>" :
+            mode=="failed" ? "<test-run result='Failed' total='1' passed='0' failed='1'/>" :
+            mode=="malformed" ? "<test-run" : "<test-run result='Passed' total='1' passed='1' failed='0'/>";
+        File.WriteAllText(path,report);
+        return mode=="exit" ? 7 : 0;
+    }
+}
+'@
+    foreach($mode in @('passed','failed','empty','missing','malformed','timeout','exit'))
+    {
+        $env:PHANTOM_TEST_UNITY_MODE=$mode
+        $report=Join-Path $temporary 'unity-report.xml'
+        [IO.File]::WriteAllText($report,"<test-run result='Passed' total='1' passed='1' failed='0'/>")
+        $previousPreference=$ErrorActionPreference;$ErrorActionPreference='Continue'
+        try{$output=& powershell.exe -NoProfile -ExecutionPolicy Bypass -File "$repository/scripts/quest-test.ps1" -Suite Unity -Results $report -TimeoutSeconds 1 2>&1;$unityExit=$LASTEXITCODE}
+        finally{$ErrorActionPreference=$previousPreference}
+        Assert-True (($unityExit-eq 0)-eq($mode-eq'passed')) "Unity mode $mode returned $unityExit : $($output-join' ')"
+    }
     $paths=Get-PhantomPairPaths $temporary
     Assert-Throws {Read-PhantomPairState $temporary} 'PROVISION_REQUIRED'
     New-Item -ItemType Directory -Force -Path $paths.SshDirectory,$paths.SecretDirectory|Out-Null
@@ -39,14 +76,21 @@ try
     $env:PHANTOM_TEST_ADB_LINE=''
     Assert-Throws {Get-PhantomQuestDevice $fake $temporary} 'QUEST_NOT_FOUND'
 
-    $run=& powershell.exe -NoProfile -ExecutionPolicy Bypass -File "$repository/scripts/provision-fixed-pair.ps1" -StateRoot $temporary -Destination (Join-Path $temporary 'result') 2>&1
-    Assert-True ($LASTEXITCODE-eq 0) "idempotent PROVISION failed: $($run-join' ')"
-    Assert-True (($run-join' ') -match'ALREADY_PROVISIONED') 'idempotent PROVISION did not report ALREADY_PROVISIONED'
-    $savedPreference=$ErrorActionPreference;$ErrorActionPreference='Continue'
-    try{$rotation=& powershell.exe -NoProfile -ExecutionPolicy Bypass -File "$repository/scripts/provision-fixed-pair.ps1" -StateRoot $temporary -Destination (Join-Path $temporary 'result') -RotateControlSecret 2>&1;$rotationExit=$LASTEXITCODE}
-    finally{$ErrorActionPreference=$savedPreference}
-    Assert-True ($rotationExit-ne 0) 'credential rotation without explicit repair was accepted'
-    Assert-True (($rotation-join' ') -match'rotation/repin requires explicit -Repair') 'rotation admission did not fail with the canonical repair requirement'
+    $secretBefore=(Get-FileHash $paths.ControlSecret).Hash
+    $run=Initialize-PhantomInstallPair -StateRoot $temporary
+    Assert-True ($run.State.quest_adb_serial-eq'QUEST-EXACT-001') 'idempotent INSTALL setup changed the designated Quest'
+    Assert-True ((Get-FileHash $paths.ControlSecret).Hash-eq$secretBefore) 'routine INSTALL rotated the credential'
+    Assert-Throws {Initialize-PhantomInstallPair -StateRoot $temporary -RotateControlSecret} 'PROVISION_CORRUPT'
+    Assert-Throws {Initialize-PhantomInstallPair -StateRoot $temporary -QuestSerial OTHER} 'QUEST_IDENTITY_MISMATCH'
+    Assert-Throws {Initialize-PhantomInstallPair -StateRoot $temporary -HostFingerprint ('SHA256:'+('B'*43))} 'HOST_KEY_MISMATCH'
+    $firstRoot=Join-Path $temporary 'first-install'
+    Assert-Throws {Initialize-PhantomInstallPair -StateRoot $firstRoot -QuestSerial QUEST-EXACT-001} 'PROVISION_REQUIRED'
+    $first=Initialize-PhantomInstallPair -StateRoot $firstRoot -QuestSerial QUEST-EXACT-001 -HostFingerprint ('SHA256:'+('A'*43))
+    Assert-True ((Get-Item $first.Paths.ControlSecret).Length-eq 32) 'first INSTALL did not create a 32-byte CONTROL credential'
+    Assert-True (!$first.State.quest_credential_staged) 'first INSTALL prematurely marked the Quest credential as staged'
+    $custom=Initialize-PhantomInstallPair -StateRoot (Join-Path $temporary 'custom-pair') -QuestSerial QUEST-EXACT-001 -HostFingerprint ('SHA256:'+('A'*43)) -RobotId custom-robot -ControlKeyId custom-key
+    $customUpdate=Initialize-PhantomInstallPair -StateRoot $custom.Paths.Root
+    Assert-True ($customUpdate.State.robot_id-eq'custom-robot'-and$customUpdate.State.control_key_id-eq'custom-key') 'routine INSTALL did not preserve custom pair identities'
 
     $fakeSsh=Join-Path $temporary 'fake-ssh.cmd'
     [IO.File]::WriteAllText($fakeSsh,"@echo off`r`necho REPORT_CHANNEL`r`necho DIAGNOSTIC_CHANNEL 1>&2`r`nexit /b 7`r`n",[Text.Encoding]::ASCII)
@@ -57,7 +101,7 @@ try
 
     # Exercise the actual provisioning command against a failing temporary bootstrap.
     $parseTokens=$null;$parseErrors=$null
-    $provisionAst=[Management.Automation.Language.Parser]::ParseFile("$repository/scripts/ev3-provision-maintenance.ps1",[ref]$parseTokens,[ref]$parseErrors)
+    $provisionAst=[Management.Automation.Language.Parser]::ParseFile("$repository/scripts/install-device.ps1",[ref]$parseTokens,[ref]$parseErrors)
     $commandAst=$provisionAst.Find({param($node) $node -is [Management.Automation.Language.ExpandableStringExpressionAst] -and $node.Value.Contains('provision_status=')},$true)
     Assert-True ($null-ne$commandAst) 'provisioning failure-preserving command is missing'
     $bootstrapDirectory=Join-Path $temporary 'bootstrap-failure';New-Item -ItemType Directory -Path $bootstrapDirectory|Out-Null
@@ -180,8 +224,125 @@ exit /b 0
     {
         $keyPath=Join-Path $temporary 'binary.psk';$material=[byte[]](0..31);$material[31]=[byte]$edge
         [IO.File]::WriteAllBytes($keyPath,$material)
-        $output=& powershell.exe -NoProfile -ExecutionPolicy Bypass -File "$repository/scripts/quest-provision-credential.ps1" -StateRoot $temporary -KeyFile $keyPath -KeyId phantom01-control -Destination (Join-Path $temporary 'credential-report') 2>&1
-        Assert-True ($LASTEXITCODE-eq 0) "binary credential ending in $edge rejected: $($output-join' ')"
+        try{Invoke-PhantomQuestCredentialSetup -StateRoot $temporary -KeyFile $keyPath -KeyId phantom01-control -Destination (Join-Path $temporary 'credential-report')|Out-Null}
+        catch{$failures.Add("binary credential ending in $edge rejected: $($_.Exception.Message)")}
+    }
+    # Run the complete Quest installer: first setup happens after APK install,
+    # an update preserves credentials, and a failed install must not stage a key.
+    $installAdb=Join-Path $temporary 'install-adb.exe'
+    Add-Type -OutputAssembly $installAdb -OutputType ConsoleApplication -TypeDefinition @'
+using System;
+using System.IO;
+public class FakeInstallAdb {
+    public static int Main(string[] args) {
+        File.AppendAllText(Environment.GetEnvironmentVariable("PHANTOM_TEST_INSTALL_RECORD"),string.Join(" ",args)+"\n");
+        if(args.Length==1 && args[0]=="devices") { Console.WriteLine("List of devices attached\nQUEST-EXACT-001 device"); return 0; }
+        if(args.Length>3 && args[2]=="shell" && args[3]=="getprop") { Console.WriteLine(args[4]=="ro.product.model"?"Quest 3":"eureka"); return 0; }
+        if(args.Length>2 && args[2]=="install") return Environment.GetEnvironmentVariable("PHANTOM_TEST_INSTALL_FAIL")=="1"?7:0;
+        if(args.Length>3 && args[3]=="pm") Console.WriteLine("package:/data/app/phantom/base.apk");
+        if(args.Length>3 && args[3]=="toybox") Console.WriteLine(Environment.GetEnvironmentVariable("PHANTOM_TEST_INSTALL_HASH")+" /data/app/phantom/base.apk");
+        if(args.Length>3 && args[3].Contains("-f")) Console.WriteLine("present");
+        return 0;
+    }
+}
+'@
+    $env:PHANTOM_ADB=$installAdb
+    $env:PHANTOM_TEST_INSTALL_RECORD=Join-Path $temporary 'install-calls.txt'
+    $apk=Join-Path $temporary 'candidate.apk';[IO.File]::WriteAllBytes($apk,[byte[]](1,2,3))
+    $env:PHANTOM_TEST_INSTALL_HASH=(Get-FileHash $apk).Hash.ToLowerInvariant()
+    $installManifest=[ordered]@{schema_version=8;build_identity_schema='PHANTOM-BUILD-V4';component='QUEST';build_id=('a'*64);build_profile='Diagnostic';apk_sha256=$env:PHANTOM_TEST_INSTALL_HASH}
+    [IO.File]::WriteAllText($apk+'.build-manifest.json',($installManifest|ConvertTo-Json))
+    $installState=Join-Path $temporary 'quest-install-state'
+    function Invoke-InstallFixture([string]$Root){
+        $oldPreference=$ErrorActionPreference;$ErrorActionPreference='Continue'
+        try{$output=& powershell.exe -NoProfile -ExecutionPolicy Bypass -File "$repository/scripts/quest-install.ps1" -Apk $apk -StateRoot $Root -QuestSerial QUEST-EXACT-001 -HostFingerprint ('SHA256:'+('A'*43)) -Destination (Join-Path $temporary 'install-results') 2>&1;return [pscustomobject]@{Code=$LASTEXITCODE;Output=($output-join' ')}}
+        finally{$ErrorActionPreference=$oldPreference}
+    }
+    $installed=Invoke-InstallFixture $installState
+    Assert-True ($installed.Code-eq 0) "first Quest INSTALL failed: $($installed.Output)"
+    $calls=Get-Content $env:PHANTOM_TEST_INSTALL_RECORD
+    $installLine=@($calls|Where-Object{$_-match'"?install"? "?-r"? "?-g"?'})[0]
+    $pushLine=@($calls|Where-Object{$_-match'"?push"? "?--sync"?'})[0]
+    Assert-True ($installLine -and $pushLine -and [Array]::IndexOf($calls,$pushLine)-gt[Array]::IndexOf($calls,$installLine)) "credential ordering failed: $($calls-join' ; ')"
+    Assert-True ((Read-PhantomPairState $installState).State.quest_credential_staged) 'successful first INSTALL did not save credential staging state'
+    Remove-Item -LiteralPath $env:PHANTOM_TEST_INSTALL_RECORD
+    $installManifest.build_profile='Release';[IO.File]::WriteAllText($apk+'.build-manifest.json',($installManifest|ConvertTo-Json))
+    $updated=Invoke-InstallFixture $installState
+    Assert-True ($updated.Code-eq 0) "Quest update failed: $($updated.Output)"
+    Assert-True (!((Get-Content $env:PHANTOM_TEST_INSTALL_RECORD)-match'"?push"? "?--sync"?')) 'Quest update restaged the CONTROL credential'
+    $installManifest.build_profile='Diagnostic';[IO.File]::WriteAllText($apk+'.build-manifest.json',($installManifest|ConvertTo-Json))
+    Remove-Item -LiteralPath $env:PHANTOM_TEST_INSTALL_RECORD;$env:PHANTOM_TEST_INSTALL_FAIL='1'
+    $failedInstall=Invoke-InstallFixture (Join-Path $temporary 'failed-install-state')
+    Assert-True ($failedInstall.Code-ne 0) "failed adb install was accepted: $($failedInstall.Output); calls=$((Get-Content $env:PHANTOM_TEST_INSTALL_RECORD)-join' ; ')"
+    Assert-True (!((Get-Content $env:PHANTOM_TEST_INSTALL_RECORD)-match'"?push"? "?--sync"?')) 'failed install staged a credential'
+    $env:PHANTOM_TEST_INSTALL_FAIL='';$env:PHANTOM_ADB=$pullAdb
+    # Exercise EV3 orchestration without a device; substitute transport, not decisions.
+    $ev3Package=Join-Path $temporary 'ev3.tar.gz'
+    [IO.File]::WriteAllBytes($ev3Package,[byte[]]@(4,5,6))
+    $ev3Manifest=[ordered]@{component='EV3';build_id=('b'*64);artifact_sha256=(Get-FileHash $ev3Package).Hash.ToLowerInvariant()}
+    [IO.File]::WriteAllText($ev3Package+'.build-manifest.json',($ev3Manifest|ConvertTo-Json))
+    $installBody=(Get-Content "$repository/scripts/ev3-install.ps1" -Raw -Encoding UTF8)-replace '(?m)^\. "[^\r\n]+"\r?\n',''
+    $installBlock=[scriptblock]::Create($installBody)
+    & {
+        $steps=New-Object 'System.Collections.Generic.List[string]'
+        $rejectSetup=$false
+        function Initialize-PhantomInstallPair {return [pscustomobject]@{State=@{ev3_host_key_fingerprint='test'};Paths=@{SshKey='key';SshDirectory='ssh';ControlSecret='secret';SshConfig='missing'}}}
+        function Invoke-PhantomEv3Setup {$steps.Add('setup');if($rejectSetup){throw 'fixture setup failed'}}
+        function Invoke-PhantomEv3Transfer {$steps.Add('transfer')}
+        function Invoke-PhantomEv3ReportedPhase {$steps.Add('install');return [pscustomobject]@{build_id=('b'*64)}}
+        & $installBlock -Package $ev3Package -Destination $temporary|Out-Null
+        Assert-True (($steps-join',')-eq'setup,transfer,install') 'EV3 INSTALL did not perform setup, transfer and installation in order'
+        $steps.Clear();$rejectSetup=$true
+        try{& $installBlock -Package $ev3Package -Destination $temporary|Out-Null;$failures.Add('EV3 INSTALL accepted failed setup')}catch{}
+        Assert-True (($steps-join',')-eq'setup') 'EV3 INSTALL continued after setup failure'
+        $steps.Clear();$ev3Manifest.artifact_sha256=('0'*64)
+        [IO.File]::WriteAllText($ev3Package+'.build-manifest.json',($ev3Manifest|ConvertTo-Json))
+        try{& $installBlock -Package $ev3Package -Destination $temporary|Out-Null;$failures.Add('EV3 INSTALL accepted mismatched package')}catch{}
+        Assert-True ($steps.Count-eq 0) 'EV3 INSTALL contacted device before package validation'
+    }
+    $collectorBody=(Get-Content "$repository/scripts/ev3-pull-logs.ps1" -Raw -Encoding UTF8)-replace '(?m)^\. "[^\r\n]+"\r?\n',''
+    & {
+        $rejectJournal=$false
+        function Invoke-PhantomEv3Command {
+            param($RemoteCommand,$StateRoot,$TimeoutSeconds)
+            Assert-True ($RemoteCommand.Contains('journalctl')-and$RemoteCommand.Contains('-n 5')) 'EV3 collector did not bound journal collection'
+            return [pscustomobject]@{ExitCode=if($rejectJournal){7}else{0};Stdout=@('{"PRIORITY":"3"}')}
+        }
+        $collector=[scriptblock]::Create($collectorBody)
+        & $collector -Destination (Join-Path $temporary 'ev3-logs') -Lines 5 -SkipAnalysis|Out-Null
+        Assert-True (Test-Path (Join-Path $temporary 'ev3-logs/journal.jsonl')) 'EV3 collector did not write the journal'
+        $rejectJournal=$true
+        try{& $collector -Destination (Join-Path $temporary 'failed-ev3-logs') -Lines 5 -SkipAnalysis|Out-Null;$failures.Add('EV3 collector accepted failed SSH')}catch{}
+        Assert-True (!(Test-Path (Join-Path $temporary 'failed-ev3-logs/journal.jsonl'))) 'failed EV3 collection wrote a success artifact'
+    }
+    # The update scenario uses the same Quest DEVICE entry, without a separate runner.
+    $deviceSource=Get-Content "$repository/scripts/quest-device-integration-test.ps1" -Raw -Encoding UTF8
+    $scenarioStart=$deviceSource.IndexOf('    function Read-BuildId')
+    $scenarioEnd=$deviceSource.IndexOf('    exit 0',$scenarioStart)
+    $scenarioBody=$deviceSource.Substring($scenarioStart,$scenarioEnd-$scenarioStart)-replace '(?m)^\s*\. "[^\r\n]+"\r?\n',''
+    & {
+        $calls=New-Object 'System.Collections.Generic.List[string]'
+        $rejectSecondStart=$false;$StateRoot=$temporary;$Package='dev.phantom.questprototype'
+        $ApkA=$apk;$ApkB=Join-Path $temporary 'update.apk'
+        [IO.File]::WriteAllBytes($ApkB,[byte[]]@(7,8,9))
+        $updateManifest=@{component='QUEST';build_id=('c'*64)}
+        [IO.File]::WriteAllText($ApkB+'.build-manifest.json',($updateManifest|ConvertTo-Json))
+        function Get-PhantomAdb {return 'fixture-adb'}
+        function Get-PhantomQuestDevice {return 'QUEST-EXACT-001'}
+        function Invoke-PhantomAdb {$calls.Add('force-stop')}
+        function powershell.exe {
+            $calls.Add($args-join' ')
+            $code=if($rejectSecondStart -and ($args-join' ').Contains(('c'*64))){7}else{0}
+            Set-Variable LASTEXITCODE $code -Scope 1
+        }
+        $scenario=[scriptblock]::Create($scenarioBody)
+        $Destination=Join-Path $temporary 'persistence-pass'
+        & $scenario|Out-Null
+        Assert-True ($calls.Count-eq 5 -and $calls[0].Contains('-Repair') -and !$calls[2].Contains('-Repair') -and $calls[4]-eq'force-stop') 'persistence scenario restaged the updated credential or failed to stop the app'
+        Assert-True (Test-Path (Join-Path $Destination 'report.json')) 'persistence success report missing'
+        $Destination=Join-Path $temporary 'persistence-fail';$rejectSecondStart=$true
+        try{& $scenario|Out-Null;$failures.Add('persistence scenario accepted failed second START')}catch{}
+        Assert-True (!(Test-Path (Join-Path $Destination 'report.json'))) 'failed persistence wrote a PASS report'
     }
     foreach($mode in @('normal','bad-report','missing-report'))
     {

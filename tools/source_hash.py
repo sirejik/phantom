@@ -9,8 +9,7 @@ EXCLUDED_DIRS = {"Library", "Temp", "obj", "__pycache__", "docs", ".git"}
 DOCUMENT_SUFFIXES = {".md", ".markdown", ".rst", ".adoc"}
 EV3_SOURCE_INPUTS = (
     "ev3/CMakeLists.txt", "ev3/include", "ev3/src", "ev3/safety",
-    "ev3/network/phantom_network.py", "ev3/network/phantom_mdns.py",
-    "protocol", "deploy", "toolchains/ev3-armel.cmake",
+    "protocol", "deploy", "ev3/toolchains/armel.cmake",
 )
 
 

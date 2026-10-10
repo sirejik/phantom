@@ -34,7 +34,7 @@ namespace Phantom
                 // store and the plaintext drop is shredded. Diagnostic profile only,
                 // and only the outcome is ever logged.
                 _credentialState="absent";
-                if(string.Equals(config.build_profile,"Diagnostic",StringComparison.Ordinal)||string.Equals(config.build_profile,"DeepDebug",StringComparison.Ordinal))
+                if(string.Equals(config.build_profile,"Diagnostic",StringComparison.Ordinal))
                 {
                     var imported=credentials.TryImportProvisioningDrop(options.ControlKeyId);
                     if(imported==CredentialProvisioningResult.Imported)_logger.Log("runtime","control_credential_provisioned","Discovering","","{\"key_id_present\":true}");

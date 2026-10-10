@@ -126,6 +126,13 @@ def scan_json_artifact(label, path, findings):
                 except Exception:
                     return
                 if len(decoded) in (32, 64) and shannon_entropy(decoded) > 4.2:
+                    # NuGet's lock format stores public SHA-512 package digests.
+                    # Exempt this field and shape only, not the entire lock file.
+                    if (path.name == "packages.lock.json" and isinstance(document, dict) and
+                            document.get("version") == 1 and
+                            re.fullmatch(r"/dependencies/[^/]+/[^/]+/contentHash", trail) and
+                            len(decoded) == 64):
+                        return
                     findings.append("%s: base64 blob decoding to %d high-entropy bytes at %s" % (label, len(decoded), trail))
 
     walk(document, "")

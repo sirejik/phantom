@@ -1,6 +1,6 @@
 // Cross-implementation check for the EV3-local IPC contract.
 //
-// The Python worker and this C++ boundary encode the same fixed-size structures
+// The native network client and this C++ boundary encode the same fixed-size structures
 // from protocol/ipc_schema.yaml. Golden vectors carry the byte range of every
 // field, so both sides prove they agree on offsets and sizes rather than only
 // on the total length.

@@ -37,7 +37,7 @@ namespace Phantom.Editor
             var buildId=RequiredEnvironmentVariable("PHANTOM_BUILD_ID");
             var worktreeDirty=RequiredEnvironmentVariable("PHANTOM_WORKTREE_DIRTY");
             if(worktreeDirty!="true"&&worktreeDirty!="false")throw new Exception("Invalid PHANTOM_WORKTREE_DIRTY value");
-            if(profile!="Release"&&profile!="Diagnostic"&&profile!="DeepDebug")throw new Exception("Invalid build profile: "+profile);
+            if(profile!="Release"&&profile!="Diagnostic")throw new Exception("Invalid build profile: "+profile);
             if(configuredAppId!=MetaAppId)throw new Exception("Unexpected Meta App ID: "+configuredAppId);
             if(!File.Exists(keystore))throw new FileNotFoundException("Release keystore not found",keystore);
             if(!File.Exists(passwordFile))throw new FileNotFoundException("Release keystore password file not found",passwordFile);
@@ -64,8 +64,8 @@ namespace Phantom.Editor
             BuildReport report;
             try
             {
-                EditorUserBuildSettings.development=profile=="DeepDebug";
-                if(profile=="DeepDebug")
+                EditorUserBuildSettings.development=profile=="Diagnostic";
+                if(profile=="Diagnostic")
                 {
                     PlayerSettings.SetStackTraceLogType(UnityEngine.LogType.Exception,UnityEngine.StackTraceLogType.Full);
                     PlayerSettings.SetStackTraceLogType(UnityEngine.LogType.Error,UnityEngine.StackTraceLogType.Full);
@@ -77,7 +77,7 @@ namespace Phantom.Editor
                 PlayerSettings.Android.keyaliasPass=password;
                 WriteEmbeddedInputs(profile,buildId,gitCommit,sourceTreeHash,worktreeDirty,protocolSchemaHash,protocolSemanticsHash,protocolContractHash,configHash,bundleHash,packageLockHash);
                 var options=BuildOptions.None;
-                if(profile=="DeepDebug")options=BuildOptions.Development|BuildOptions.AllowDebugging|BuildOptions.ConnectWithProfiler;
+                if(profile=="Diagnostic")options=BuildOptions.Development|BuildOptions.AllowDebugging;
                 report=BuildPipeline.BuildPlayer(paths,output,BuildTarget.Android,options);
             }
             finally
@@ -126,7 +126,7 @@ namespace Phantom.Editor
             var metaOpenxr=PackageVersion("com.unity.xr.meta-openxr");
             var hands=PackageVersion("com.unity.xr.hands");
             var bodyCompatibility=BodyMultimodalCompatibility();
-            var multimodal=profile=="Release"?"true":"false";var qualificationEligible=profile=="DeepDebug"?"false":"true";
+            var multimodal=profile=="Release"?"true":"false";var qualificationEligible="true";
             return $"{{\"schema_version\":8,\"build_identity_schema\":\"PHANTOM-BUILD-V4\",\"component\":\"QUEST\",\"build_id\":\"{buildId}\",\"git_commit\":\"{gitCommit}\",\"source_tree_hash\":\"{sourceTreeHash}\",\"worktree_dirty\":{worktreeDirty},\"build_profile\":\"{profile}\",\"qualification_eligible\":{qualificationEligible},\"protocol_version\":1,\"protocol_schema_hash\":\"{protocolSchemaHash}\",\"protocol_semantics_hash\":\"{protocolSemanticsHash}\",\"protocol_contract_hash\":\"{protocolContractHash}\",\"config_hash\":\"{configHash}\",\"commissioning_bundle_hash\":\"{bundleHash}\",\"unity_version\":\"{UnityEngine.Application.unityVersion}\",\"app_version\":\"{PlayerSettings.bundleVersion}\",\"package_lock_sha256\":\"{packageLockHash}\",\"toolchain_or_package_lock_hash\":\"{packageLockHash}\",\"meta_xr_core_version\":\"{core}\",\"movement_sdk_version\":\"{core}\",\"body_tracking_provider\":\"OVRBody/com.meta.xr.sdk.core\",\"multimodal_required\":{multimodal},\"body_provider_joint_set\":\"UpperBody\",\"body_right_shoulder_api\":\"OVRPlugin.BoneId.Body_RightShoulder\",\"body_multimodal_compatibility\":\"{bodyCompatibility}\",\"mruk_version\":\"{mruk}\",\"openxr_plugin_version\":\"{openxr}\",\"meta_openxr_version\":\"{metaOpenxr}\",\"xr_hands_version\":\"{hands}\"}}";
         }
 

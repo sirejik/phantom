@@ -2,6 +2,7 @@
 #define _GNU_SOURCE
 #endif
 #include "phantom/network_ipc.hpp"
+#include "phantom/byte_codec.hpp"
 #include "ipc_constants.hpp"
 #include "protocol_constants.hpp"
 #include <cerrno>
@@ -24,13 +25,8 @@ constexpr std::uint16_t Ok=(std::uint16_t)wire::ResultCode::OK,
                         ErrFormat=(std::uint16_t)wire::ResultCode::ERR_FORMAT;
 constexpr std::uint64_t kFreshnessUs=500000;
 
-std::uint16_t u16(const unsigned char*p){return std::uint16_t(p[0])|std::uint16_t(p[1])<<8;}
-std::uint32_t u32(const unsigned char*p){return std::uint32_t(p[0])|std::uint32_t(p[1])<<8|std::uint32_t(p[2])<<16|std::uint32_t(p[3])<<24;}
-std::uint64_t u64(const unsigned char*p){std::uint64_t v=0;for(int i=7;i>=0;--i)v=(v<<8)|p[i];return v;}
-void put16(unsigned char*p,std::uint16_t v){p[0]=v&255;p[1]=(v>>8)&255;}
-void put32(unsigned char*p,std::uint32_t v){for(int i=0;i<4;++i)p[i]=(v>>(8*i))&255;}
-void put64(unsigned char*p,std::uint64_t v){for(int i=0;i<8;++i)p[i]=(v>>(8*i))&255;}
-void putf(unsigned char*p,float v){std::uint32_t bits=0;std::memcpy(&bits,&v,4);put32(p,bits);}
+using bytes::u16;using bytes::u32;using bytes::u64;
+using bytes::put16;using bytes::put32;using bytes::put64;using bytes::putf;
 bool unix_address(sockaddr_un&out,const std::string&path){if(path.size()>=sizeof(out.sun_path))return false;std::memset(&out,0,sizeof(out));out.sun_family=AF_UNIX;std::memcpy(out.sun_path,path.c_str(),path.size()+1);return true;}
 bool all_zero(const unsigned char*p,std::size_t n){for(std::size_t i=0;i<n;++i)if(p[i])return false;return true;}
 }

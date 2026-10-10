@@ -55,9 +55,9 @@
   host sanitizers; выводы о latency/deadline подтверждать на целевой системе.
 - Использовать Linux userspace API ev3dev; MCU register/ISR примеры не являются backend.
   Границы motor/network/safety I/O принадлежат EV3-спецификации.
-- До завершения переноса поставляемые Python-службы сохраняют совместимость с Python 3.5.
-  Их регрессии сохраняются, но не подтверждают новую C++ реализацию. Состояние переноса —
-  [current-status.md](current-status.md).
+- Поставляемые Python-помощники проверки EV3 сохраняют совместимость с Python 3.5;
+  штатные службы написаны на C++14. Host fixtures и регрессии служб принадлежат
+  C++/C# тестовым проектам. Состояние реализации — [current-status.md](current-status.md).
 
 <a id="sec-code-guidelines-quest"></a>
 ## 3. Quest: C#, Unity и Android
