@@ -61,7 +61,7 @@ else
     Add-Step 'remote-sha256-and-atomic-finalize' $step;$outcome='TRANSFERRED'
 }
 
-$finished=(Get-Date).ToUniversalTime();$transferStep=@($steps|Where-Object step -eq'transfer'|Select-Object -First 1)
+$finished=(Get-Date).ToUniversalTime();$transferStep=@($steps|Where-Object {$_.step -eq 'transfer'}|Select-Object -First 1)
 $throughput=if($transferStep-and$transferStep.duration_ms-gt 0){[long]($bytesTransferred*1000/$transferStep.duration_ms)}else{0}
 $report=[ordered]@{schema_version=1;phase='TRANSFER';component='EV3';profile=$manifest.build_profile;status='PASS';reason=$outcome;build_id=$manifest.build_id;
     artifact_sha256=$actualHash;remote_staging=$remote;started_at=$started.ToString('o');finished_at=$finished.ToString('o');duration_ms=[long]($finished-$started).TotalMilliseconds;

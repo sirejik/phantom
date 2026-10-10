@@ -39,7 +39,7 @@ for settings in /var/lib/connman/wifi_*/settings; do
   found_wifi=1
 done
 test "$found_wifi" = 1 || { echo "PROVISION_REQUIRED: no Favorite+AutoConnect Wi-Fi profile" >&2; exit 1; }
-for helper in install-release start-release run-device-integration-test rollback-release wifi-autoconnect; do
+for helper in install-release start-release run-device-integration-test wifi-autoconnect; do
   install -m 0755 "$source_dir/$helper" "$maintenance/$helper"
 done
 install -m 0644 "$source_dir/phantom-wifi-autoconnect.service" /etc/systemd/system/phantom-wifi-autoconnect.service

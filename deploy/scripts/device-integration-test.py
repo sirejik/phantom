@@ -50,8 +50,12 @@ def sha256(path):
     return digest.hexdigest()
 
 
-def semantic_hash(value):
-    data = json.dumps(value, ensure_ascii=False, sort_keys=True, separators=(",", ":")).encode("utf-8")
+def installed_bundle_hash(path):
+    # configgen writes canonical JSON followed by one transport newline;
+    # semantic hashes exclude that newline. Never reserialize numbers here.
+    data = path.read_bytes()
+    if data.endswith(b"\n"):
+        data = data[:-1]
     return hashlib.sha256(data).hexdigest()
 
 
@@ -264,12 +268,12 @@ def main():
     root = CURRENT.resolve()
     manifest = json.loads((root / "build-manifest.json").read_text(encoding="utf-8-sig"))
     report_manifest = manifest
-    active = {unit: run(["systemctl", "is-active", "--quiet", unit], 5).returncode == 0
+    active_units = {unit: active(unit)
               for unit in ("phantom-safety.service", "phantom-controller.service",
                            "phantom-network.service", "phantom-mdns.service")}
-    start_ok = all(active.values())
+    start_ok = all(active_units.values())
     add("ev3-runtime-active", "PASS" if start_ok else "FAIL",
-        "exact installed runtime services must be active; no START report is read", active)
+        "exact installed runtime services must be active; no START report is read", active_units)
     if not start_ok:
         return write_report(manifest)
     config = json.loads((root / "config.generated.json").read_text(encoding="utf-8-sig"))
@@ -304,9 +308,9 @@ def main():
     add("installed-config-hash", "PASS" if config_hash == manifest.get("config_hash") else "FAIL",
         "installed config bytes match manifest", {"config_hash": config_hash,
                                                    "expected_config_hash": manifest.get("config_hash")})
-    bundle_hash = semantic_hash(bundle)
+    bundle_hash = installed_bundle_hash(root / "commissioning-bundle.generated.json")
     add("installed-bundle-hash", "PASS" if bundle_hash == manifest.get("commissioning_bundle_hash") else "FAIL",
-        "installed bundle semantics match manifest", {"commissioning_bundle_hash": bundle_hash,
+        "installed canonical bundle bytes match manifest", {"commissioning_bundle_hash": bundle_hash,
                                                        "expected_commissioning_bundle_hash": manifest.get("commissioning_bundle_hash")}, 3)
 
     usb_devices = []

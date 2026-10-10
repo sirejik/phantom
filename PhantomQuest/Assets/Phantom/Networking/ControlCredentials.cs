@@ -125,7 +125,6 @@ namespace Phantom.Networking
         {
             if(raw==null)return null;
             var end=raw.Length;
-            while(end>0&&(raw[end-1]=='\n'||raw[end-1]=='\r'||raw[end-1]==' '||raw[end-1]=='\t'))end--;
             if(end==64)
             {
                 var decoded=new byte[32];var valid=true;

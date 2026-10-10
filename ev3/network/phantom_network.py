@@ -231,7 +231,7 @@ def load_key(path):
     # theatre; production always runs on POSIX.
     if os.name == "posix" and mode & 0o027:
         raise ValueError("control key permissions must be owner/group read only")
-    raw = key_path.read_bytes().strip()
+    raw = key_path.read_bytes()
     if len(raw) == 64:
         try:
             raw = bytes.fromhex(raw.decode("ascii"))

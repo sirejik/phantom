@@ -7,6 +7,11 @@ import sys
 ROOT = pathlib.Path(__file__).resolve().parents[1]
 EXCLUDED_DIRS = {"Library", "Temp", "obj", "__pycache__", "docs", ".git"}
 DOCUMENT_SUFFIXES = {".md", ".markdown", ".rst", ".adoc"}
+EV3_SOURCE_INPUTS = (
+    "ev3/CMakeLists.txt", "ev3/include", "ev3/src", "ev3/safety",
+    "ev3/network/phantom_network.py", "ev3/network/phantom_mdns.py",
+    "protocol", "deploy", "toolchains/ev3-armel.cmake",
+)
 
 
 def source_hash(root, inputs):
@@ -18,6 +23,8 @@ def source_hash(root, inputs):
             relative = candidate.relative_to(root)
             if (candidate.is_file() and not EXCLUDED_DIRS.intersection(relative.parts)
                     and candidate.suffix.lower() not in DOCUMENT_SUFFIXES
+                    and not any(candidate.name.lower().endswith(suffix + ".meta")
+                                for suffix in DOCUMENT_SUFFIXES)
                     and candidate.suffix.lower() not in {".pyc", ".pyo"}):
                 files.add(candidate)
     digest = hashlib.sha256()
@@ -28,4 +35,9 @@ def source_hash(root, inputs):
 
 
 if __name__ == "__main__":
-    print(source_hash(ROOT, sys.argv[1:]))
+    arguments = sys.argv[1:]
+    if arguments[:1] == ["--component"]:
+        if arguments != ["--component", "EV3"]:
+            raise SystemExit("supported component: EV3")
+        arguments = EV3_SOURCE_INPUTS
+    print(source_hash(ROOT, arguments))

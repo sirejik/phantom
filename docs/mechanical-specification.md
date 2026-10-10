@@ -410,6 +410,12 @@ ForearmVector  = TCP - ElbowCenter
 
 Абсолютная привязка суставов не требует отдельных механических reference-сенсоров: её источником является QR-привязка при запуске.
 
+Для каждой geometry revision фиксируются `qr_symbol_size_mm`, quiet zone и
+допустимая погрешность печати/масштаба. Поверхность QR должна быть матовой и плоской;
+держатель воспроизводимо задаёт `QrMarkerCenter`. Baseline каждой пары LEFT/RIGHT
+не меньше commissioned `pair_baseline_min_m`; установка должна обеспечивать
+квалифицированную точность расчёта по [Quest §15.5](quest-specification.md#sec-5-15-5).
+
 <a id="sec-6-10"></a>
 ## 10. LOCAL_STOP
 
@@ -425,7 +431,7 @@ ForearmVector  = TCP - ElbowCenter
 
 `LOCAL_STOP` не является сертифицированным промышленным E-stop и работает через тот же EV3/software stack.
 
-Отдельно должен быть установлен **аппаратный `POWER_CUT`**, физически снимающий энергию с приводов независимо от Linux, `phantom-controller`, `phantom-safety` и сети. Его орган управления располагается вне swept volume, имеет однозначное состояние и проверяется перед HIL с автоматическим движением. Для EV3 power topology `POWER_CUT` должен физически разрывать питание Brick/моторных выходов (например, внешним latching disconnect в цепи питания); программный GPIO/Touch Sensor этим требованием не является. После его срабатывания питание запускается заново, старая session/reference теряется, затем выполняются **применимая active scope startup reference** и deliberate re-arm.
+Отдельно должен быть установлен **аппаратный `POWER_CUT`**, физически снимающий энергию с приводов независимо от Linux, `phantom-controller`, `phantom-safety` и сети. Его орган управления располагается вне swept volume, имеет однозначное состояние и проверяется перед MANUAL с автоматическим движением. Для EV3 power topology `POWER_CUT` должен физически разрывать питание Brick/моторных выходов (например, внешним latching disconnect в цепи питания); программный GPIO/Touch Sensor этим требованием не является. После его срабатывания питание запускается заново, старая session/reference теряется, затем выполняются **применимая active scope startup reference** и deliberate re-arm.
 
 <a id="sec-6-11"></a>
 ## 11. Фиксация основания
@@ -631,7 +637,7 @@ QR `JAW_LEFT/RIGHT` закрепляются на движущихся губк�
 | 1 | Netgear `WNA1100` / N150 Wireless USB Adapter | штатный Wi-Fi adapter Quest↔EV3 для этой сборки |
 | 1 | microSDHC | ev3dev |
 | 1 | квалифицированный источник питания EV3/приводов | питание конкретной сборки; voltage/battery thresholds квалифицируются с этим источником |
-| 1 | аппаратный `POWER_CUT` в общей цепи питания Brick/моторных выходов | независимое от EV3/Linux latching снятие энергии, доступное вне swept volume; обязателен для physical HIL/эксплуатации v1 |
+| 1 | аппаратный `POWER_CUT` в общей цепи питания Brick/моторных выходов | независимое от EV3/Linux latching снятие энергии, доступное вне swept volume; обязателен для physical MANUAL/эксплуатации v1 |
 | 10 | физические QR-маркеры с жёсткими держателями | `SHOULDER_LEFT/RIGHT`, `TURRET_LEFT/RIGHT`, `ELBOW_LEFT/RIGHT`, `GRIPPER_LEFT/RIGHT`, `JAW_LEFT/RIGHT` |
 | 1 опционально | `TCP_CAL` маркер | инженерная калибровка TCP |
 
@@ -673,7 +679,7 @@ axles 12L — только там, где действительно нужны
 <a id="sec-6-19"></a>
 ## 19. Конфигурация механики
 
-Все результаты устанавливаются как единый immutable `CommissioningBundle`. Quest хранит геометрическую часть, EV3 — authoritative safety/control subset. Полный `READY` возможен только при `qualification_only=false`, `actuator_scope_mask=0x0F`, `safety_observation_mask=0x0F`, полном bundle, ненулевом/валидном `qualification_evidence_manifest_hash` и совпадении общего hash. Полный component set, полученный инженерной калибровкой, до физической HIL-квалификации остаётся **production-candidate** внутри `qualification_only=true` bundle; полнота геометрии сама по себе не является доказательством готовности к Release. Для этапов 3–5 Diagnostic допускает отдельную qualification-only revision: обе маски `0x00` или обе `0x08`, неполные A/B/C geometry/safe-set sections и полный gripper subset; она может разрешить только `COMMISSIONING`, никогда `READY`. Любое изменение subset всё равно создаёт новую bundle revision; скрытое частичное редактирование файла запрещено.
+Все результаты устанавливаются как единый immutable `CommissioningBundle`. Quest хранит геометрическую часть, EV3 — authoritative safety/control subset. Полный `READY` возможен только при `qualification_only=false`, `actuator_scope_mask=0x0F`, `safety_observation_mask=0x0F`, полном bundle, ненулевом/валидном `qualification_evidence_manifest_hash` и совпадении общего hash. Полный component set, полученный инженерной калибровкой, до физической MANUAL-квалификации остаётся **production-candidate** внутри `qualification_only=true` bundle; полнота геометрии сама по себе не является доказательством готовности к Release. Для этапов 3–5 Diagnostic допускает отдельную qualification-only revision: обе маски `0x00` или обе `0x08`, неполные A/B/C geometry/safe-set sections и полный gripper subset; она может разрешить только `COMMISSIONING`, никогда `READY`. Любое изменение subset всё равно создаёт новую bundle revision; скрытое частичное редактирование файла запрещено.
 
 После сборки инженерная калибровка фиксирует:
 

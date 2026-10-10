@@ -16,6 +16,15 @@ wire = network.wire
 
 
 class NetworkTests(unittest.TestCase):
+    def test_raw_key_whitespace_is_secret_material(self):
+        with tempfile.TemporaryDirectory() as directory:
+            path=pathlib.Path(directory)/"key"
+            for edge in (9,10,13,32):
+                value=bytes([edge])+bytes(range(1,31))+bytes([edge])
+                path.write_bytes(value);path.chmod(0o600)
+                self.assertEqual(value,network.load_key(path))
+            path.write_bytes(bytes(range(32)).hex().encode("ascii"))
+            self.assertEqual(bytes(range(32)),network.load_key(path))
     def setUp(self):
         self.temp = tempfile.TemporaryDirectory()
         self.boot_path = pathlib.Path(self.temp.name) / "boot"

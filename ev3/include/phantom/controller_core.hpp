@@ -111,6 +111,7 @@ private:
   bool incident_pending_=false,incident_open_=false;
   std::uint64_t first_tick_us_=0,incident_counter_=0;
   std::uint32_t loop_health_flags_=0;
+  bool loop_fault_active_=false;
   std::string initialization_error_;
   FlightRing recorder_;
   TelemetrySnapshot snapshot_;

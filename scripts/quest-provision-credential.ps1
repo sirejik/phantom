@@ -59,7 +59,6 @@ if(!(Test-Path -LiteralPath $KeyFile)){throw "Key file not found: $KeyFile"}
 $keyBytes=[System.IO.File]::ReadAllBytes((Resolve-Path -LiteralPath $KeyFile).Path)
 # Validate locally so a malformed key is caught before it ever leaves the host.
 $trimmed=$keyBytes
-while($trimmed.Length -gt 0 -and @(10,13,32,9) -contains $trimmed[$trimmed.Length-1]){$trimmed=$trimmed[0..($trimmed.Length-2)]}
 $isHex=$trimmed.Length -eq 64 -and -not (@($trimmed|Where-Object {-not (('0123456789abcdefABCDEF').ToCharArray() -contains [char]$_)}).Count)
 if(-not $isHex -and $trimmed.Length -lt 32){throw "PSK must be at least 32 random bytes or exactly 64 hex characters (NFR-SEC-02)"}
 

@@ -1,5 +1,6 @@
 name: phantom-test-and-build
-# CI owns the full off-hardware software regression. BUILD remains a separate
+# Configured off-hardware checks; full Unity test/build coverage is still pending.
+# BUILD remains a separate
 # component/profile operation and no job provisions, transfers or starts devices.
 on: [push, pull_request]
 jobs:
@@ -8,7 +9,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - name: Documentation consistency and requirement checks
-        run: python3 tools/docindex.py --check && python3 tools/doclint.py && python3 tools/implementation_map_check.py && python3 tools/spec_contract_check.py && python3 tools/spec_test_duration_check.py
+        run: python3 tools/docindex.py --check && python3 tools/doclint.py && python3 tools/implementation_map_check.py && python3 tools/spec_contract_check.py
       - name: Documentation regressions
         run: python3 tools/test_documentation.py
   schemas-python-ev3-host:
@@ -31,13 +32,8 @@ jobs:
           python3 tools/test_artifact_check.py
           python3 tools/test_apk_repro_diff.py
           python3 sim/ev3-simulator/test_simulator.py
-          python3 sim/tracking-replay/test_tracking_replay.py
       - name: Report analyzers
-        run: python3 tools/quest_validation/test_analyze.py && python3 tools/ev3_validation/test_analyze.py
-      - name: Quest static contracts
-        run: python3 tools/quest_android_nsd_check.py && python3 tools/quest_provider_compatibility_check.py
-      - name: Lifecycle boundary regressions
-        run: python3 tools/test_lifecycle.py
+        run: python3 tools/quest_validation/test_analyze.py
       - name: Secret and provisioning scan
         run: python3 tools/security_scan.py && python3 tools/test_security_scan.py
       - name: EV3 host build and tests

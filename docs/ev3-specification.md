@@ -55,21 +55,17 @@ EV3 принимает цели от Quest, управляет приводам�
 - [19. Телеметрия](#sec-7-19)
   - [19.1. Штатная `TELEMETRY`](#sec-7-19-1)
   - [19.2. `DIAGNOSTIC_TELEMETRY`](#sec-7-19-2)
-- [20. Логирование, FlightRecorder и профили сборки](#sec-7-20)
-  - [20.1. Структурированные события](#sec-7-20-1)
-  - [20.2. EV3 `FlightRecorder`](#sec-7-20-2)
-  - [20.3. Минимальный аварийный журнал `phantom-safety`](#sec-7-20-3)
-  - [20.4. Контекст инцидента на Quest](#sec-7-20-4)
-  - [20.5. Release](#sec-7-20-5)
-  - [20.6. Diagnostic](#sec-7-20-6)
-  - [20.7. Реализация очередей и файлов](#sec-7-20-7)
+- [20. Диагностика и регистрация инцидентов](#sec-7-20)
+  - [20.1. Неблокирующая регистрация](#sec-7-20-1)
+  - [20.2. FlightRecorder](#sec-7-20-2)
+  - [20.3. Аварийная регистрация и контекст пары](#sec-7-20-3)
 - [21. Конфигурация EV3](#sec-7-21)
   - [21.1. Поля, которые обязан загружать runtime](#sec-7-21-1)
   - [21.2. Поля будущих этапов](#sec-7-21-2)
 - [22. Обнаружение EV3 и установление соединения](#sec-7-22)
 - [23. Ограничение частоты пакетов и защита парсера](#sec-7-23)
-- [24. Сетевые, моторные и процессные сценарии отказа](#sec-7-24)
-  - [24.1. Сценарии](#sec-ev3-specification-24-1)
+- [24. Классы неисправностей и восстановление](#sec-7-24)
+  - [24.1. Реакции EV3](#sec-ev3-specification-24-1)
 
 </details>
 <!-- END GENERATED TOC -->
@@ -77,29 +73,18 @@ EV3 принимает цели от Quest, управляет приводам�
 <a id="sec-7-1"></a>
 ## 1. Среда выполнения
 
-Целевая среда v1:
+Целевые ОС, ABI, языки и systemd baseline определены в
+[технологическом стеке](engineering.md#sec-engineering-stack).
 
-```text
-ev3dev Stretch class system (legacy/EOL)
-ARMv5TEJ / armel / gnueabi
-C++14
-systemd 232 compatibility baseline
-Python 3.5 compatibility для device/deployment helpers
-```
+Аппаратный ввод-вывод изолирован за `MotorBackend` (`Ev3SysfsBackend` в v1).
+Состояния, trajectory/reference, управляющая математика и защитные условия не зависят
+от sysfs: смена аппаратного backend сохраняет управляющую семантику.
 
-Этот software base рассматривается как legacy/EOL: он допускается для исследовательского прототипа только с pinned image SHA-256, pinned toolchain, SBOM, vulnerability/risk record, SSH keys и изолированной LAN без Internet exposure. Код компилируется вне EV3 кросс-компилятором. На EV3 устанавливаются готовые бинарные артефакты и конфигурация.
-
-Hardware-specific sysfs код изолируется за интерфейсом `MotorBackend` (`Ev3SysfsBackend` в v1). State machine, safety policy, protocol, trajectory/reference и controller math не должны зависеть от EV3 sysfs API, чтобы future controller migration не требовала изменения управляющей семантики.
-
-Все устанавливаемые unit-файлы обязаны проходить `systemd-analyze verify` на реальном baseline systemd 232. Директивы, появившиеся позже systemd 232 (например, `StateDirectory=`, `LogsDirectory=` или `RuntimeDirectoryPreserve=`), запрещены без совместимого fallback. Вспомогательные скрипты, выполняемые на Brick, не используют синтаксис/API Python новее 3.5 до смены pinned ev3dev image.
-
-Синтаксис Python-компонентов EV3 проверяется совместимым runtime в TEST/BUILD. INSTALL не выполняет `compileall` или self-test; границы фаз определены в [Разработка и развёртывание](engineering.md#sec-8-5-1). Сетевые long-lived services используют `Type=notify` и объявляют READY только после фактического открытия UDP listener либо успешной DNS-SD publication. Для проверенного legacy Brick startup timeout этих services равен `90 s`: медленный cold import на ARMv5TEJ не должен создавать ложный restart loop, но отсутствие READY по истечении timeout остаётся ошибкой запуска.
-
-Точный fingerprint выбранного Brick (образ, kernel, machine, systemd и Python)
-фиксируется в DEVICE/release evidence вместе с SHA-256 полного ev3dev image и SBOM.
-Наличие совместимой версии systemd/Python само по себе не заменяет этот release gate
-из [Требований к продукту §4.7](product-requirements.md#sec-3-2-7) и
-[Разработки и развёртывания §5](engineering.md#sec-8-5).
+Проверка systemd units, совместимость вспомогательных скриптов с образом EV3,
+сборка и фиксация legacy/EOL платформы принадлежат
+[правилам сборки EV3](engineering.md#sec-8-6) и
+[контракту пакета](engineering-contracts.md#sec-engineering-contracts-ev3-package).
+Текущее состояние перехода служб на C++ — в [current-status.md](current-status.md).
 
 <a id="sec-7-2"></a>
 ## 2. Процессы
@@ -112,7 +97,7 @@ EV3 runtime содержит четыре long-lived PHANTOM service и один
 4. `phantom-mdns` — publisher DNS-SD identity через системный Avahi;
 5. `phantom-wifi-autoconnect` — `oneshot` helper для уже provisioned ConnMan profile; после успешного подключения он не остаётся сетевым менеджером.
 
-В network-only profile worker/publisher могут быть совместимыми с Python 3.5 отдельными процессами. Они не выполняются внутри 50-Hz motor loop. Переход к иному языку реализации не должен объединять socket receive, HMAC, DNS/mDNS, packet parsing, filesystem I/O, string formatting или blocking logging с критическим motor-loop path.
+Все прикладные службы EV3, включая `phantom-network` и `phantom-mdns`, реализуются на C++14. Worker/publisher остаются отдельными процессами вне 50-Hz motor loop. Общие библиотеки не должны объединять socket receive, HMAC, DNS/mDNS, packet parsing, filesystem I/O, string formatting или blocking logging с критическим motor-loop path. Существующая Python-реализация сетевых служб подлежит переносу; её наличие отражает состояние реализации, а не целевой стек.
 
 `phantom.target` требует `phantom-safety` и только wants остальные PHANTOM units: отказ controller/network/mDNS не должен останавливать supervisor. Wi-Fi helper запускается после `connman` и до controller/network/mDNS; network требует готовый controller boot identity; mDNS требует network и `avahi-daemon`. Restart controller обязан быть обнаружен network/mDNS plane: старая session инвалидируется, TXT перепубликуется с новым boot id; workers могут остаться запущенными либо безопасно перезапуститься. Safety при этом не останавливается.
 
@@ -141,6 +126,11 @@ flowchart LR
   Safe[phantom-safety] -. takeover / BRAKE .-> M
 ```
 
+Сетевые службы используют `Type=notify`: network объявляет READY только после открытия
+UDP listener и готовности IPC, mDNS — после успешной DNS-SD publication. Startup timeout
+на выбранном legacy baseline — `90 s`; истечение без READY является ошибкой запуска.
+Готовность службы не означает допуск приводов или product state `READY`.
+
 <a id="sec-7-2-1"></a>
 ### 2.1. `phantom-controller`
 
@@ -155,7 +145,7 @@ flowchart LR
 - PD + feed-forward;
 - stall/tracking protection;
 - gripper contact/stall logic;
-- normal и diagnostic telemetry;
+- снимки для штатной и диагностической телеметрии; сериализация и отправка выполняются `phantom-network`;
 - heartbeat к `phantom-safety` и контроль обратного heartbeat;
 - неблокирующее логирование.
 
@@ -208,7 +198,7 @@ Controller отвечает `ControllerProtocolReplyV1{ipc_version,controller_bo
 общие `protocol/golden_vectors/ipc_v1.json`, которыми обе реализации доказывают одинаковое
 понимание offsets/размеров. Рукописные копии layout запрещены. IPC schema/version,
 peer-credential/permission, session-open authorization, stale-generation, session watchdog,
-queue-overflow и restart tests входят в TEST/DEVICE/HIL regression.
+queue-overflow и restart tests входят в TEST/DEVICE/MANUAL regression.
 
 <a id="sec-7-2-3"></a>
 ### 2.3. `phantom-mdns`
@@ -238,14 +228,14 @@ Heartbeat socket endpoints после `bind` обязаны иметь mode `066
 <a id="sec-7-2-5"></a>
 ### 2.5. `phantom-wifi-autoconnect`
 
-`phantom-wifi-autoconnect` — bounded `oneshot` boot helper, а не второй network manager. Он работает только с уже provisioned ConnMan profiles, не принимает actuator protocol и не имеет доступа к motor sysfs. Helper динамически обнаруживает Wi-Fi interface, может инициировать подключение только сохранённого `Favorite+AutoConnect` profile, никогда не читает/логирует/копирует `Passphrase` и завершает работу после success либо bounded timeout. После boot обычным reconnect управляет ConnMan; постоянный competing daemon запрещён. Provisioning/permission/negative tests определены [Разработка и развёртывание §11](engineering.md#sec-8-11)–[Разработка и развёртывание §12](engineering.md#sec-8-12) и [План проверки §18](test-plan.md#sec-9-18).
+`phantom-wifi-autoconnect` — bounded `oneshot` boot helper, а не второй network manager. Он работает только с уже provisioned ConnMan profiles, не принимает actuator protocol и не имеет доступа к motor sysfs. Helper динамически обнаруживает Wi-Fi interface, может инициировать подключение только сохранённого `Favorite+AutoConnect` profile, никогда не читает/логирует/копирует `Passphrase` и завершает работу после success либо bounded timeout. После boot обычным reconnect управляет ConnMan; постоянный competing daemon запрещён. Provisioning/permission/negative tests определены [Разработка и развёртывание §6.1](engineering.md#sec-8-11)–[Разработка и развёртывание §6.3](engineering.md#sec-8-12) и [План проверки §3](test-plan.md#sec-9-1-2).
 
 <a id="sec-7-3"></a>
 ## 3. Единственный владелец моторных команд
 
 В штатном режиме только `phantom-controller` может записывать команды движения в sysfs-интерфейс моторов.
 
-`phantom-controller` обязан удерживать exclusive OS lease `/run/phantom/motor-control.lock` всё время, когда имеет право писать motor sysfs. Runtime controller identity — `phantom-ctrl`; lock/runtime objects создаются `root:phantom-motor 0660` / `root:phantom-motor 0770`, и только `phantom-ctrl` плюс root `phantom-safety` имеют доступ к `phantom-motor`. `phantom-net`, `phantom-mdns` и Wi-Fi helper **не** входят в `phantom-motor`. `phantom-ctrl` имеет только необходимую supplementary motor-I/O group для EV3 sysfs; network credential groups ему не выдаются. Ошибка открытия/lease или неожиданно широкие effective groups являются fail-closed ошибкой DEVICE INTEGRATION TEST.
+`phantom-controller` обязан удерживать exclusive OS lease `/run/phantom/motor-control.lock` всё время, когда имеет право писать motor sysfs. Runtime controller identity — `phantom-ctrl`; lock/runtime objects создаются `root:phantom-motor 0660` / `root:phantom-motor 0770`, и только `phantom-ctrl` плюс root `phantom-safety` имеют доступ к `phantom-motor`. `phantom-net`, `phantom-mdns` и Wi-Fi helper **не** входят в `phantom-motor`. `phantom-ctrl` имеет только необходимую supplementary motor-I/O group для EV3 sysfs; network credential groups ему не выдаются. Ошибка открытия/lease или неожиданно широкие effective groups являются fail-closed ошибкой интеграционного теста.
 
 `phantom-safety` имеет **единый reason-driven takeover primitive**. Trigger может быть `CONTROLLER_HEARTBEAT_TIMEOUT`, `LOCAL_STOP` или собственная safety fault. При живом controller `LOCAL_STOP` сначала использует cooperative path, чтобы не уничтожать без необходимости текущий boot/session/reference:
 
@@ -286,7 +276,7 @@ LOCAL_STOP/safety inhibit latch
 2. загрузить и валидировать текущий `CommissioningBundle`, включая `qualification_only`, authoritative `actuator_scope_mask` и `safety_observation_mask`;
 3. проверить профиль:
    - `Release`: `qualification_only=false`, обе маски=`0x0F`, полный `RobotGeometry/DriveCalibration/JointSafeSet/payload profiles` обязателен;
-   - `Diagnostic`: на этапах 3–5 обе маски могут быть соответственно `0x00` или `0x08`; на этапах 6–7 engineering `COMMISSIONING/CALIBRATION` может использовать одну versioned mask всех фактически подключённых осей текущего стенда (например, `0x0F` после полной сборки), но motor authority выдаётся только отдельному `CALIBRATION_JOG.axis`; partial bundle допускается лишь для функций текущего calibration gate, а `ACTUATOR_QUALIFICATION` A/B/C остаётся запрещён до полного RobotGeometry/DriveCalibration/JointReference A/B/C/EMPTY JointSafeSet + pre-motion prerequisites [План проверки](test-plan.md#sec-9)/[Этапы реализации §11](implementation-stages.md#sec-10-11); движущийся HIL case не является собственной предпосылкой;
+   - `Diagnostic`: на этапах 3–5 обе маски могут быть соответственно `0x00` или `0x08`; на этапах 6–7 engineering `COMMISSIONING/CALIBRATION` может использовать одну versioned mask всех фактически подключённых осей текущего стенда (например, `0x0F` после полной сборки), но motor authority выдаётся только отдельному `CALIBRATION_JOG.axis`; partial bundle допускается лишь для функций текущего calibration gate, а `ACTUATOR_QUALIFICATION` A/B/C остаётся запрещён до полного RobotGeometry/DriveCalibration/JointReference A/B/C/EMPTY JointSafeSet + pre-motion prerequisites [План проверки](test-plan.md#sec-9)/[Этапы реализации §11](implementation-stages.md#sec-10-11); движущийся MANUAL case не является собственной предпосылкой;
 4. открыть `LOCAL_STOP`, battery и все обязательные motor/sensor I/O для `actuator_scope_mask | safety_observation_mask`; `GRIPPER_HOME` обязателен, если D входит хотя бы в одну из масок;
 5. дополнительно обнаружить прочие A/B/C/D, если они физически подключены, но держать все оси вне `actuator_scope_mask` hard-inhibited;
 6. установить все обнаруженные моторы в безопасное состояние;
@@ -305,7 +295,7 @@ LOCAL_STOP/safety inhibit latch
 <a id="sec-7-5"></a>
 ## 5. Реализация QR↔энкодерной калибровки Base/Shoulder/Elbow на EV3
 
-Геометрический алгоритм и полный процедура инженерной калибровки заданы в [Спецификация Quest §16](quest-specification.md#sec-5-16). EV3 отвечает за безопасное движение на стороне мотора, точный снимок энкодеров, хранение принятой `DriveCalibration` и вычисление `q_actual` после привязка при запуске.
+Геометрический алгоритм и полная процедура инженерной калибровки заданы в [Спецификация Quest §16](quest-specification.md#sec-5-16). EV3 отвечает за безопасное движение на стороне мотора, точный снимок энкодеров, хранение принятой `DriveCalibration` и вычисление `q_actual` после стартовой привязки.
 
 <a id="sec-7-5-1"></a>
 ### 5.1. Абсолютный отсчёт энкодера как основной источник положения на стороне EV3
@@ -434,7 +424,7 @@ q_actual = BacklashPlayOperator(x_now, q_actual_prev, h)
 
 1. `q_ref` продолжает изменяться только в пределах acceleration limit;
 2. duty проходит через ноль;
-3. пока motor-side coordinate находится внутри измеренного backlash band, применяется `backlash_takeup_duty_limit`;
+3. пока motor-side coordinate находится внутри измеренного backlash band, применяется `backlash_takeup_duty_limit_permille`;
 4. после выхода output estimate из band включается обычный PD/duty limit;
 5. резкий отдельный «kick» для выбора люфта запрещён.
 
@@ -443,7 +433,7 @@ q_actual = BacklashPlayOperator(x_now, q_actual_prev, h)
 <a id="sec-7-5-6"></a>
 ### 5.6. Валидация и инвалидация
 
-`DriveCalibration` принимается только после hold-out проверки [План проверки §12](test-plan.md#sec-9-12). `JointReference` устанавливается только после второго QR verification [План проверки §13](test-plan.md#sec-9-13).
+`DriveCalibration` принимается только после hold-out проверки [Метрики и анализ §4.4](metrics-and-logs.md#sec-9-12). `JointReference` устанавливается только после второго QR verification [Метрики и анализ §4.5](metrics-and-logs.md#sec-9-13).
 
 `JointReference` немедленно инвалидируется при:
 
@@ -456,6 +446,10 @@ q_actual = BacklashPlayOperator(x_now, q_actual_prev, h)
 - явной calibration fault.
 
 После `READY` отсутствие QR visibility само по себе reference не инвалидирует: источник положения во время работы — absolute motor encoder + действующая calibration.
+
+Указанные причины инвалидации применяются и к `GripperReference` для D. При утрате
+обязательной reference соответствующая motor authority снимается до новой проверенной
+привязки; старые encoder offsets и последние цели не подставляются вместо неё.
 
 <a id="sec-7-6"></a>
 ## 6. Привязка энкодера захвата к фактическому раскрытию
@@ -518,11 +512,12 @@ sleep = clock_nanosleep(..., TIMER_ABSTIME, next_deadline)
 - заранее подготовить fixed-size структуры controller state, telemetry snapshot и FlightRecorder;
 - загрузить/валидировать YAML/JSON и active `CommissioningBundle` вне real-time loop;
 - вычислить коэффициенты `DriveCalibration` всех safety-observed осей, а controller/output constants — только motor-authorized subset, bounds/safe-set — для полного coupled-safety state;
-- создать network/logger threads и bounded queues;
+- создать logger и bounded IPC/telemetry queues; сетевые службы остаются отдельными процессами по [§2](#sec-7-2);
 - по возможности prefault/lock рабочую память процесса и использовать фиксированные размеры буферов;
-- установить приоритеты так, чтобы safety stop path имел более высокий приоритет, чем цикл управления моторами, а цикл управления моторами — выше network/logging work; конкретные scheduler settings допускаются только после HIL-проверки отсутствия starvation.
+- установить приоритеты так, чтобы safety stop path имел более высокий приоритет, чем цикл управления моторами, а цикл управления моторами — выше network/logging work; конкретные scheduler settings допускаются только после MANUAL-проверки отсутствия starvation.
 
-Release build EV3 компилируется с оптимизацией (`-O2` или эквивалентной проверенной конфигурацией). Исключительно диагностический код не должен менять управляющую математику или safety predicates.
+Настройки оптимизации принадлежат [правилам сборки](engineering.md#sec-8-6).
+Диагностика не меняет управляющую математику и условия безопасности.
 
 <a id="sec-7-7-3"></a>
 ### 7.3. Состав критического участка
@@ -552,7 +547,7 @@ D-only scope **не вычисляет** `JointReference`, `JointSafeSet`, joint
 - heap allocation/free;
 - форматирование JSON/CSV/YAML;
 - filesystem path lookup и повторный `open()` sysfs files;
-- файловые операции/flush/fsync;
+- операции с обычными файлами, flush/fsync; разрешён только предусмотренный bounded motor/sensor I/O через заранее открытые FD;
 - console I/O;
 - HMAC, DNS/mDNS и сетевой encode/send;
 - блокирующий socket I/O;
@@ -582,8 +577,14 @@ dt <= 25 ms
                                 state remains COMMISSIONING
 
 dt > 100 ms
-    FAULT_LOOP_OVERRUN + BRAKE/stop всех физически обнаруженных моторов
+    latched STOPPED + FAULT_LOOP_OVERRUN
+    BRAKE/stop всех физически обнаруженных моторов
 ```
+
+Пределы `60 ms` и `100 ms` следуют `NFR-PERF-02`; конфигурация не может
+увеличить их для motion-capable режима. При `FAULT_LOOP_OVERRUN` нормализация
+тайминга сама не снимает fault: требуются устранение причины, явный `FAULT_ACK`
+и применимое восстановление reference/re-arm.
 
 После transient inhibit motion не возобновляется автоматически. Полный path использует обычный `SAFE_HOLD → HOLD → deliberate re-arm`; qualification остаётся инженерным `COMMISSIONING`, но после устранения причины также требует release → EV3-confirmed OFF/HOLD → new rising edge. Новый локальный `ENTER` не требуется только для transient inhibit, пока та же commissioning session/local qualification authority остаётся валидной.
 
@@ -647,7 +648,12 @@ COMMISSIONING/ACTUATOR_QUALIFICATION:
 
 Нормативный предел формулируется как `p95 link/command freshness loss → запрет дальнейшего actuator motion ≤150 ms`. Для полного режима наблюдаемое состояние — `SAFE_HOLD/HOLD`; для gripper-only qualification — scoped inhibit/hold внутри `COMMISSIONING`, без фиктивного перехода в product `HOLD`.
 
-При локальном обнаружении release Quest немедленно передаёт приоритетный короткий burst пакетов `MOTION_ENABLE=0/HOLD_REQUEST=1` в течение `hold_burst_ms`; OFF-пакеты не coalesce'ятся с обычными motion updates. Это уменьшает риск задержки HOLD/inhibit при потере одного UDP-пакета и проверяется с искусственной packet loss.
+При принятии OFF/HOLD controller немедленно отменяет прежнюю moving target и
+применяет [§13](#sec-7-13). Формирование приоритетного burst на Quest описано в
+[Quest §3](quest-specification.md#sec-5-3).
+Настроенный command timeout вместе с периодом цикла и задержкой stop path обязан
+обеспечивать `NFR-PERF-06` (p95 ≤150 ms); допустимый schema range сам по себе
+не подтверждает этот временной бюджет.
 
 <a id="sec-7-10"></a>
 ## 10. Формирование опорной траектории q_ref
@@ -681,12 +687,12 @@ q_target_network
 ускорение <= 40°/с²
 ```
 
-Production config использует измеренные `user_max_vel/user_max_accel <=` этих ceilings после HIL braking/tracking/stop qualification для каждого применимого PayloadProfile. Более высокие ceilings могут быть введены только отдельной новой safety revision после hazard/stopping-distance анализа и полной повторной механической квалификации. Обычный пользовательский режим не должен автоматически использовать пределы свободного мотора.
+Production config использует измеренные `user_max_vel/user_max_accel <=` этих ceilings после MANUAL braking/tracking/stop qualification для каждого применимого PayloadProfile. Более высокие ceilings могут быть введены только отдельной новой safety revision после hazard/stopping-distance анализа и полной повторной механической квалификации. Обычный пользовательский режим не должен автоматически использовать пределы свободного мотора.
 
 <a id="sec-7-11"></a>
 ## 11. Регулятор суставов
 
-Для каждой оси A/B/C регулятор работает в единицах **duty percent**; физический момент в `N·m` никогда напрямую не складывается с `% duty`:
+Для каждой оси A/B/C регулятор работает в единицах **duty permille**; физический момент в `N·m` никогда напрямую не складывается с duty:
 
 ```text
 e = q_ref - q_actual
@@ -705,7 +711,7 @@ u_permille = clamp(
 )
 ```
 
-`Ki=0` в основной реализации. `Kd` действует по ошибке скорости `qdot_ref-qdot_actual_filtered`; это важно при движущейся `q_ref`, иначе derivative-on-measurement создаёт систематический velocity lag. Для каждой оси config явно хранит `kp_duty_permille_per_rad`, `kd_duty_permille_per_rad_s`, параметры bounded velocity filter, friction parameters и identity/hash feed-forward model. Любая таблица/аппроксимация feed-forward является versioned semantic component/controller-tuning data внутри `CommissioningBundle`; изменение коэффициентов требует повторных применимых HIL-тестов.
+`Ki=0` в основной реализации. `Kd` действует по ошибке скорости `qdot_ref-qdot_actual_filtered`; это важно при движущейся `q_ref`, иначе derivative-on-measurement создаёт систематический velocity lag. Для каждой оси config явно хранит `kp_duty_permille_per_rad`, `kd_duty_permille_per_rad_s`, параметры bounded velocity filter, friction parameters и identity/hash feed-forward model. Любая таблица/аппроксимация feed-forward является versioned semantic component/controller-tuning data внутри `CommissioningBundle`; изменение коэффициентов требует повторных применимых MANUAL-тестов.
 
 Для неподвижного Shoulder/Elbow `u_model_permille` может оставаться ненулевым, если это требуется для компенсации остаточного момента собственного веса. Base может использовать нулевой gravity term, но всё равно проходит тот же dimensional/config validation.
 
@@ -733,7 +739,7 @@ g * [
 
 Значения масс, центров масс и counterbalance относятся к конкретной assembly revision. Консервативные motion limits активного `PayloadProfile` применяются сразу после выбора профиля; дополнительный payload gravity term добавляется в `tau_model_Nm` только при подтверждённом `PayloadState=LOADED`. При `UNKNOWN` масса не угадывается и A/B/C `TRACKING` запрещён. Поля `PayloadProfile.feedforward_params` содержат только физические параметры/поправки torque model (например, квалифицированные масса/CoG/tool term) и **не являются direct duty gains**; преобразование момента в `% duty` принадлежит отдельному versioned `feedforward_models.<axis>` и его hash/domain.
 
-Физический `tau_model_Nm` преобразуется в motor command **только** через HIL-измеренную bounded функцию `FeedForwardMap(axis, tau_model_Nm, battery_mv, ...) -> duty_permille`. Ее domain/range, interpolation/extrapolation policy, saturation, battery bins/normalization и hash фиксируются в config/evidence. Экстраполяция за квалифицированный torque/battery domain запрещена; применяется safe derating/inhibit. Альтернативно допускается напрямую измеренная duty-table по `(q, payload, battery)` без промежуточной torque model, если она имеет те же bounded/versioned свойства и проходит те же HIL. В обоих вариантах сложение `N·m + % duty` запрещено по schema/code review/property test.
+Физический `tau_model_Nm` преобразуется в motor command **только** через физически измеренную bounded функцию `FeedForwardMap(axis, tau_model_Nm, battery_mv, ...) -> duty_permille`. Ее domain/range, interpolation/extrapolation policy, saturation, battery bins/normalization и hash фиксируются в config/evidence. Экстраполяция за квалифицированный torque/battery domain запрещена; применяется safe derating/inhibit. Альтернативно допускается напрямую измеренная duty-table по `(q, payload, battery)` без промежуточной torque model, если она имеет те же bounded/versioned свойства и проходит те же MANUAL. В обоих вариантах сложение `N·m + % duty` запрещено по schema/code review/property test.
 
 <a id="sec-7-13"></a>
 ## 13. HOLD, SAFE_HOLD и qualification inhibit
@@ -742,7 +748,7 @@ g * [
 
 ```text
 q_hold = q_actual
-grip_hold = contactPosition if CONTACT_HOLD else gripActual
+grip_hold = contactPosition if GRIP_CONTACT_HOLD else gripActual
 
 latest moving target = invalid
 состояние q_ref = текущие q_actual / qdot_actual
@@ -760,7 +766,7 @@ gripper target = grip_hold
 <a id="sec-7-14"></a>
 ## 14. Защита суставов от перегрузки, заклинивания и проскальзывания
 
-EV3 контролирует несколько независимых признаков. Ни один механизм защиты не должен пытаться компенсировать препятствие увеличением duty до предела. Для каждого axis fault commissioning config содержит `fault_stop_mode`: `BRAKE_ZERO_DUTY` либо `LIMITED_HOLD_NO_FORCE_GROWTH`. Второй режим разрешён для Shoulder/Elbow только если HIL доказал, что он предотвращает опасное падение и при этом не увеличивает усилие в сторону препятствия; иначе применяется `BRAKE_ZERO_DUTY`. Base при obstruction по умолчанию использует `BRAKE_ZERO_DUTY`.
+EV3 контролирует несколько независимых признаков. Ни один механизм защиты не должен пытаться компенсировать препятствие увеличением duty до предела. Для каждого axis fault commissioning config содержит `fault_stop_mode`: `BRAKE_ZERO_DUTY` либо `LIMITED_HOLD_NO_FORCE_GROWTH`. Второй режим разрешён для Shoulder/Elbow только если MANUAL доказал, что он предотвращает опасное падение и при этом не увеличивает усилие в сторону препятствия; иначе применяется `BRAKE_ZERO_DUTY`. Base при obstruction по умолчанию использует `BRAKE_ZERO_DUTY`.
 
 <a id="sec-7-14-1"></a>
 ### 14.1. Ошибка следования
@@ -771,14 +777,14 @@ e_track = q_ref - q_actual
 
 Устойчивое превышение настроенного tracking threshold означает, что механизм не следует допустимой опорной траектории.
 
-Нормативный порог задаётся per-axis измеренными `tracking_error_limit_deg` + `tracking_error_timeout_ms` в safety config и должен быть получен из backlash/dynamics HIL; фиксированное универсальное `8°/300 ms` не считается production requirement. Ошибка отслеживания используется вместе со speed/duty, а не как единственный признак stall.
+Нормативный порог задаётся per-axis измеренными `tracking_error_limit_deg` + `tracking_error_timeout_ms` в safety config и должен быть получен из backlash/dynamics MANUAL; фиксированное универсальное `8°/300 ms` не считается production requirement. Ошибка отслеживания используется вместе со speed/duty, а не как единственный признак stall.
 
 <a id="sec-7-14-2"></a>
 ### 14.2. Двухступенчатое обнаружение препятствия и заклинивания
 
 Stall означает, что было запрошено заметное движение, управляющее воздействие `duty` уже значимо, но абсолютный encoder практически не менялся. Защита не должна сама маскировать доказательство stall после того, как начала торможение.
 
-Нормативный предикат A/B/C параметризуется per-axis измеренными `stall_requested_speed_min_deg_s`, `stall_actual_speed_max_deg_s`, `stall_duty_min_permille`, `obstruction_candidate_ms` и `main_joint_stall_ms` из safety config. Фиксированные универсальные 15°/s, 5°/s, 700‰ и 400 ms не используются как production defaults; значения определяются controlled obstruction/stall HIL и обязаны сохранять достаточный detection margin относительно backlash, nominal load и encoder noise.
+Нормативный предикат A/B/C параметризуется per-axis измеренными `stall_requested_speed_min_deg_s`, `stall_actual_speed_max_deg_s`, `stall_duty_min_permille`, `obstruction_candidate_ms` и `main_joint_stall_ms` из safety config. Фиксированные универсальные 15°/s, 5°/s, 700‰ и 400 ms не используются как production defaults; значения определяются controlled obstruction/stall MANUAL и обязаны сохранять достаточный detection margin относительно backlash, nominal load и encoder noise.
 
 Защита двухступенчатая:
 
@@ -799,7 +805,7 @@ predicate stable >= obstruction_candidate_ms
 
 Общий tracking-error `SAFE_HOLD` не должен сбрасывать/замораживать уже latched candidate timer. Candidate либо доказанно очищается, либо заканчивается stall classification. Это предотвращает ситуацию, когда собственное защитное замедление делает `requested_speed` малым и тем самым «исцеляет» предикат.
 
-Любое изменение квалифицированных `obstruction_candidate_ms`/`main_joint_stall_ms` после принятого HIL evidence требует повторного controlled obstruction/stall HIL; безопасное направление изменения не предполагается без измерения.
+Любое изменение квалифицированных `obstruction_candidate_ms`/`main_joint_stall_ms` после принятого MANUAL evidence требует повторного controlled obstruction/stall MANUAL; безопасное направление изменения не предполагается без измерения.
 
 Для захвата `OBSTRUCTION_CANDIDATE` может означать нормальный контакт только при закрывании и только через FSM [§15](#sec-7-15). Для Base/Shoulder/Elbow препятствие никогда не считается нормальным способом достижения target.
 
@@ -831,12 +837,16 @@ max_duty_slew_permille_s
 EV3 motor не предоставляет PHANTOM достоверную температуру обмоток. Поэтому применяется консервативная **оценка накопленной нагрузки**, а не утверждение о фактической температуре:
 
 ```text
-load = abs(duty_permille) / 100
+load = abs(duty_permille) / 100.0  # шкала 0..10; полный duty = 10
 stress = stress * exp(-dt / cool_tau_s)
          + load² * dt
 ```
 
 Отдельный score ведётся для A/B/C/D.
+
+Это условный score, не температура и не нормированная доля duty. Пороги
+квалифицируются для указанной шкалы `load`; при её изменении они пересчитываются
+и проходят повторную квалификацию.
 
 ```text
 stress < warn_threshold
@@ -918,7 +928,7 @@ battery_mv < battery_stop_mv continuously for battery_fault_ms
 успешного измерения запрещают движение так же, как потеря обязательного safety input
 (`FR-SAFE-11`). Последний `NORMAL` не может сохранять разрешение после отказа sampler.
 Допустимый возраст измерения и реакция на зависший sampler проверяются в
-[Плане проверки §17](test-plan.md#sec-9-17) для выбранного периода опроса питания.
+[метриках EV3 §4.9](metrics-and-logs.md#sec-9-17) для выбранного периода опроса питания.
 После восстановления достоверных данных требуется deliberate re-arm; неисправность
 питания не устраняется подстановкой значения по умолчанию.
 
@@ -947,7 +957,11 @@ stateDiagram-v2
 gripTarget = grip_intent = humanGrip
 ```
 
-Локальный контроллер ограничивает скорость, duty и физический диапазон. В qualification phase q-поля A/B/C не участвуют, а motor writes вне scope запрещены до controller layer. После повторного включения управления используется актуальное значение `grip_intent` без ожидания синхронизации с предыдущим физическим положением.
+Локальный контроллер ограничивает скорость, duty и физический диапазон. Только в
+D-only qualification q-поля A/B/C не участвуют. В квалификации с A/B/C сохраняются
+coupled-safety и payload gates по [§16](#sec-7-16); motor writes вне scope запрещены.
+После повторного разрешения управления используется актуальное значение `grip_intent`
+без ожидания синхронизации с предыдущим физическим положением.
 
 <a id="sec-7-15-2"></a>
 ### 15.2. Кандидат контакта
@@ -957,9 +971,9 @@ gripTarget = grip_intent = humanGrip
 ```text
 closing requested
 requested travel since direction change >= contact_min_travel_ratio * D_open_counts
-duty >= contact_duty_min_permille
+abs(duty_permille) >= contact_duty_min_permille
 abs(motor_speed_counts_s) <= contact_speed_max_counts_s
-position_error_counts >= contact_position_error_min_counts
+abs(position_error_counts) >= contact_position_error_min_counts
 condition stable >= contact_confirm_ms
 ```
 
@@ -1035,6 +1049,10 @@ release intent detected while GRIP_CONTACT_HOLD
 - слишком долгое движение без допустимого результата → `FAULT_GRIPPER`;
 - потеря `GRASP_VALID` → удерживать текущую позицию, не открывать автоматически.
 
+Потеря `GRASP_VALID` также снимает motion-arm: полный режим выполняет `SAFE_HOLD`,
+D-only qualification — scoped inhibit по [§13](#sec-7-13). Восстановление grasp
+само по себе не продолжает закрывание или открывание.
+
 <a id="sec-7-16"></a>
 ## 16. Калиброванные безопасные границы и `JointSafeSet`
 
@@ -1055,14 +1073,16 @@ payload_collision_model_hash
 joint_safe_set_hash
 ```
 
-Генератор работает offline из `RobotCollisionModel`, union-envelope Gripper, collision primitive текущего PayloadProfile, floor/base forbidden geometry, independent joint bounds и safety margins. Cell помечается `SAFE` только если **вся** его угловая область консервативно доказана безопасной. Для v1 safety proof использует **консервативную верхнюю границу** worst-case Cartesian displacement всех collision primitives внутри всей cell (из interval/bounded kinematic calculation либо заведомо большей аналитической bound) и соответствующее inflation forbidden/payload geometry. Corner/edge/interior sampling используется только как validation этого bound, а не как доказательство отсутствия collision между samples. Величина bound/inflation и grid resolution входят в commissioning metrics и подтверждаются exhaustive simulation + HIL boundary tests. Если whole-cell bound получить/проверить нельзя, cell=`UNSAFE`.
+Генератор работает offline из `RobotCollisionModel`, union-envelope Gripper, collision primitive текущего PayloadProfile, floor/base forbidden geometry, independent joint bounds и safety margins. Cell помечается `SAFE` только если **вся** его угловая область консервативно доказана безопасной. Для v1 safety proof использует **консервативную верхнюю границу** worst-case Cartesian displacement всех collision primitives внутри всей cell (из interval/bounded kinematic calculation либо заведомо большей аналитической bound) и соответствующее inflation forbidden/payload geometry. Corner/edge/interior sampling используется только как validation этого bound, а не как доказательство отсутствия collision между samples. Величина bound/inflation и grid resolution входят в commissioning metrics и подтверждаются exhaustive simulation + MANUAL boundary tests. Если whole-cell bound получить/проверить нельзя, cell=`UNSAFE`.
 
 Runtime EV3:
 
 1. в полном scope проверяет обычный `q_target`; в partial A/B/C `ACTUATOR_QUALIFICATION` строит `q_target_effective`: координаты осей с motor authority берутся из принятого `COMMAND`, а A/B/C без authority, но входящие в `safety_observation_mask`, фиксируются на текущем локальном `q_actual`; wire-нули disabled axes никогда не подменяют их физическую позу;
 2. отклоняет `q_target_effective`, если соответствующая cell `UNSAFE`/out-of-grid;
 3. при каждом 50-Hz обновлении `q_ref` проверяет все grid cells, пересечённые от предыдущего полного observed `(A,B,C)` state к новому effective state, детерминированным 3D DDA traversal;
-4. запрещает step, если хотя бы одна cell unsafe, и переходит в `SAFE_HOLD`/`FAULT_LIMIT` согласно origin причины;
+4. запрещает step, если хотя бы одна cell unsafe: полный режим выполняет `SAFE_HOLD`,
+   qualification — scoped inhibit по [§13](#sec-7-13); нарушение независимых физических
+   bounds либо недостоверный safe-set фиксирует блокирующую неисправность в `STOPPED`;
 5. отдельно проверяет точные independent cable/hard-stop joint bounds, чтобы grid rounding не расширял допустимый диапазон.
 
 Если reference/encoder continuity любой A/B/C из `safety_observation_mask` теряется, EV3 не имеет права продолжать partial qualification по последнему/нулевому значению: A/B/C motion немедленно inhibits до новой reference. `safety_observation_mask` сам по себе никогда не разрешает motor write.
@@ -1111,7 +1131,9 @@ current encoder offsets unknown
 motion forbidden
 ```
 
-Persistent `DriveCalibration` может быть загружена только при совпадении revision/hash механики. Перед движением требуется новый QR-привязка.
+Persistent `DriveCalibration` загружается только при совпадении revision/hash механики.
+До движения необходимы механический осмотр, новая применимая QR-привязка и deliberate re-arm
+по `FR-STOP-03`; старые profile selection и подтверждение нагрузки не восстанавливаются.
 
 <a id="sec-7-19"></a>
 ## 19. Телеметрия
@@ -1121,167 +1143,72 @@ Persistent `DriveCalibration` может быть загружена тольк�
 
 Формируется около `20 Hz` из authoritative controller snapshot ([§2.2](#sec-7-2-2)).
 Семантика полей и подтверждения команд определена в [Спецификация протокола §2.8](protocol-specification.md#sec-4-7-8); точный состав пакета —
-в `protocol/wire_schema.yaml` и generated `protocol/protocol.md`.
+в `protocol/wire_schema.yaml` и generated `docs/protocol-wire-reference.md`.
 
 <a id="sec-7-19-2"></a>
 ### 19.2. `DIAGNOSTIC_TELEMETRY`
 
-Только Diagnostic профиль может дополнительно передавать с регулируемой частотой:
-
-```text
-raw_encoder_count[4]
-q_target[3]
-q_ref[3]
-duty_permille[4]
-grip_target
-contact_position
-loop_dt_us
-loop_overrun_count
-parser/drop/hmac counters
-log_drop_count
-calibration residuals / sample ids
-```
+Diagnostic может передавать raw encoder/speed, `q_ref`, duty/stress, loop timing,
+счётчики parser/HMAC/drop и глубину bounded queues. Точный состав действующего
+`DIAGNOSTIC_TELEMETRY` принадлежит [wire schema](../protocol/wire_schema.yaml)
+и [генерируемому справочнику](protocol-wire-reference.md); отдельного layout здесь нет.
+`q_target`, contact position, calibration residuals и sample ids могут сохраняться
+локальным logger, но не объявляются wire-полями без изменения схемы.
 
 Diagnostic telemetry никогда не должна блокировать цикл управления моторами. Все сообщения имеют sequence и HMAC.
 
 Семантика полей подчиняется двум независимым маскам active `CommissioningBundle`: `raw_encoder_count` и фактические `q_actual/q_speed` считаются измерениями для всех осей из `safety_observation_mask`, даже если соответствующая ось не имеет motor authority; вне `safety_observation_mask` observation-поля имеют canonical zero/`N_A`. `q_target/q_ref/duty_permille` имеют actuator semantics только для осей из `actuator_scope_mask`; для motor-disabled осей target/output не должны интерпретироваться как команда и duty обязан быть zero. В partial A/B/C qualification diagnostic packet поэтому может содержать реальные raw/q фактические значения A/B/C при motor authority только C или B+C. Отсутствие отдельного wire-поля масок не создаёт неоднозначности: обе стороны уже обязаны доказать один `commissioning_bundle_hash`.
 
 <a id="sec-7-20"></a>
-## 20. Логирование, FlightRecorder и профили сборки
+## 20. Диагностика и регистрация инцидентов
 
-Product control/safety core, регуляторы, limits, fault logic и обычные `READY/TRACKING/HOLD` semantics одинаковы в `Release` и `Diagnostic`. `Diagnostic` дополнительно может экспонировать qualification-only commissioning surfaces, описанные [Архитектура системы §5](system-architecture.md#sec-4-3)/[§5.2](#sec-7-5-2); они используют те же motor protection/safety primitives, требуют локальный arm и не существуют как доступная функция Release. Для одного и того же product-mode входа различается только объём диагностики, а actuator result обязан совпадать.
+Release и Diagnostic используют одинаковые управление и защиту по
+[правилам профилей](engineering.md#sec-engineering-build-profiles).
+Расширенная запись включается явно и не меняет право управления приводами.
+Форматы событий, состав сохраняемых данных, retention и анализ принадлежат
+[документу метрик и журналов](metrics-and-logs.md#sec-metrics-logging).
 
 <a id="sec-7-20-1"></a>
-### 20.1. Структурированные события
+<a id="sec-7-20-7"></a>
+### 20.1. Неблокирующая регистрация
 
-Каждое существенное событие получает фиксированную структуру:
-
-```text
-monotonic_us
-wall_time_if_valid
-incident_id
-session_id
-controller_boot_id
-build_id
-commissioning_bundle_hash
-active_joint_safe_set_hash
-robot_geometry_hash
-drive_calibration_hash
-state_before
-state_after
-event_code
-axis_or_subsystem
-command_sequence
-human_readable_context_id
-```
-
-Для motor/safety events snapshots различают authority и observation: full A/B/C — `q_target/q_ref/q_actual`, speed/duty; partial A/B/C qualification — реальные encoder/`q_actual` всех safety-observed A/B/C плюс target/duty только motor-authorized subset; gripper-only — D encoder/speed/duty и gripper FSM/target/actual; network-only motor snapshot не выдумывается. Battery и временные показатели цикла сохраняются во всех профилях.
-
-События, которые обязательно логируются:
-
-- запуск/штатное завершение и unclean previous shutdown;
-- все state transitions;
-- latched fault condition (`STOPPED + fault_code`), `STOPPED`, `SAFE_HOLD` с причиной;
-- `OBSTRUCTION_CANDIDATE`, stall, motor overload/stress derating;
-- `LOCAL_STOP`;
-- watchdog timeout/переподключение;
-- controller/safety process loss;
-- превышение периода цикла/временной предел anomaly;
-- calibration/reference success/rejection с quality metrics;
-- config/hash incompatibility;
-- `WIFI_AVAILABLE`, `WIFI_LOST`, `WIFI_RECOVERED`, `WIFI_RECOVERY_FAILED` без SSID credential;
-- `NETWORK_READY`, `UDP_LISTENER_STARTED`, `DNS_SD_PUBLISHED`/publication failure;
-- `HELLO_ACCEPTED`/`HELLO_REJECTED`, `SESSION_CREATED`/`SESSION_ENDED`, `STALE_REPLAY_REJECTED`, категоризированный `AUTH_FAILURE`, `CONTROLLER_RESTART`;
-- maintenance lock / encoder discontinuity / подтверждённое механическое вмешательство;
-- parser/HMAC anomaly aggregates;
-- log subsystem failure.
+Controller публикует fixed-size records в preallocated ring/queue. Отдельный logger
+выполняет сериализацию, запись и ротацию. При переполнении periodic diagnostic records
+отбрасываются первыми; fault/state/safety events имеют отдельный резерв slots.
+`log_drop_count` увеличивается, потеря данных сообщается при первой возможности.
+Ошибка logger никогда не блокирует управление или stop path.
+Формат и обязательные события — [§2.3](metrics-and-logs.md#sec-metrics-event-format).
 
 <a id="sec-7-20-2"></a>
-### 20.2. EV3 `FlightRecorder`
+### 20.2. FlightRecorder
 
-Даже в Release цикл управления моторами пишет **не на диск**, а в фиксированный RAM ring buffer. По умолчанию буфер хранит последние `10 s` с частотой цикла управления моторами (`50 Hz`); размер записи фиксирован и задаётся при сборке/старте.
-
-Каждая запись содержит общий header (`monotonic_us`, active profile, `actuator_scope_mask`, `safety_observation_mask`, `state/status_flags/fault_code`, command sequence/age, battery, loop timing, safety flags) и scope-specific payload. Full A/B/C записывает raw encoders, `q_target/q_ref/q_actual/q_speed`, duty/stress и gripper. Partial A/B/C qualification сохраняет `q_actual`/raw encoder всех safety-observed A/B/C, но target/duty authority только motor-enabled осей; duty disabled осей остаётся zero. Gripper-only — D encoder/speed/duty/stress и gripper target/actual/FSM; network-only — controller/session/network counters и battery/loop health без фиктивных q. Реализация может использовать один fixed-size union/record с canonical zero для полей вне `safety_observation_mask`, но semantics обязана явно маркировать обе маски и не трактовать нули как измерения.
-
-При incident:
-
-```text
-1. сначала выполнить safety action / BRAKE
-2. atomically freeze pre-fault ring generation
-3. присвоить incident_id
-4. продолжить краткий post-fault capture в отдельный bounded tail buffer
-5. logger thread асинхронно сохранить incident metadata + flight data
-```
-
-Цикл управления моторами никогда не ждёт завершения записи.
+В обоих профилях motor loop пишет ограниченный контекст в фиксированный RAM ring,
+а не на диск. При инциденте сначала выполняется safety action, затем замораживается
+pre-fault generation и собирается bounded post-fault tail. Logger сохраняет данные
+асинхронно; управление не ждёт записи. Состав, частота и глубина буфера —
+[§2.4](metrics-and-logs.md#sec-metrics-flight-records).
 
 <a id="sec-7-20-3"></a>
-### 20.3. Минимальный аварийный журнал `phantom-safety`
-
-Если основной controller погиб/завис, `phantom-safety` после выполнения `BRAKE` обязан самостоятельно записать маленькое emergency event:
-
-```text
-controller_boot_id
-last_heartbeat_monotonic_us
-stop_reason
-LOCAL_STOP state
-motor addresses/states if readable
-safety process build_id
-```
-
-Торможение имеет приоритет над файловой записью. Failure emergency log не отменяет stop action.
-
 <a id="sec-7-20-4"></a>
-### 20.4. Контекст инцидента на Quest
-
-Quest держит собственный короткий RAM ring buffer без изображений камер. Общие поля: profile/scope, monotonic time, state/fault, network sequence/RTT/telemetry age и correlation id. Scope-specific payload: full path — Wrist/Body_RightShoulder validity/quality/timestamps, requested/control/projected TCP и `q_target`; gripper-only — grasp validity/value, Left Grip, `grip_intent`/gripper telemetry; network-only — discovery/session/config/telemetry transitions без mandatory tracking fields.
-
-При получении EV3 fault condition либо локальном XR/network fault Quest сохраняет ring buffer под тем же `session_id` и согласованным `incident_id`/event correlation id. Это позволяет восстановить именно применимую цепочку «input/network → command/session → EV3 response → fault» без фиктивных samples.
-
 <a id="sec-7-20-5"></a>
-### 20.5. Release
-
-На диск постоянно записываются только низкочастотные структурированные events и summaries. Полная high-frequency trajectory не пишется постоянно.
-
-При incident Release сохраняет FlightRecorder, поэтому отладочный контекст ошибки доступен без постоянного износа SD-карты.
-
 <a id="sec-7-20-6"></a>
-### 20.6. Diagnostic
+### 20.3. Аварийная регистрация и контекст пары
 
-Diagnostic может дополнительно постоянно/сеансово записывать с ограничиваемой частотой:
+Если controller погиб, safety после stop action самостоятельно сохраняет bounded
+emergency event по [§2.5](metrics-and-logs.md#sec-metrics-safety-events).
+Сбой записи не отменяет торможение.
 
-- raw encoders;
-- `q_target/q_ref/q_actual`;
-- duty/speed/stress;
-- измерения инженерной калибровки и QR residuals;
-- network timing/счётчики парсера;
-- измерения отслеживания без passthrough images;
-- расширенные gripper FSM transitions.
+Контекст Quest и связь инцидентов пары — [§2.6](metrics-and-logs.md#sec-metrics-quest-incidents).
 
-Если logger/telemetry queue растёт, сначала автоматически уменьшается/отключается непрерывная diagnostic запись. Motor временной предел имеет приоритет.
-
-<a id="sec-7-20-7"></a>
-### 20.7. Реализация очередей и файлов
-
-Цикл управления моторами помещает fixed-size record в preallocated ring/queue. Отдельный logger выполняет serialization, compression при необходимости, write и rotation.
-
-При переполнении:
-
-- diagnostic periodic records могут быть отброшены;
-- fault/state/safety events имеют приоритет и отдельный резерв queue slots;
-- `log_drop_count` увеличивается;
-- факт потери diagnostic records включается в следующий доступный event/telemetry;
-- цикл управления моторами не блокируется.
-
-Production state и журналы располагаются соответственно в `/var/lib/phantom` и `/var/log/phantom`; runtime sockets/lease — в `/run/phantom`. Каталог `/home/robot/phantom-bench/results/ev3/raw` принадлежит только инженерному bench harness и не является production log storage. Bench logs имеют отдельную bounded rotation/cleanup policy; перед ручной очисткой нужные evidence-файлы копируются на host, точный canonical target path проверяется, а удаление никогда не затрагивает release/config/state каталоги.
-
-Stage-3 network worker раз в секунду atomically заменяет bounded snapshot `/run/phantom/network/status.json` внутри принадлежащего `phantom-net` runtime directory. Он содержит только public profile/identity, текущий boot id, session-active flag и счётчики `rx`, `rx_drop`, `hmac_fail`, `parser_reject`, `hello_accept`, `hello_reject`, `replay_reject`, `pong`, `telemetry`, `command_scope_zero`, `motor_write_attempts_rejected`, `controller_snapshot_stale`; PSK, HMAC tags, nonce, session id и payload в файл не попадают.
+Объём записи Release/Diagnostic — [§1](metrics-and-logs.md#sec-metrics-collection).
+Сетевой public status snapshot — [§2.7](metrics-and-logs.md#sec-metrics-network-status).
+Расположение файлов и права служб — [контракт установки](engineering-contracts.md#sec-engineering-contracts-ev3-install).
 
 <a id="sec-7-21"></a>
 ## 21. Конфигурация EV3
 
-EV3 runtime configuration is carried by **two separate machine-readable artifacts**, and
-this section describes their semantics rather than restating their structure:
+Конфигурация EV3 состоит из двух машинно-читаемых артефактов. Их структура
+принадлежит схемам, а этот раздел задаёт проверки runtime:
 
 | артефакт | canonical schema | canonical source | что в нём живёт |
 |---|---|---|---|
@@ -1294,45 +1221,35 @@ Schema владеет **структурой**: именами, вложенно
 schema, generated artifacts и проверки согласованно исправляются до допуска движения
 по [Правилам спецификации §4](specification-governance.md#sec-specification-governance-4).
 
-`tools/configgen.py` validates both artifacts and emits the canonical generated JSON plus
-`config/generated/config-manifest.json`. It rejects duplicate mapping keys (никогда не
-last-key-wins), unknown fields, out-of-range values, an actuator scope that is not
-safety-observed, and a `loop_safe_hold_ms` that does not fire strictly before `loop_fault_ms`.
-Compatibility `content_hash`/`commissioning_bundle_hash` считается по RFC 8785 JCS UTF-8 bytes
-именно semantic artifact; `protocol/jcs.py` is the single canonicalizer used by every
-component so Quest and EV3 derive identical bytes. Нормативный
-`qualification_evidence_manifest_hash` является **semantic gate field** и входит в production
-compatibility identity; человеческие/временные provenance-детали самого evidence
-(`created_at`, workstation/operator, raw report paths/comments) находятся только в provenance
-sidecar и не входят в compatibility hash. Runtime ничего не пересериализует ради
-actuator-совместимости — он хэширует установленные canonical semantic artifact bytes и
-сравнивает их с ожидаемым hash до real-time режима. Derived `commissioning_bundle_hash`,
-`bundle_id` и component hashes хранятся в manifest/envelope и не входят в собственные hashed
-component bytes; поле с собственным hash внутри semantic payload schema запрещено (S50).
+Генерация, канонизация, хэши и установка конфигурации определены
+[контрактом конфигурации](engineering-contracts.md#sec-engineering-contracts-configuration).
+До допуска движения runtime проверяет установленные canonical bytes, совпадение
+хэшей и межкомпонентную совместимость. Хэш `QualificationEvidenceManifest` входит
+в semantic admission gate; provenance metadata и derived self-hash — вне semantic bytes.
 
 <a id="sec-7-21-1"></a>
 ### 21.1. Поля, которые обязан загружать runtime
 
-`phantom-controller` и `phantom-safety` читают эти значения через `load_runtime_profile`
-(`ev3/src/runtime_profile.cpp`) и **не имеют для них компилируемых значений по умолчанию**:
+Каждая служба загружает необходимые ей значения из валидированной конфигурации
+и **не подставляет компилируемые значения по умолчанию**:
 отсутствующее, нетипизированное или выходящее за диапазон поле — ошибка запуска, а не повод
 взять зашитое значение.
 
 | поле | смысл | fail-closed правило |
 |---|---|---|
 | `network.listen_port_udp` | UDP command port | 1024..65535 |
-| `network.command_timeout_ms` | свежесть принятого `COMMAND`; истечение → `SAFE_HOLD`/`FAULT_TIMEOUT` | 20..2000 |
+| `network.command_timeout_ms` | свежесть принятого `COMMAND`; истечение → inhibit по [§9](#sec-7-9) | motion-профиль соблюдает `NFR-PERF-06` |
 | `network.session_stale_ms` | инвалидация CONTROL owner и controller-side IPC session watchdog | 200..300000 |
-| `network.rx_rate_limit_pps`, `network.rx_burst_packets` | HIL-derived token bucket парсера | `MEASURED`; до измерения network-only использует зафиксированный baseline |
+| `network.rx_rate_limit_pps`, `network.rx_burst_packets` | MANUAL-derived token bucket парсера | `MEASURED`; до измерения network-only использует зафиксированный baseline |
 | `network.hello_retry_window_ms` | окно идемпотентного повторного `HELLO` | должно покрывать `hello_retry_ms × hello_max_attempts` Quest |
 | `safety.controller_heartbeat_rate_hz` | минимальная частота heartbeat обоих процессов | ≥ 20 Hz |
 | `safety.controller_heartbeat_timeout_ms` | потеря supervisor → latched `STOPPED` + `FAULT_CONTROLLER_PROCESS` | должен покрывать хотя бы один heartbeat-период |
-| `safety.loop_safe_hold_ms` | первый порог превышения периода: `SAFE_HOLD` без latched fault | строго меньше `loop_fault_ms` |
-| `safety.loop_fault_ms` | второй порог: `SAFE_HOLD` + `FAULT_LOOP_OVERRUN` | строго больше `loop_safe_hold_ms` |
+| `safety.loop_safe_hold_ms` | порог transient inhibit по [§7.4](#sec-7-7-4) | ≤60 ms и строго меньше `loop_fault_ms` для motion-профиля |
+| `safety.loop_fault_ms` | порог latched `STOPPED + FAULT_LOOP_OVERRUN` | ≤100 ms и строго больше `loop_safe_hold_ms` для motion-профиля |
 | `safety.motor_output_default` | безопасное состояние выхода | только `BRAKE_ZERO` |
 | `safety.measured_limits_complete` | часть `READY` admission | `false` пока `MEASURED` не заполнены |
-| `logging.flight_recorder_seconds`, `logging.flight_recorder_rate_hz` | глубина RAM ring buffer ([§20.2](#sec-7-20-2)) | произведение задаёт число записей |
-| `logging.release_retention_days`, `logging.release_max_mb` | retention инцидентов и журналов ([Разработка и развёртывание §13](engineering.md#sec-8-13)) | применяется при старте |
+| `logging.flight_recorder_seconds`, `logging.flight_recorder_rate_hz` | глубина RAM ring buffer ([§20.2](#sec-7-20-2)) | произведение задаёт число записей; частота не выше фактических ticks |
+| `logging.release_retention_days`, `logging.release_max_mb` | retention инцидентов и журналов ([Метрики и журналы §2.1](metrics-and-logs.md#sec-8-13)) | применяется при старте |
 
 Commissioning admission (`commissioning_valid`, `external_power_cut_tested`) приходит **только
 из authoritative bundle**, а не из runtime config: `qualification_only` bundle никогда её не
@@ -1360,43 +1277,28 @@ engineering/disabled:
 Ни одно из них не должно быть добавлено в prose как «уже действующее поле» раньше, чем оно
 появится в schema: именно такое расхождение делает конфигурацию неоднозначной.
 
-Для Stage-3 network-only worker дополнительно фиксированы bounded implementation limits: не более `32` datagrams за один drain, UDP receive buffer request `16384 bytes`, неблокирующий poll не дольше `10 ms`, telemetry `20 Hz`, atomic status snapshot `1 Hz`. Rate limit является общим token bucket процесса, а не отдельным неограниченным bucket для каждого source endpoint. Эти значения входят в regression/DEVICE INTEGRATION TEST baseline; их изменение требует повторных flood и timing tests, но не изменения wire v1.
+Для Stage-3 network-only worker дополнительно фиксированы bounded implementation limits: не более `32` datagrams за один drain, UDP receive buffer request `16384 bytes`, неблокирующий poll не дольше `10 ms`, telemetry `20 Hz`, atomic status snapshot `1 Hz`. Rate limit является общим token bucket процесса, а не отдельным неограниченным bucket для каждого source endpoint. Эти значения входят в baseline регрессионных и интеграционных тестов; их изменение требует повторных flood и timing tests, но не изменения wire v1.
 
 Параметры `MEASURED` не получают произвольное значение по умолчанию во время работы в actuator path: до qualification соответствующая функция остаётся в engineering/disabled состоянии. Safety-critical `MEASURED` (границы, payload envelope, `POWER_CUT` status, rate/loop limits, mapping sanity bounds) дополнительно блокируют переход в `READY` до заполнения и прохождения соответствующих acceptance tests.
 
-Для `build_profile=Release` authoring schema обязана отклонять `qualification_only=true`, `actuator_scope_mask != 0x0F` и `safety_observation_mask != 0x0F`. Нулевой `qualification_evidence_manifest_hash` разрешён в source/generated config только как явно заблокированный `UNQUALIFIED_RELEASE_CANDIDATE`: runtime остаётся fail-closed и такой config нельзя установить/опубликовать как production release. Release **packaging/publication gate**, в отличие от schema/generator и compile-only build, обязательно отклоняет нулевой/отсутствующий evidence hash либо manifest, чей component-set hash не совпадает с production bundle, и проверяет PASS всех обязательных evidence refs. Простая ручная смена `qualification_only:true→false` не создаёт допустимый release и должна fail packaging/release validation. На этапах 3–5 ранний Diagnostic mechanical/safety bundle разрешает только пары масок `0x00/0x00` (network-only) и `0x08/0x08` (Gripper). Соответствующий Quest profile отдельно использует `required_user_inputs=NONE` для Stage 3 и phase-specific QR commissioning либо `GRIPPER_ONLY` для user-driven Stage 5. На этапах 6–7 Diagnostic `COMMISSIONING/CALIBRATION` может использовать versioned scope всех фактически подключённых осей текущего стенда, если их motor/mechanics/safety prerequisites [Спецификация Quest §16.1](quest-specification.md#sec-5-16-1) выполнены; отдельный `CALIBRATION_JOG.axis` выбирает единственную движущуюся ось, а штатный `COMMAND` для A/B/C при этом запрещён. Scoped A/B/C `ACTUATOR_QUALIFICATION` допускается только с полными `RobotGeometry`, `DriveCalibration`, `JointReference A/B/C`, `EMPTY` profile-specific `JointSafeSet`, `safety_observation_mask & 0x07 == 0x07`, `actuator_scope_mask & ~safety_observation_mask == 0` и пройденными **pre-motion** prerequisites [План проверки](test-plan.md#sec-9) (exhaustive safe-set proof, mechanical/fixture inspection, `LOCAL_STOP`/`POWER_CUT`, DEVICE INTEGRATION TEST/zero-output и применимые P0 gates). Сам движущийся incremental HIL case не может быть prerequisite самому себе: он последовательно создаёт qualification evidence по [План проверки §15.7](test-plan.md#sec-9-15-7)/[План проверки §17](test-plan.md#sec-9-17)–[План проверки §19](test-plan.md#sec-9-19) и [Этапы реализации §11](implementation-stages.md#sec-10-11). Маска motor authority может быть уже (`C`, `B+C` и т.п.), но безопасность всегда вычисляется по реальным observed A/B/C.
-
-Для incremental A/B/C HIL узкая authority **не является runtime override** production bundle. Все narrow authority cases (`C`, `B+C`, затем A+B+C narrow/full-authority bring-up до payload qualification) выполняются только с **пустым Gripper без внешнего payload** и используют installed `EMPTY` PayloadProfile + matching `EMPTY` JointSafeSet. После reference tooling явно устанавливает engineering `SET_PAYLOAD_PROFILE=EMPTY` и `SET_PAYLOAD_STATE=EMPTY` при stationary motors и снятом qualification arm; это не product state, а доказуемый input safety gate. `LOADED`, non-empty profile, pickup/release и object-contact-as-payload в narrow qualification запрещены. Loaded-payload cases допускаются только в отдельном full `0x0F/0x0F qualification_only=true` bundle с полными A/B/C/D references и специальными engineering payload gates [Спецификация протокола §2.5](protocol-specification.md#sec-4-7-5). Engineering tooling создаёт каждую immutable derived revision из принятого production-candidate semantic component set: narrow bundles ссылаются на те же geometry/DriveCalibration/collision/SafetyEnvelope hashes и EMPTY profile/safe-set; full qualification bundle может переключать только уже установленные candidate payload profiles/safe-sets, не меняя их bytes. Каждая revision имеет собственный `commissioning_bundle_hash`, проходит двухсторонний deployment/hash check и при активации инвалидирует session/JointReference/GripperReference. После qualification production bundle создаётся/promote-ится отдельной revision; HIL никогда не переписывает masks in-place.
+При запуске controller проверяет профиль и маски по [§4](#sec-7-4).
+Частичная квалификация A/B/C требует всех наблюдаемых A/B/C references и полного
+EMPTY safe-set по [§16](#sec-7-16); неизвестная нагрузка не разрешает движение.
+Правила создания, установки и promotion неизменяемых qualification/Release ревизий —
+[контракт конфигурации](engineering-contracts.md#sec-engineering-contracts-qualification-bundles).
 
 <a id="sec-7-22"></a>
 ## 22. Обнаружение EV3 и установление соединения
 
 EV3 публикует DNS-SD type `_phantom-ev3._udp` в domain `local.` (полный browse-name `_phantom-ev3._udp.local.`) с текущим `robot_id`, IPv4 port и protocol major. IP-адрес не является identity. V1 publisher/listener квалифицирован только для IPv4; Avahi publication не должна рекламировать IPv6-only endpoint.
 
-USB gadget network допускается только как maintenance/bench transport. Штатные fixed-pair host-инструменты используют `ev3dev.local` и pin сохранённого SSH host key; произвольный endpoint в routine lifecycle запрещён. Отдельная диагностика не должна предполагать, что `192.168.0.1` всегда принадлежит Brick, поскольку этот адрес может совпасть с LAN gateway. IPv4 link-local адрес после USB enumeration допустим только для явной диагностики при подтверждённой привязке к LEGO RNDIS interface/MAC и том же fingerprint. Production control остаётся в изолированной Wi-Fi/LAN согласно [Разработка и развёртывание §12](engineering.md#sec-8-12).
-
-`HELLO_ACK` содержит:
-
-```text
-robot_id
-build_id                  # wire field; semantic value = EV3 component/profile build_id
-protocol_contract_hash       # compatibility; schema/semantics hashes остаются в manifest/evidence
-commissioning_bundle_hash
-robot_geometry_hash
-drive_calibration_hash
-active_joint_safe_set_hash
-controller_boot_id
-result_code
-state
-joint_reference_valid
-gripper_reference_valid
-safe_joint_min[3]
-safe_joint_max[3]
-joint_max_velocity[3]
-joint_max_acceleration[3]
-gripper_capabilities
-build_profile
-```
+Настройка LAN, firewall и инженерного SSH/USB доступа принадлежит
+[контракту сети](engineering-contracts.md#sec-engineering-contracts-network).
+`HELLO_ACK` формируется из свежего controller snapshot после решения controller-а:
+успешный ответ — только после принятия session; authenticated rejection возвращает
+`session_id=0` и error result без создания authority по [§2.2](#sec-7-2-2).
+Поля и правила retry заданы
+[протоколом §2.3](protocol-specification.md#sec-4-7-3); список wire-полей здесь не повторяется.
 
 Несовпадение `robot_id`, protocol major, `protocol_contract_hash`, `commissioning_bundle_hash` или safety-critical subhash запрещает `READY`.
 
@@ -1415,7 +1317,7 @@ header/auth-tag/type-specific payload lengths == current schema-generated contra
 actual datagram length == exact schema-derived expected length
 recv → cheap total/header length + magic/version + known message_type + reserved checks
      → exact type-specific payload length from generated schema
-     → HIL-derived token bucket + bounded work queue
+     → MANUAL-derived token bucket + bounded work queue
      → constant-time HMAC verify
      → session/controller_boot/sequence validation
      → payload field decode + finite/range validation
@@ -1423,12 +1325,15 @@ recv → cheap total/header length + magic/version + known message_type + reserv
 парсер не выделяет память пропорционально заявленной длине пакета
 ```
 
-Число `500 packets/s` не является нормативным значением. `rx_rate_limit_pps` и burst capacity определяются HIL так, чтобы flood/authentication work не нарушал бюджет 50-Hz motor loop.
+`rx_rate_limit_pps` и burst capacity квалифицируются на EV3 так, чтобы
+flood/authentication work не нарушал бюджет 50-Hz motor loop. Программные варианты
+проверяются автоматически; измерения реального временного бюджета — по
+[метрикам EV3](metrics-and-logs.md#sec-9-17).
 
 Счётчики невалидных HMAC и отброшенных пакетов должны попадать в инженерную телеметрию с ограниченной частотой.
 
 <a id="sec-7-24"></a>
-## 24. Сетевые, моторные и процессные сценарии отказа
+## 24. Классы неисправностей и восстановление
 
 Fault policy использует как минимум три класса:
 
@@ -1441,25 +1346,26 @@ MAINTENANCE_REQUIRED     # движение запрещено до механи
 Impact, подозрение на slip/пропуск зуба, encoder discontinuity и аналогичные события не могут считаться обычным recoverable fault только потому, что сеть/процесс восстановились.
 
 <a id="sec-ev3-specification-24-1"></a>
-### 24.1. Сценарии
+### 24.1. Реакции EV3
+
+Отбрасывание невалидных пакетов и идемпотентность транзакций определены
+[протоколом](protocol-specification.md#sec-4-7) и controller-side проверками
+[§2.2](#sec-7-2-2). Ниже описаны реакции EV3, а не список тестовых сценариев.
 
 | Событие | Обнаружение | Действие |
 |---|---|---|
-| старый/reordered COMMAND | sequence | drop |
-| exact retry последней state transaction в той же session | last completed id/hash/ACK payload | вернуть тот же semantic ACK payload/result без side effect; wire response получает новый EV3→Quest sequence/timestamp/HMAC |
-| stale/conflicting/gap transaction | monotonic transaction id + canonical hash | `ERR_TRANSACTION_STALE/CONFLICT/GAP`, state без изменения |
-| неверный HMAC | HMAC | drop без actuator change |
-| чужая session/boot id | header проверка | drop |
 | потеря command stream | `command_age` | full product path: `SAFE_HOLD`; `ACTUATOR_QUALIFICATION`: scoped inhibit/dearm без product HOLD, а потеря commissioning session завершает qualification и возвращает к `DISCOVERY` |
-| IP изменился | discovery/connectivity | новая discovery + установление сессии; старую session локально инвалидировать/прекратить traffic, без несуществующего `SESSION_CLOSE` packet |
+| IP/интерфейс изменился | connectivity | перепубликовать актуальный endpoint; старое управление не восстанавливать, новая session требует handshake по протоколу |
 | `phantom-controller` завис | safety heartbeat | takeover + `BRAKE` |
 | `phantom-safety` завис | controller health | `BRAKE` + `STOPPED` + legacy `FAULT_CONTROLLER_PROCESS`; structured subsystem=SAFETY |
-| превышение периода цикла свыше `loop_safe_hold_ms` | `dt` | `SAFE_HOLD` без latched fault; `loop_health_flags` фиксирует факт |
-| превышение периода цикла свыше `loop_fault_ms` | `dt` | `SAFE_HOLD` + `FAULT_LOOP_OVERRUN`; не latched, снимается при возврате тайминга |
-| `LOCAL_STOP` | physical input | latched `STOPPED` + `BRAKE`; процесс controller **остаётся живым** и обслуживает `RESET_STOPPED` |
+| превышение периода цикла свыше `loop_safe_hold_ms` | `dt` | полный режим: `SAFE_HOLD`; qualification: scoped inhibit/dearm; восстановление только через re-arm по [§7.4](#sec-7-7-4) |
+| превышение периода цикла свыше `loop_fault_ms` | `dt` | latched `STOPPED + FAULT_LOOP_OVERRUN`, brake/stop; устранение причины + явный ACK и применимое восстановление по [§7.4](#sec-7-7-4) |
+| `LOCAL_STOP` | physical input | latched `STOPPED` + `BRAKE`; cooperative release либо forced takeover по [§3](#sec-7-3), восстановление по [§17](#sec-7-17) |
 | штатное завершение `phantom-controller` | boot id retired + отсутствие snapshot | network/mDNS перестают подтверждать несуществующий authority; telemetry не отправляется, Quest уходит в `TelemetryStale` |
 | потеря controller snapshot по IPC | reverse-IPC timeout | `phantom-network` не отправляет telemetry вообще и не выдумывает state; `HELLO` без snapshot отбрасывается |
 | motor stall A/B/C | requested speed + motor encoder speed + duty | `FAULT_JOINT_STALL` |
-| механическое вмешательство / подозрение на пропуск передачи | operator/maintenance state | движение запрещено до новой QR-привязки |
-| gripper contact | closing + duty + speed + error | `CONTACT_HOLD` |
+| механическое вмешательство / подозрение на пропуск передачи | operator/maintenance state | maintenance lock, механический осмотр, новая reference/calibration по [§14.6](#sec-7-14-6); автоматического resume нет |
+| gripper contact | closing + duty + speed + error | `GRIP_CONTACT_HOLD`; при A/B/C — payload-transition inhibit по [§15.3](#sec-7-15-3) |
 | gripper opening jam | gripper FSM | `FAULT_GRIPPER` |
+| отказ обязательного motor/sensor I/O | ошибка чтения/записи, недостоверное либо устаревшее измерение | запрет движения зависимых приводов, latched fault и stop policy; потеря encoder continuity дополнительно инвалидирует reference |
+| недостоверная battery telemetry | health/freshness sampler | inhibit, без подстановки последнего `NORMAL`; восстановление по [§14.7](#sec-7-14-7) |

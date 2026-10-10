@@ -4,7 +4,9 @@ root=$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd);output=${1:-/out};profile=$
 case "$profile" in Release) diagnostic=OFF;build_type=Release;deep_debug=OFF;; Diagnostic) diagnostic=ON;build_type=Release;deep_debug=OFF;; DeepDebug) diagnostic=ON;build_type=Debug;deep_debug=ON;; *) echo "invalid profile: $profile" >&2;exit 2;;esac
 command -v arm-linux-gnueabi-g++ >/dev/null 2>&1 || { echo "arm-linux-gnueabi toolchain unavailable; release gate NOT RUN" >&2;exit 127; }
 rm -rf "$build";mkdir -p "$build" "$output"
-cmake -H"$root/ev3" -B"$build" -DCMAKE_BUILD_TYPE="$build_type" -DPHANTOM_DIAGNOSTIC="$diagnostic" -DPHANTOM_DEEP_DEBUG="$deep_debug" -DCMAKE_TOOLCHAIN_FILE="$root/ev3/bench/cmake/armel-toolchain.cmake"
+cmake -H"$root/ev3" -B"$build" -DCMAKE_BUILD_TYPE="$build_type" -DPHANTOM_DIAGNOSTIC="$diagnostic" -DPHANTOM_DEEP_DEBUG="$deep_debug" -DCMAKE_TOOLCHAIN_FILE="$root/toolchains/ev3-armel.cmake"
 cmake --build "$build" -- -j2
-file "$build/phantom-controller" "$build/phantom-safety" | grep -q 'ARM'
+for binary in phantom-controller phantom-safety; do
+  file "$build/$binary" | grep -q 'ELF 32-bit LSB.*ARM'
+done
 cp "$build/phantom-controller" "$build/phantom-safety" "$output/"

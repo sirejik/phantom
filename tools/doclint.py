@@ -6,6 +6,7 @@ import json
 import re
 import subprocess
 import sys
+from urllib.parse import unquote, urlsplit
 import docindex
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -19,6 +20,42 @@ MD_LINK_RE = re.compile(r'\[[^\]]*\]\(([^)]+)\)')
 
 def norm(path):
     return path.read_text(encoding="utf-8").replace("\r\n","\n").replace("\r","\n")
+
+
+
+def local_link_errors(text, source):
+    """Check the destination file and its anchors, including same-file links."""
+    errors = []
+    for match in MD_LINK_RE.finditer(text):
+        target = match[1].strip().strip("<>")
+        parts = urlsplit(target)
+        if parts.scheme or parts.netloc:
+            continue
+        destination = (source.parent / unquote(parts.path)).resolve() if parts.path else source.resolve()
+        if not destination.exists():
+            errors.append("missing local target: " + target)
+            continue
+        if not parts.fragment or destination.suffix.lower() != ".md" or not destination.is_file():
+            continue
+        content = norm(destination)
+        anchors = set(re.findall(r'<[^>]+\b(?:id|name)=[\"\']([^\"\']+)[\"\']', content))
+        counts = {}
+        fenced = False
+        for line in content.splitlines():
+            if line.startswith(("```", "~~~")):
+                fenced = not fenced
+                continue
+            heading = re.match(r"^#{1,6}\s+(.+?)(?:\s+#+)?$", line)
+            if not heading or fenced:
+                continue
+            label = re.sub(r"<[^>]*>", "", heading[1]).lower()
+            slug = re.sub(r"[^\w\- ]", "", label).replace(" ", "-")
+            occurrence = counts.get(slug, 0)
+            counts[slug] = occurrence + 1
+            anchors.add(slug + ("-" + str(occurrence) if occurrence else ""))
+        if unquote(parts.fragment) not in anchors:
+            errors.append("missing anchor in target file: " + target)
+    return errors
 
 
 def numbering_errors(text):
@@ -115,7 +152,7 @@ def acceptance_traceability_errors(product, acceptance):
         if identifier in seen_criteria:
             errors.append("duplicate acceptance criterion: " + identifier)
         seen_criteria.add(identifier)
-        if not cells[1] or not re.search(r'\]\(#sec-[^)]+\)', cells[2]):
+        if not cells[1] or not re.search(r'\]\((?:[a-z0-9-]+\.md)?#sec-[^)]+\)', cells[2]):
             errors.append("criterion has no outcome/procedure: " + identifier)
     for identifier in sorted(criteria - seen_criteria):
         errors.append("criterion missing from acceptance matrix: " + identifier)
@@ -134,7 +171,7 @@ def acceptance_traceability_errors(product, acceptance):
         owner_links = re.findall(r'\]\(([a-z0-9-]+\.md)#sec-[^)]+\)', cells[2])
         if (not owner_links or any(owner in ('product-requirements.md', 'test-plan.md')
                                    for owner in owner_links)
-                or not re.search(r'\]\(#sec-[^)]+\)', cells[3])):
+                or not re.search(r'\]\((?:[a-z0-9-]+\.md)?#sec-[^)]+\)', cells[3])):
             errors.append("requirement coverage has no component owner/procedure: " + cells[1])
         for identifier in identifiers:
             if identifier not in requirements:
@@ -167,7 +204,7 @@ def main():
     product = PH / "product-requirements.md"
     if product.is_file():
         errors.extend("product traceability: " + error for error in product_traceability_errors(norm(product)))
-        acceptance = PH / "test-plan.md"
+        acceptance = PH / "metrics-and-logs.md"
         if acceptance.is_file():
             errors.extend("acceptance traceability: " + error
                           for error in acceptance_traceability_errors(norm(product), norm(acceptance)))
@@ -192,7 +229,7 @@ def main():
 
     # Баланс Markdown fenced blocks и относительные ссылки.
     all_md = list(PH.rglob("*.md"))
-    all_md += [ROOT/"AGENTS.md"]
+    all_md += [ROOT/"AGENTS.md", ROOT/"README.md"]
     all_md.extend((ROOT / ".agents" / "skills").rglob("*.md"))
     for p in all_md:
         if not p.is_file():
@@ -200,16 +237,8 @@ def main():
         txt = norm(p)
         if txt.count("```") % 2:
             errors.append(f"несбалансированный fenced code block: {p.relative_to(ROOT)}")
-        for m in MD_LINK_RE.finditer(txt):
-            target = m.group(1).strip()
-            if target.startswith(("http://","https://","mailto:","#")):
-                continue
-            file_part = target.split("#",1)[0]
-            if not file_part:
-                continue
-            q = (p.parent / file_part).resolve()
-            if not q.exists():
-                errors.append(f"битая относительная ссылка в {p.relative_to(ROOT)}: {target}")
+        for error in local_link_errors(txt, p):
+            errors.append(f"{p.relative_to(ROOT)}: {error}")
 
     # Глобальный ownership стабильных section anchors.
     owners = {}
@@ -285,24 +314,6 @@ def main():
                 )
             if len(desc_m.group(1)) > 600:
                 errors.append(f"description Skill слишком длинный для эффективного discovery: {sp.relative_to(ROOT)}")
-
-    # Явные относительные ссылки `#sec-*` должны указывать на anchor в целевом файле.
-    for p in all_md:
-        if not p.is_file():
-            continue
-        txt = norm(p)
-        for m in MD_LINK_RE.finditer(txt):
-            target = m.group(1).strip()
-            if "#sec-" not in target or target.startswith(("http://", "https://")):
-                continue
-            file_part, anchor = target.split("#", 1)
-            q = (p.parent / file_part).resolve() if file_part else p.resolve()
-            if q.is_file():
-                qtxt = q.read_text(encoding="utf-8", errors="strict")
-                if f'<a id="{anchor}"></a>' not in qtxt:
-                    errors.append(
-                        f"битая ссылка на section anchor в {p.relative_to(ROOT)}: {target}"
-                    )
 
     # Retired paths не должны снова появляться в постоянных project guidance/docs/skills.
     # Сам этот файл содержит denylist literals и намеренно исключён.

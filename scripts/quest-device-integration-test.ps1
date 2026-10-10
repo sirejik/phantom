@@ -15,7 +15,7 @@ trap
             try{Invoke-PhantomAdb $adb $serial @('shell','am','force-stop',$Package) 8|Out-Null;$terminalState='APP_FORCE_STOP_REQUESTED'}catch{}
         }
         $runDirectory=Join-Path ([IO.Path]::GetFullPath($Destination)) $ExpectedBuildId;New-Item -ItemType Directory -Force -Path $runDirectory|Out-Null
-        $reportPath=Join-Path $runDirectory 'quest-device-integration-test.json';$finished=(Get-Date).ToUniversalTime();$reason=if($failureMessage-match'^([A-Z][A-Z0-9_]+):'){$Matches[1]}else{'DEVICE_CHECK_FAILED'};$failed=[ordered]@{schema_version=2;phase='DEVICE INTEGRATION TEST';gate='QUEST DEVICE INTEGRATION TEST';component='QUEST';profile='Diagnostic';status='FAIL';reason=$reason;build_id=$ExpectedBuildId;artifact_sha256=$null;detail=$failureMessage;started_at=$started.ToString('o');finished_at=$finished.ToString('o');duration_ms=[long]($finished-$started).TotalMilliseconds;terminal_state=$terminalState;hardware_evidence_state='DEVICE'}
+        $reportPath=Join-Path $runDirectory 'quest-device-integration-test.json';$finished=(Get-Date).ToUniversalTime();$reason=if($failureMessage-match'^([A-Z][A-Z0-9_]+):'){$Matches[1]}else{'DEVICE_CHECK_FAILED'};$failed=[ordered]@{schema_version=2;phase='DEVICE INTEGRATION TEST';gate='QUEST DEVICE INTEGRATION TEST';component='QUEST';profile='UNKNOWN';status='FAIL';reason=$reason;build_id=$ExpectedBuildId;artifact_sha256=$null;detail=$failureMessage;started_at=$started.ToString('o');finished_at=$finished.ToString('o');duration_ms=[long]($finished-$started).TotalMilliseconds;terminal_state=$terminalState;hardware_evidence_state='DEVICE'}
         [IO.File]::WriteAllText($reportPath,($failed|ConvertTo-Json -Depth 8)+"`n",[Text.UTF8Encoding]::new($false))
     }
     [Console]::Error.WriteLine("QUEST DEVICE INTEGRATION TEST: FAIL report=$reportPath; $failureMessage");exit 1
@@ -39,13 +39,23 @@ function Start-And-Wait([string]$label,[bool]$WaitForReport)
 }
 Invoke-PhantomAdb $adb $serial @('shell','am','force-stop',$Package) 8|Out-Null;Invoke-PhantomAdb $adb $serial @('shell','rm','-f',$remoteReport) 8|Out-Null;Invoke-PhantomAdb $adb $serial @('logcat','-c') 8|Out-Null
 $firstPid=Start-And-Wait 'first' $true;Invoke-PhantomAdb $adb $serial @('pull',$remoteReport,(Join-Path $runDirectory 'app-report.json')) 15|Out-Null;$firstLog=@(Invoke-PhantomAdb $adb $serial @('logcat','-d') 10)
-Invoke-PhantomAdb $adb $serial @('shell','am','force-stop',$Package) 8|Out-Null;Invoke-PhantomAdb $adb $serial @('logcat','-c') 8|Out-Null;$secondPid=Start-And-Wait 'relaunch' $false;Start-Sleep -Seconds 2;$secondLog=@(Invoke-PhantomAdb $adb $serial @('logcat','-d') 10);Invoke-PhantomAdb $adb $serial @('shell','am','force-stop',$Package) 8|Out-Null
+Invoke-PhantomAdb $adb $serial @('shell','am','force-stop',$Package) 8|Out-Null
+Invoke-PhantomAdb $adb $serial @('shell','rm','-f',$remoteReport) 8|Out-Null
+Invoke-PhantomAdb $adb $serial @('logcat','-c') 8|Out-Null
+$secondPid=Start-And-Wait 'relaunch' $true
+Invoke-PhantomAdb $adb $serial @('pull',$remoteReport,(Join-Path $runDirectory 'relaunch-report.json')) 15|Out-Null
+Start-Sleep -Seconds 2
+$secondLivePid=(@(Invoke-PhantomAdb $adb $serial @('shell',"pidof '$Package' 2>/dev/null || true") 3)-join'').Trim()
+$secondLog=@(Invoke-PhantomAdb $adb $serial @('logcat','-d') 10)
+Invoke-PhantomAdb $adb $serial @('shell','am','force-stop',$Package) 8|Out-Null
 $appReport=Get-Content -LiteralPath (Join-Path $runDirectory 'app-report.json') -Raw -Encoding UTF8|ConvertFrom-Json
+$relaunchReport=Get-Content -LiteralPath (Join-Path $runDirectory 'relaunch-report.json') -Raw -Encoding UTF8|ConvertFrom-Json
+if($appReport.schema_version-ne 2 -or $relaunchReport.schema_version-ne 2 -or $appReport.build_profile-notin @('Diagnostic','Release','DeepDebug')){throw 'MALFORMED_PHASE_RESULT: invalid Quest integration report schema or profile'}
 $crashPattern='FATAL EXCEPTION|Fatal signal|CRASH:|ANR in dev\.phantom\.questprototype';$checks=@(
     [ordered]@{test_id='installed-build-id';status=if($appReport.build_id-eq$ExpectedBuildId){'PASS'}else{'FAIL'};detail="expected=$ExpectedBuildId actual=$($appReport.build_id)"},
     [ordered]@{test_id='first-launch';status=if($firstPid-and!(($firstLog-join"`n")-match$crashPattern)){'PASS'}else{'FAIL'}},
-    [ordered]@{test_id='force-stop-relaunch';status=if($secondPid-and!(($secondLog-join"`n")-match$crashPattern)){'PASS'}else{'FAIL'}})
-$failed=@($checks|Where-Object status -eq'FAIL').Count-gt 0;$status=if(!$failed-and$appReport.status-eq'PASS'){'PASS'}else{'FAIL'};$finished=(Get-Date).ToUniversalTime()
-$report=[ordered]@{schema_version=2;phase='DEVICE INTEGRATION TEST';component='QUEST';profile='Diagnostic';status=$status;reason=if($status-eq'PASS'){'COMPLETED'}else{'DEVICE_CHECK_FAILED'};build_id=$ExpectedBuildId;device_class=[ordered]@{model=$model;device=$device};started_at=$started.ToString('o');finished_at=$finished.ToString('o');duration_ms=[long]($finished-$started).TotalMilliseconds;app_report=$appReport;host_checks=$checks;terminal_state='APP_FORCE_STOPPED';hardware_evidence_state='DEVICE'}
+    [ordered]@{test_id='force-stop-relaunch';status=if($secondPid-and$secondLivePid-eq$secondPid-and$relaunchReport.build_id-eq$ExpectedBuildId-and$relaunchReport.status-eq'PASS'-and$relaunchReport.build_profile-eq$appReport.build_profile-and!(($secondLog-join"`n")-match$crashPattern)){'PASS'}else{'FAIL'}})
+$failed=@($checks|Where-Object {$_.status -eq 'FAIL'}).Count-gt 0;$status=if(!$failed-and$appReport.status-eq'PASS'){'PASS'}else{'FAIL'};$finished=(Get-Date).ToUniversalTime()
+$report=[ordered]@{schema_version=2;phase='DEVICE INTEGRATION TEST';component='QUEST';profile=$appReport.build_profile;status=$status;reason=if($status-eq'PASS'){'COMPLETED'}else{'DEVICE_CHECK_FAILED'};build_id=$ExpectedBuildId;device_class=[ordered]@{model=$model;device=$device};started_at=$started.ToString('o');finished_at=$finished.ToString('o');duration_ms=[long]($finished-$started).TotalMilliseconds;app_report=$appReport;relaunch_report=$relaunchReport;host_checks=$checks;terminal_state='APP_FORCE_STOPPED';hardware_evidence_state='DEVICE'}
 $reportPath=Join-Path $runDirectory 'quest-device-integration-test.json';[IO.File]::WriteAllText($reportPath,($report|ConvertTo-Json -Depth 12)+"`n",[Text.UTF8Encoding]::new($false));$phaseComplete=$true
 Write-Output "QUEST DEVICE INTEGRATION TEST: $status report=$reportPath";if($status-ne'PASS'){exit 1}

@@ -18,8 +18,8 @@ wifi_ready()
 
 # The whole loop must finish inside phantom-wifi-autoconnect.service's
 # TimeoutStartSec (90 s) with margin, otherwise systemd kills the unit mid-retry
-# and START records this unit as the first failure. INSTALL and recovery are
-# separate phases and are never triggered by a transient Wi-Fi delay. Worst
+# and START records this unit as the first failure. INSTALL is
+# a separate operation and is never triggered by a transient Wi-Fi delay. Worst
 # case here: 4 x (5 s scan + 12 s connect + 3 s sleep) = 80 s.
 ATTEMPTS=${PHANTOM_WIFI_ATTEMPTS:-4}
 SCAN_TIMEOUT=${PHANTOM_WIFI_SCAN_TIMEOUT:-5}

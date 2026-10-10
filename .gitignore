@@ -36,7 +36,7 @@ __pycache__/
 *.jks
 *.p12
 
-# EV3 bench: retain reproducible tooling and summary reports, not local captures.
+# Local build outputs.
 /build/
 
 # Local/CI evidence workspace. Runners recreate it; publish required release or

@@ -29,7 +29,7 @@
 Документация не является входом BUILD, config generation, artifact validation или
 runtime handshake. Её содержание, наличие, пути и hashes не входят в `build_id`.
 Соответствие реализации актуальным требованиям проверяется review и применимыми
-TEST/DEVICE/HIL gates; build identity само по себе не доказывает это соответствие.
+TEST/DEVICE/MANUAL gates; build identity само по себе не доказывает это соответствие.
 
 `source_tree_hash`, `protocol_schema_hash`, `protocol_semantics_hash`, derived
 `protocol_contract_hash`, configuration/component hashes, build IDs и artifact hashes
@@ -55,14 +55,17 @@ owner не имеет права ослаблять эти ограничени�
 | `protocol/wire_schema.yaml` | точная schema-representable структура wire: layout, widths, numeric enum/bit positions, reserved fields и payload lengths; контекстные semantic ranges/transition guards остаются в owning prose |
 | `protocol/semantics.yaml` | machine-readable межреализационная semantics, входящая вместе со structural hash в compatibility `protocol_contract_hash` |
 | объявленные репозиторием config schema/generator sources | машинно-читаемая структура конфигурации и generated config artifacts |
-| `engineering.md` | source/build/CI/deployment/release/logging engineering requirements |
-| `test-plan.md` | verification taxonomy, applicability, evidence requirements и final acceptance |
+| `engineering.md` | технологический стек и source/build/CI/deployment/release engineering requirements |
+| `code-guidelines.md` | общие правила исходников C++, C#/Unity, Android bridge и host/device tooling |
+| `engineering-contracts.md` | технические форматы и ограничения build/deploy tooling, идентификаторы, конфигурация и хранение ключей |
+| `test-plan.md` | порядок программных, интеграционных и ручных проверок, пререквизиты и сценарии |
+| `metrics-and-logs.md` | сбор и хранение метрик/журналов при обычной работе и тестировании, анализ, автоматические отчёты и таблицы покрытия требований |
 | `implementation-stages.md` | нормативная последовательность разработки, stage definitions и qualification gates |
 | `reference.md` | canonical terminology, ссылки на формулы компонентов и measured-parameter rules |
 
 `references.md` является ненормативной трассировкой внешних источников. Vendor documentation
 может объяснять или поддерживать требование, но не может переопределять requirements PHANTOM,
-safety invariants или device/HIL qualification.
+safety invariants или device/MANUAL qualification.
 
 <a id="sec-specification-governance-2-1"></a>
 ### 2.1. Правило уточнения
@@ -78,7 +81,7 @@ FR/NFR, safety invariants и cross-component architecture contracts.
 
 Обязательное поведение детальной спецификации должно обеспечивать существующие
 FR/NFR и критерии продукта; связка с владельцем решения и процедурой проверки
-находится в [Плане проверки §25](test-plan.md#sec-9-25). Выбор алгоритма, схемы передачи
+находится в [метриках и анализе §6](metrics-and-logs.md#sec-9-25). Выбор алгоритма, схемы передачи
 или инженерного ограничения сам по себе не требует нового критерия. Если появляется
 самостоятельная возможность продукта, сначала добавляется её наблюдаемое требование
 и при необходимости критерий. Опциональная возможность не становится условием
@@ -137,6 +140,9 @@ HTML anchor и остаётся рабочей при перемещении т�
 <a id="sec-specification-governance-6"></a>
 ## 6. Дисциплина изменений
 
+- Документация проекта, включая руководства компонентов и генерируемые справочники,
+  хранится в `docs/`; общий указатель — [README](../README.md). `AGENTS.md` и ресурсы
+  `.agents/skills/` остаются на штатных местах как инструкции агентам.
 - Финальное требуемое поведение хранится у соответствующего нормативного owner.
 - Нормативные определения stages/gates хранятся в `implementation-stages.md`.
 - Task-specific work order/progress хранится во временных `task-*-plan.md`. Завершённые и заменённые
@@ -145,7 +151,7 @@ HTML anchor и остаётся рабочей при перемещении т�
   владельца спецификации. Состояние незакрытых проверок хранится в `current-status.md`. Отдельный
   журнал изменений документации не ведётся: авторство и история доступны в Git.
 - Текущее состояние реализации хранится в `current-status.md`; подробные реально выполненные
-  automated/device/HIL reports публикуются как immutable CI/release artifacts и не
+  automated/device/MANUAL reports публикуются как immutable CI/release artifacts и не
   копируются в normative prose либо историю Git.
 - Exact wire tables/constants/size maps должны происходить из `protocol/wire_schema.yaml`, а не поддерживаться вручную в нескольких prose files. Production codecs могут быть hand-written, но обязаны проходить общие golden/negative vectors и не становятся source of truth.
 - Secrets и credentials никогда не находятся в specifications, status, plans, source
@@ -160,7 +166,7 @@ HTML anchor и остаётся рабочей при перемещении т�
 ## 7. Семантика evidence
 
 Mocks, simulation, source inspection и успешная compilation могут доказывать software
-properties, но не могут превращаться в real-device, HIL или manual-acceptance `PASS`.
+properties, но не могут превращаться в real-device, MANUAL или manual-acceptance `PASS`.
 
-Статусы evidence определяются в `test-plan.md`; current status является summary evidence, а
+Статусы автоматических результатов определяются в `metrics-and-logs.md`; current status является summary evidence, а
 не самим evidence.

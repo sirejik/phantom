@@ -1,9 +1,9 @@
 <a id="sec-11-5"></a>
 # PHANTOM — технические источники
 
-Ненормативная трассировка к внешним техническим источникам и пояснения к platform/API evidence. Требования PHANTOM задаются соответствующими specs/tests; этот файл не может их переопределять.
+Ненормативная трассировка к внешним техническим источникам и пояснения к platform/API evidence. Требования PHANTOM принадлежат документам, указанным в [правилах спецификации](specification-governance.md#sec-specification-governance-2); этот файл не может их переопределять.
 
-Технические источники задают платформенные API/возможности; требования PHANTOM определяются этой спецификацией и собственными приёмочными тестами. Для конфликтующих страниц одного вендора применяется более новая специализированная документация, а exact pinned combination всё равно подтверждается P0 gate [План проверки §6](test-plan.md#sec-9-6).
+Технические источники описывают платформенные API и возможности. Для конфликтующих страниц одного вендора применяется более новая специализированная документация, а exact pinned combination всё равно подтверждается P0 gate [Метрики и анализ §4.1](metrics-and-logs.md#sec-9-6).
 
 <!-- BEGIN GENERATED TOC -->
 <details>
@@ -41,7 +41,7 @@
   https://registry.khronos.org/OpenXR/specs/1.1/man/html/XR_EXT_hand_interaction.html
 
 - **Meta — Body Tracking for Movement SDK for Unity**
-  Body skeleton и `Body_RightShoulder`. Выбор provider и actuator profile: [Спецификация Quest §1](quest-specification.md#sec-5-1); проверка совместимости: [План проверки §6](test-plan.md#sec-9-6).
+  Body skeleton и `Body_RightShoulder`. Выбор provider и actuator profile: [Спецификация Quest §1](quest-specification.md#sec-5-1); проверка совместимости: [Метрики и анализ §4.1](metrics-and-logs.md#sec-9-6).
   https://developers.meta.com/horizon/documentation/unity/move-body-tracking/
 
 - **Meta — MRUK / Trackables / spatial capabilities**
@@ -65,7 +65,7 @@
   https://developer.android.com/develop/connectivity/wifi/use-nsd
 
 - **Android — Local network permission / `NsdManager` API**
-  Разрешения LAN; требования выбранной Android platform matrix: [Спецификация Quest §2](quest-specification.md#sec-5-2) и [Разработка и развёртывание §8](engineering.md#sec-8-8).
+  Разрешения LAN; требования выбранной Android platform matrix: [Спецификация Quest §2](quest-specification.md#sec-5-2) и [Разработка и развёртывание §5.5](engineering.md#sec-8-8).
   https://developer.android.com/privacy-and-security/local-network-permission
   https://developer.android.com/reference/android/net/nsd/NsdManager
 
@@ -76,14 +76,14 @@ source inspection `85.0.0` обнаружил тот же guard. Locator исх�
 `f8b4cfb2789f06cb55ea30b9a379bf52c98d1af3`. Это объясняет необходимость проверки
 конкретного provider, но не доказывает совместимость или несовместимость других версий.
 Без доступного immutable report qualification остаётся `NOT_RUN`; требования к новому
-P0 и его identity находятся в [План проверки §6](test-plan.md#sec-9-6).
+P0 и его identity находятся в [Метрики и анализ §4.1](metrics-and-logs.md#sec-9-6).
 
 <a id="sec-11-5-2"></a>
 ## 2. EV3
 
 - **LEGO Education — EV3 User Guide**
   Встроенный Rotation Sensor Large/Medium Motor имеет разрешение `1°`; это измерение вала мотора, а физический угол сустава определяется через фактическую передачу.
-  https://assets.education.lego.com/v3/assets/blt293eea581807678a/blta17299b86de85c10/5f8806b7ed5ccb12e4342e8e/ev3_user_guide_engb.pdf?locale=en-gb
+  https://education.lego.com/en-gb/product-resources/mindstorms-ev3/downloads/user-guide/
 
 - **ev3dev — Using the Tacho-Motor Class**
   Tacho attributes; интерпретация и startup-проверки PHANTOM: [Спецификация EV3 §5.1](ev3-specification.md#sec-7-5-1).
@@ -96,7 +96,7 @@ P0 и его identity находятся в [План проверки §6](test
   https://www.ev3dev.org/docs/networking/
 
 - **ev3dev — Connecting to ev3dev Using SSH**
-  SSH endpoint и настройка доступа; maintenance trust PHANTOM: [Разработка и развёртывание §7](engineering.md#sec-8-7).
+  SSH endpoint и настройка доступа; maintenance trust PHANTOM: [Разработка и развёртывание §7.1](engineering.md#sec-8-7).
   https://www.ev3dev.org/docs/tutorials/connecting-to-ev3dev-with-ssh/
 
 - **Avahi — service publishing/browsing API**

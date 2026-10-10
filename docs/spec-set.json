@@ -10,7 +10,10 @@
     "docs/protocol-specification.md",
     "docs/safety.md",
     "docs/engineering.md",
+    "docs/code-guidelines.md",
+    "docs/engineering-contracts.md",
     "docs/test-plan.md",
+    "docs/metrics-and-logs.md",
     "docs/implementation-stages.md",
     "docs/reference.md"
   ]

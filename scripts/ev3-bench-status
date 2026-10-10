@@ -1,6 +1,0 @@
-#!/usr/bin/env sh
-# Read-only inspection of running bench processes and raw logs on the EV3.
-set -eu
-. "$(dirname -- "$0")/ev3-bench-common"
-
-ssh_ev3 "ps -ef | grep '[e]v3-bench' || true; ls -lh '$EV3_ROOT/results/ev3/raw'; for file in '$EV3_ROOT'/results/ev3/raw/*.csv; do test -f \"\$file\" && wc -l \"\$file\"; done"

@@ -401,7 +401,7 @@ def main():
       ROOT/"protocol"/"golden_vectors"/"v1.json":json.dumps({"protocol_schema_sha256":digest,"protocol_semantics_sha256":semantics_digest,"protocol_contract_sha256":contract_digest,"vectors":vectors},indent=2)+"\n",
       ROOT/"protocol"/"golden_vectors"/"ipc_v1.json":json.dumps({"ipc_schema_sha256":ipc_digest,"vectors":ipc_vectors},indent=2)+"\n",
       ROOT/"protocol"/"golden_vectors"/"jcs_v1.json":json.dumps({"specification":"RFC 8785","vectors":jcs_vectors},indent=2,ensure_ascii=False)+"\n",
-      ROOT/"protocol"/"protocol.md":render_protocol_md(schema,ipc,digest,semantics_digest,contract_digest,ipc_digest)+"\n",
+      ROOT/"docs"/"protocol-wire-reference.md":render_protocol_md(schema,ipc,digest,semantics_digest,contract_digest,ipc_digest)+"\n",
       # Kept single-line: PowerShell build scripts read it as one string.
       ROOT/"protocol"/"generated"/"schema.sha256":digest+"  wire_schema.yaml\n",
       ROOT/"protocol"/"generated"/"semantics.sha256":semantics_digest+"  semantics.yaml\n",

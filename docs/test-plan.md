@@ -1,1812 +1,285 @@
 <a id="sec-9"></a>
 # PHANTOM — план тестирования и приёмки
 
-Нормативная стратегия тестирования, модель evidence, применимость по этапам и финальные gates готовности.
+Порядок проверки кода, установленной системы и работы робота.
 
 <!-- BEGIN GENERATED TOC -->
 <details>
 <summary>Оглавление</summary>
 
-- [1. Стратегия и обязательный конвейер тестирования](#sec-9-1)
-  - [1.1. Конвейер от сборки до приёмки](#sec-9-1-1)
-  - [1.2. Программные тесты (`TEST`/CI)](#sec-9-1-2)
-  - [1.3. Интеграционные тесты установленного устройства (`DEVICE INTEGRATION TEST`)](#sec-9-1-3)
-  - [1.4. Автоматизированные аппаратные тесты (`HIL`)](#sec-9-1-4)
-  - [1.5. Ручные тесты готового приложения (`MANUAL ACCEPTANCE`)](#sec-9-1-5)
-  - [1.6. Ручные проверки механической безопасности до автоматического движения](#sec-9-1-6)
-  - [1.7. Классификация проверок](#sec-9-1-7)
-  - [1.8. Регрессии и доказательства прохождения](#sec-9-1-8)
-- [2. Модульные тесты и тесты свойств кинематики](#sec-9-2)
-- [3. Тест абсолютного отображения руки](#sec-9-3)
-- [4. Тесты преобразования координат](#sec-9-4)
-- [5. Тесты XR readiness, Multimodal lifecycle и reference-space changes](#sec-9-5)
-- [6. P0 compatibility, Body Tracking плеча и калибровка длины руки](#sec-9-6)
-  - [6.1. P0 Quest platform compatibility AUTO](#sec-test-plan-6-1)
-- [7. Тесты сигнала сжатия кисти](#sec-9-7)
-- [8. Тесты DNS-SD/mDNS обнаружения](#sec-9-8)
-- [9. Тесты сетевого протокола и HMAC](#sec-9-9)
-- [10. Тесты QR RobotLocalization](#sec-9-10)
-- [11. Инженерная калибровка RobotGeometry](#sec-9-11)
-- [12. Инженерная калибровка `DriveCalibration` Base/Shoulder/Elbow](#sec-9-12)
-- [13. QR→энкодерная `JointReference` при запуске](#sec-9-13)
-- [14. Калибровка и проверка захвата по QR](#sec-9-14)
-- [15. Механические тесты](#sec-9-15)
-  - [15.1. Соосность](#sec-9-15-1)
-  - [15.2. Shoulder HOLD](#sec-9-15-2)
-  - [15.3. Безопасные границы](#sec-9-15-3)
-  - [15.4. Слежение суставов](#sec-9-15-4)
-  - [15.5. Повторяемость TCP](#sec-9-15-5)
-  - [15.6. Потеря питания и независимый POWER_CUT](#sec-9-15-6)
-  - [15.7. JointSafeSet, coupled collision и проверка пути](#sec-9-15-7)
-- [16. Тесты защиты моторов](#sec-9-16)
-  - [16.1. Препятствие и заклинивание основных суставов](#sec-9-16-1)
-  - [16.2. Реверс и выбор люфта](#sec-9-16-2)
-  - [16.3. Длительная нагрузка / `MotorStressScore`](#sec-9-16-3)
-  - [16.4. Перегрузка при удержании](#sec-9-16-4)
-  - [16.5. Подозрение на нарушение передачи](#sec-9-16-5)
-  - [16.6. Контакт и заклинивание захвата](#sec-9-16-6)
-- [17. EV3 HIL: точность, временной бюджет и ресурсы](#sec-9-17)
-- [18. Сетевые тесты отказов](#sec-9-18)
-- [19. Испытания процессов EV3](#sec-9-19)
-- [20. Сквозной тест повторения движения руки](#sec-9-20)
-- [21. HOLD и SAFE_HOLD](#sec-9-21)
-- [22. Физические тесты Quest](#sec-9-22)
-- [23. UI/UX-приёмка](#sec-9-23)
-- [24. Профили `Release`/`Diagnostic` и разбор инцидентов](#sec-9-24)
-  - [24.1. Тесты инцидентов `FlightRecorder`](#sec-9-24-1)
-  - [24.2. Хранение журналов и некорректное завершение](#sec-9-24-2)
-  - [24.3. Конфиденциальность и права доступа журналов](#sec-9-24-3)
-  - [24.4. Release artifacts, SBOM и воспроизводимость](#sec-9-24-4)
-- [25. Матрица трассируемости](#sec-9-25)
-  - [25.1. Проверка критериев достижения цели](#sec-test-plan-25-1)
-  - [25.2. Покрытие функциональных и нефункциональных требований](#sec-test-plan-25-2)
-  - [25.3. Полнота связей и evidence](#sec-test-plan-25-3)
-- [26. Итоговый критерий готовности](#sec-9-26)
+- [1. Порядок проверки](#sec-9-1)
+  - [1.1. Конвейер](#sec-9-1-1)
+- [2. Линтеры и статический анализ](#sec-test-plan-lint)
+- [3. Unit и функциональные тесты на PC](#sec-9-1-2)
+- [4. Тестовая сборка и установка](#sec-test-plan-build)
+- [5. Интеграционные тесты](#sec-9-1-3)
+  - [5.1. Пререквизиты](#sec-integration-prerequisites)
+  - [5.2. Quest](#sec-test-plan-integration-quest)
+    - [5.2.1. Наличие API и статическая конфигурация (P0)](#sec-test-plan-6-1)
+  - [5.3. EV3](#sec-test-plan-integration-ev3)
+  - [5.4. Quest ↔ EV3](#sec-test-plan-integration-pair)
+- [6. Ручные тесты](#sec-9-1-5)
+  - [6.1. Подготовка к ручным тестам](#sec-test-plan-prerequisites)
+    - [6.1.1. Система](#sec-test-plan-system-setup)
+    - [6.1.2. Модель и безопасная зона](#sec-9-1-6)
+  - [6.2. Сценарии по группам](#sec-9-23)
+    - [6.2.1. Запуск, привязка и повторная сессия](#sec-test-plan-manual-start)
+    - [6.2.2. Управление и tracking](#sec-test-plan-manual-control)
+    - [6.2.3. Захват, удержание и нагрузка](#sec-test-plan-manual-load)
+    - [6.2.4. Остановка и восстановление](#sec-test-plan-manual-stop)
+    - [6.2.5. Длительная работа, диагностика и приватность](#sec-test-plan-manual-diagnostics)
+- [7. Production-сборка](#sec-9-26)
 
 </details>
 <!-- END GENERATED TOC -->
 
 <a id="sec-9-1"></a>
-## 1. Стратегия и обязательный конвейер тестирования
+## 1. Порядок проверки
 
-Тестирование PHANTOM строится как последовательность обязательных ворот. Чем раньше ошибка может быть обнаружена без физического оборудования, тем раньше она должна обнаруживаться. Установка нового приложения на Quest или новых бинарных файлов на EV3 не является первым способом проверить изменение.
-
-Глобальный нормативный инвариант: любой автоматический `DEVICE INTEGRATION TEST` или `HIL`
-от запуска case runner до результата выполняется без участия человека. Он не может просить
-надеть/разбудить Quest, двигать рукой или Touch Plus, показать QR, подтвердить haptics,
-выполнить pause/resume либо иное действие. Для HIL подготовка безопасной зоны является
-внешним prerequisite; вмешательство после запуска case даёт `FAIL`, а не ожидание.
-
-Каждый **непрерывный автоматический motion/stress exposure segment** любого HIL/DEVICE/MANUAL сценария ограничен `<=60 s`; предпочтительная длительность — `5..30 s`. Один логический test case или endurance suite может занимать больше и состоять из многих bounded segments/runs с явными checkpoints/reset conditions; отчёт обязан отдельно хранить suite/setup time, каждый segment duration и агрегированный результат. Свойства с большим временным горизонтом проверяются ускоренным monotonic/virtual time, контролируемой инъекцией порога или серией независимых bounded segments. Непрерывно оставлять автоматическое actuator exposure дольше `60 s` одним segment запрещено.
-
-Основной принцип:
-
-```text
-изменение кода
-→ targeted software TEST
-→ BUILD затронутого component/profile
-→ TRANSFER и INSTALL без запуска tests
-→ bounded запуск exact installed build
-→ targeted runtime/manual verification
-```
-
-Для явного `qualify Stage N` или release qualification этот цикл расширяется полным
-применимым software regression, DEVICE INTEGRATION TEST, HIL и MANUAL ACCEPTANCE. Провал
-обязательного qualification level блокирует следующий. Обычный development deployment не
-запускает qualification скрыто.
+Следующая стадия разрешена после успешного прохождения предыдущей.
+Проверки выполняются с тестовой сборкой Diagnostic. После их прохождения разработчик
+может выбрать Release. Правила профилей — [engineering.md](engineering.md#sec-engineering-build-profiles).
 
 <a id="sec-9-1-1"></a>
-### 1.1. Конвейер от сборки до приёмки
+### 1.1. Конвейер
 
-```mermaid
-flowchart TD
-  C[Изменение кода] --> A[Полный применимый<br/>software TEST]
-  A --> B[BUILD final candidate<br/>+ artifact validation]
-  B --> P[Опубликовать без изменения bytes<br/>build_id + hashes]
-  P --> T[TRANSFER<br/>копирование + hash]
-  T --> D[INSTALL<br/>размещение без запуска тестов]
-  D --> ST[START<br/>bounded activation]
-  ST --> S[DEVICE INTEGRATION TEST<br/>installed runtime]
-  S -->|FAIL| X2[Build непригоден<br/>собрать логи]
-  S -->|PASS| H[HIL<br/>сценарии с реальным оборудованием]
-  H -->|FAIL| X3[Дефект + regression test]
-  H -->|PASS| M[MANUAL ACCEPTANCE<br/>готовое приложение + реальная система]
-  M -->|FAIL| X4[Дефект + воспроизводимый сценарий]
-  M -->|PASS| R[Release candidate]
-```
+Конвейер разработки и проверки приведён в [engineering.md §4.1](engineering.md#sec-engineering-pipeline).
 
-Полный software regression и BUILD являются отдельными фазами qualification. BUILD проверяет
-созданные bytes и фиксирует `build_id`/artifact SHA-256; qualification evidence связывает
-результаты TEST с этими identities. Commit хранится только как provenance. Границы фаз
-определены в [Разработка и развёртывание §5.1](engineering.md#sec-8-5-1); ни одна из них не требует local result-файла другой фазы.
+<a id="sec-test-plan-lint"></a>
+## 2. Линтеры и статический анализ
+
+На PC проверяются исходники обеих платформ, host tooling, схемы, генерируемые файлы
+и документация. Все применимые проверки должны пройти: ошибки устраняются,
+предупреждения устраняются либо имеют обоснованное исключение.
+Состав команд — [линтеры и статический анализ](engineering.md#sec-engineering-static-checks).
 
 <a id="sec-9-1-2"></a>
-### 1.2. Программные тесты (`TEST`/CI)
+## 3. Unit и функциональные тесты на PC
 
-TEST выполняется на PC/CI и не обращается к физическим устройствам. В development cycle
-запускаются только затронутые области. Полный применимый набор обязателен для CI, закрытия
-этапа и release qualification, но не является скрытой частью BUILD/deploy. Unity tests
-выполняются Unity Editor на PC; Unity не устанавливается на Quest или EV3.
+Вся реализованная функциональность EV3 и Quest должна быть покрыта автоматическими
+тестами production-кода. Правила выбора сценариев и написания тестов —
+[phantom-testing](../.agents/skills/phantom-testing/SKILL.md).
 
-Обязательный набор:
+Для приёмки кандидата проходит полный применимый набор обеих платформ: без FAIL,
+crash и необоснованного skip.
 
-| Область | Что проверяется |
-|---|---|
-| Quest pure logic | `IK`/`FK`, системы координат, рабочая область, абсолютное отображение руки, фильтры, state machine |
-| Quest Unity | EditMode/PlayMode tests, XR Simulator, MRUK Spatial Testing для виртуальных комнат и пола |
-| QR-математика | синтетические позы всех десяти маркеров: `SHOULDER_*`, `TURRET_*`, `ELBOW_*`, `GRIPPER_*`, `JAW_*`; `RobotBaseFrame`, отдельный `q_base_qr`, векторы `ShoulderCenter → ElbowCenter` и `ElbowCenter → GripperCenter`, независимость `GripperCenter` от раскрытия, преобразования `JAW_* → JawContactPoint`, эллиптическая траектория и фактический зазор губок |
-| EV3 core | host-native C++ unit/property tests, `MockMotorBackend`, `q_ref`, регулятор, ограничения, fault state machines |
-| Калибровка | синтетические QR↔encoder datasets, знак, scale, backlash, rejection плохих точек, нелинейные кривые Gripper |
-| Протокол | C#↔C++ golden vectors, HMAC, sequence/session/transaction rules, malformed packets и fuzz |
-| Интеграция без устройств | Quest logic ↔ PC EV3 simulator, telemetry, HOLD/SAFE_HOLD, reconnect, injected faults |
-| Replay | записанные Shoulder/Wrist traces, timestamp skew, dropped samples и восстановление |
-| Конфигурации | `config/schema/ev3.schema.json` и `config/schema/commissioning_bundle.schema.json`, обязательные поля/units/ranges, `MEASURED.required_before`, совместимость `RobotGeometry`/`DriveCalibration`/safe-set/protocol; duplicate mapping keys, unknown fields и last-key-wins parsing обязаны давать FAIL до canonical JSON/hash |
-| Канонизация | RFC 8785 conformance: UTF-16 порядок ключей, ECMAScript представление чисел (`1.0`→`1`, `1e-6`→`0.000001`, negative zero, экспоненты), одинаковые bytes во всех реализациях |
-| EV3-local IPC | общие golden vectors `ControllerRequestV1`/`ControllerReplyV1`/`ControllerTelemetrySnapshotV1`: размеры, offsets, endian, canonical-zero, credential/freshness, session watchdog — проверяются и Python, и C++ |
-| Interop | shipped Quest client против **shipped** `phantom-network`, отдельно от сценариев PC-симулятора; отчёт обязан различать эти два источника |
-| Артефакты | package/application id Quest, требуемые permissions/features, build metadata; архитектура и зависимости EV3 ELF, отсутствие test/debug secret в Release |
+<a id="sec-test-plan-build"></a>
+## 4. Тестовая сборка и установка
 
-Минимальные правила полного software regression:
-
-```text
-0 failed mandatory tests
-0 crashed tests
-0 unexpected skipped tests
-all generated protocol/config golden hashes match
-all applicable suites linked to candidate semantic inputs
-```
-
-Отчёт полного regression имеет versioned machine-readable schema и для каждого нормативного
-test id хранит `status`, применимость, команду/runner и evidence. Допустимые статусы: `PASS`,
-`FAIL`, `NOT_RUN`, `N_A`. Для qualification он связывается с exact component build IDs,
-artifact/config/protocol hashes. Локальный report disposable; долговечное evidence
-публикуется неизменяемым CI/release artifact с URI и SHA-256.
-
-Минимальный набор этапа 1 включает schemas/generated-file checks, protocol/golden/HMAC/parser tests, Quest pure logic и synthetic adapters, EV3 host core/MockMotorBackend, simulator/replay, secret scan и host sanitizers. На этапе 2 дополнительно обязательны Unity EditMode/PlayMode и доступные XR/MRUK simulation tests, Release/Diagnostic APK audit, pinned ARMv5TEJ cross-build, artifact manifests/hashes и автономные startup/self-test сценарии. Проверки функций, впервые вводимых этапом 3+, могут иметь `N_A` до своего этапа, но не должны молча исчезать из отчёта.
-
-Если тест требует настоящей камеры, пользователя, EV3 scheduler или физический мотор, он **не симулируется как доказательство аппаратной готовности**; для него существует следующий уровень. Но вся чистая логика такого теста должна быть вынесена из SDK/I/O слоя и проверена здесь.
+Собрать Diagnostic APK Quest и пакет EV3, установить на назначенную пару и запустить.
+На этом этапе настраиваются сопряжение, credentials и разрешения.
+Команды и правила сборки/установки — [engineering.md](engineering.md#sec-8-5-1).
 
 <a id="sec-9-1-3"></a>
-### 1.3. Интеграционные тесты установленного устройства (`DEVICE INTEGRATION TEST`)
+## 5. Интеграционные тесты
 
-`DEVICE INTEGRATION TEST` является отдельной явно запускаемой фазой над уже установленным и
-успешно активированным exact build.
-Его runner не выполняет build, transfer, package installation, смену active release или
-rollback. Он может перезапускать процессы только внутри явно перечисленных test cases и после
-каждого такого case обязан восстановить документированное безопасное terminal state.
-Runner получает identity из установленного runtime и/или явного expected build id. Он не
-читает результаты TEST, BUILD, TRANSFER, INSTALL либо START; отсутствие/очистка/stale
-`results/**` не меняет его поведение.
+Все проверки автоматические. Quest лежит неподвижно на столе, никто его не надевает
+и не перемещает. EV3 не включает моторы, в том числе при отказах и перезапусках.
+Сначала выполняется подготовка ниже, затем проверки Quest, EV3 и пары.
 
-**Quest:**
+<a id="sec-integration-prerequisites"></a>
+### 5.1. Пререквизиты
 
-- приложение запускается и сообщает ожидаемый **`quest_build_id`** текущего profile;
-- загружаются конфигурации и проверяются их хэши;
-- проверяются декларация/config OpenXR и фактическое состояние session, причём неактивная session на лежащем Quest записывается как environment evidence, а не как несовместимость software;
-- доступны требуемые Meta XR API/config/permissions; AUTO не запускает интерактивный запрос разрешения, permissions выдаются при установке либо их отсутствие даёт `FAIL`;
-- диагностический self-test может запустить synthetic tracking/QR providers без движения реального PHANTOM;
-- отсутствует crash/exception при входе/выходе из приложения и повторном запуске;
-- Release не содержит включённых инженерных механизмов, которые должны быть Diagnostic-only.
-
-Штатный Quest runner — `scripts/quest-device-integration-test.ps1`. Для назначенной PHANTOM
-пары он проверяет единственный авторизованный ADB target `Quest 3/eureka` и identity
-установленного package. `adb install -r -g` относится к отдельному Quest INSTALL runner и не
-выполняется DEVICE runner’ом. DEVICE runner выполняет первый bounded запуск, `force-stop` и
-повторный bounded запуск. Запуск через ADB не использует неограниченный `am start -W`: runner
-автоматически посылает bounded wake event, отдельно и с конечным timeout проверяет PID и
-появление app report; ручное пробуждение/разблокирование не требуется и не запрашивается.
-Неактивные XR session/focus и отсутствие live observations на лежащем шлеме записываются как
-`NOT_RUN` environment evidence без software FAIL. Встроенный zero-output self-test проверяет
-build/config identity, `LOCAL_FLOOR`, permissions, passthrough/MRUK/Multimodal configuration
-и все adapters, но stage PASS определяется active profile: full-arm profile требует выбранный
-Body provider/Wrist path, gripper-only profile требует Hand/grasp + left Controller, а
-Body/Wrist live/provider qualification помечается `N_A` для этого stage gate и остаётся
-blocker будущего этапа 8/9. При pause сохраняется тот же классифицированный snapshot, а
-Diagnostic выполняет полный synthetic suite без `RobotTransport`. Raw logcat обоих запусков
-и объединённый host/app report сохраняются под
-`results/quest/device-integration/<quest_build_id>/`; серийный номер в отчёт не попадает,
-используется только сокращённый SHA-256 идентификатор.
-
-Quest `DEVICE INTEGRATION TEST PASS` доказывает запуск конкретного установленного APK и software/platform compatibility, но не доказывает качество реальных Wrist/Shoulder/grasp/Touch/QR observations. Он не заменяет bounded live-observation cases [§6](#sec-9-6), camera/QR measurement [§10](#sec-9-10) и ручные pause/resume/HMD/haptics сценарии. Provider классифицируется раздельно: API отсутствует — `FAIL`; provider явно отключён или несовместим — `FAIL`; provider сконфигурирован, но XR/focus неактивен и live samples отсутствуют — compatibility `PASS`, live evidence `NOT_RUN`; provider инициализирован — `PASS`, а live sample является дополнительным evidence.
-
-**EV3:**
-
-- `phantom-controller` и `phantom-safety` запускаются через `systemd`;
-- версии и **`ev3_build_id`** соответствуют установленному EV3 package/profile;
-- конфигурация читается и проходит schema/hash checks;
-- sysfs devices обнаруживаются по `address`, а не по нестабильному имени `motorN`; DEVICE INTEGRATION TEST проверяет **ровно обязательный motor/sensor I/O active profile**: Release требует `outA/outB/outC/outD + GRIPPER_HOME + LOCAL_STOP`, gripper-only Diagnostic требует `outD + GRIPPER_HOME + LOCAL_STOP`, network-only Diagnostic не требует motor I/O; battery telemetry является общим обязательным I/O для всех профилей; любой physically present disabled motor дополнительно проверяется на zero-output inhibit; для scoped моторов проверяются ожидаемые `driver_name`/тип и `count_per_rot=360`;
-- выполняется короткий timing self-test критического цикла с `duty=0`/безопасным backend;
-- DNS-SD/mDNS service публикуется;
-- Quest/PC test client может выполнить `HELLO/HELLO_ACK`, `PING/PONG` и получить `TELEMETRY`;
-- падение одного процесса обнаруживается вторым по правилам безопасности.
-
-Каждый DEVICE INTEGRATION TEST также имеет `introduced_at_stage`. На этапе 2 обязательны только автономный запуск, config/hash checks, обнаружение локального I/O, zero-output timing self-test, supervisor heartbeat/takeover и безопасный shutdown. DNS-SD, `HELLO/PING/TELEMETRY` и иные функции этапа 3 становятся обязательными с этапа 3; до этого они записываются как `N_A`, а не как PASS и не как пропущенная строка. DEVICE INTEGRATION TEST никогда не заменяется результатом PC-симулятора.
-
-EV3 test выполняется установленным `/opt/phantom/current/bin/phantom-device-integration-test` с root privilege и атомарно сохраняет `/var/lib/phantom/device-integration-test.json`. Отчёт содержит `git_commit`, один установленный **`ev3_build_id`** текущего profile, hashes controller/safety/config, platform fingerprint, monotonic timestamp и отдельные строки минимум для artifact integrity, config, motor/sensor/battery discovery, обоих on-device self-tests, systemd startup, zero-output startup, supervisor takeover и safe restart. Stage-3 network строки присутствуют как `N_A` с `introduced_at_stage=3`.
-
-EV3 runner проверяет фактически active exact installed `ev3_build_id`, не читая START result.
-Он не вызывается installer’ом и сам не распаковывает package, не переключает
-`/opt/phantom/current`, не обновляет systemd units/tmpfiles и не выполняет rollback. Если
-case обнаружил runtime failure, runner сначала сохраняет первый непосредственный service
-failure и cascade relationships, затем приводит систему в заявленное safe terminal state;
-исправление/rollback выполняется последующей отдельной операцией.
-
-Начиная с EV3-side этапа 3 тот же installed runner формирует report `schema_version=2`, `gate="DEVICE INTEGRATION TEST"`, `stage=3` и проверяет дополнительно:
-
-- согласованный network-only profile одновременно в runtime config и authoritative bundle, а также их manifest hashes;
-- WNA1100 по sysfs USB VID/PID `0846:9030`, загруженный `ath9k_htc` и динамически обнаруженное имя wireless interface; автоматический gate не зависит от `lsusb`, который на legacy Brick может блокироваться;
-- carrier и наличие DHCP IPv4 без записи конкретного DHCP-адреса как identity;
-- active state `phantom-safety`, `phantom-wifi-autoconnect`, `phantom-controller`, `phantom-network`, `phantom-mdns`;
-- живой multicast DNS-SD response с правильными service type, port, `robot_id`, boot id и build id;
-- локальный authenticated `HELLO/HELLO_ACK`, server-generated nonzero session id, `PING/PONG`, `TELEMETRY`, rejection invalid HMAC/replay и authenticated `COMMAND` при scope `0x00`;
-- смену boot id после controller kill/restart и сохранение zero/brake для всех физически присутствующих моторов;
-- отсутствие motor authority: фактическое финальное состояние sysfs всех присутствующих motors,
-  `motor_write_attempts_rejected` в `/run/phantom/network/status.json` и подтверждение, что
-  `phantom-net` не имеет write-доступа к motor-I/O. Счётчик, который worker никогда не
-  инкрементирует, не является доказательством и не принимается как evidence.
-
-Отсутствующие motor и motor-safety inputs при scope `0x00` получают `N_A` с `reason=OUT_OF_SCOPE`; battery telemetry остаётся обязательной и должна иметь `PASS`. Итоговый report записывается atomically в `/var/lib/phantom/device-integration-test.json`; пропуск любой применимой Stage-3 строки не считается PASS.
-
-On-device timing self-test выполняет не менее 250 итераций по абсолютной 20-ms сетке с безопасным backend, требует `p99 <= 25 ms`, `max < 50 ms`, нулевое число nonzero motor writes. Для `LOCAL_STOP` DEVICE INTEGRATION TEST без fixture проверяет discovery/текущее released состояние input и software state-transition logic через test backend, но **не выдаёт PASS физическому press/release**. Физический `LOCAL_STOP` press→BRAKE→latched STOP→release/reset проверяется только HIL с квалифицированным actuator fixture либо отдельной manual safety procedure; человеческое нажатие во время AUTO запрещено. Supervisor test при уже нулевом output посылает `SIGKILL` controller, подтверждает новый emergency event и сохранение `duty=0`, `speed=0`, `stop_action=brake`, после чего полностью перезапускает target. В network-only profile это также доказывает безопасное повторное получение освобождённого lease и смену controller boot identity, но не снимает fault/не выдаёт authority motion-capable profile. Ни один DEVICE INTEGRATION TEST step не выставляет ненулевой duty.
-
-DEVICE INTEGRATION TEST оценивает комплект относительно versioned profile, а не относительно будущей финальной механики. Scope-aware classification имеет `introduced_at_stage=3` (network-only) / `introduced_at_stage=4` (gripper-only); evidence более раннего stage не заменяет соответствующий новый gate, перед которым обязательно выполняется regression applicable autonomous-startup behavior. При таком regression gripper-bench report может быть `PASS` при scope `0x08`, если D/`GRIPPER_HOME`/`LOCAL_STOP` присутствуют и A/B/C явно помечены `N_A` с `reason=OUT_OF_SCOPE`; это **не** является evidence production hardware completeness. Финальный Release DEVICE INTEGRATION TEST всё равно требует A/B/C/D, `LOCAL_STOP` и `GRIPPER_HOME`; отсутствие любого обязательного элемента даёт `FAIL`/`NOT_RUN` без попытки движения.
-
-EV3 не имеет надёжного RTC, поэтому control/watchdog/safety freshness используют только `CLOCK_MONOTONIC`. DEVICE INTEGRATION TEST дополнительно фиксирует wall-clock/NTP state; неверные календарные часы не ослабляют stop path, но блокируют использование отчёта как хронологического release/HIL evidence до синхронизации либо надёжной корреляции с host timestamp.
-
-`DEVICE INTEGRATION TEST` не заменяет HIL: успешный запуск процесса ещё не доказывает, что реальная передача, QR, мотор и механика работают правильно.
-
-<a id="sec-9-1-4"></a>
-### 1.4. Автоматизированные аппаратные тесты (`HIL`)
-
-После успешного device smoke используется сценарный HIL-исполнитель. Человек до запуска runner подготавливает безопасную зону и переводит стенд в указанную исходную конфигурацию; после старта каждый HIL **motion/stress segment** выполняется полностью автоматически и завершается не позднее `60 s`, а один логический case может агрегировать несколько таких segments без вмешательства человека либо с новым явно отдельным setup между cases:
-
-```text
-setup confirmed by engineer
-→ scenario runner
-→ controlled commands
-→ telemetry + Quest diagnostics
-→ automatic metrics
-→ PASS / FAIL report
-→ incident package on failure
-```
-
-К HIL относятся:
-
-- реальная Quest↔EV3 сеть;
-- QR→геометрия и QR↔encoder reference;
-- инженерная `DriveCalibration`;
-- сценарные `q_target` без пользовательской руки;
-- tracking performance реального EV3;
-- stall/obstruction с безопасным тестовым приспособлением;
-- `LOCAL_STOP`, watchdog, process kill, packet loss;
-- серия независимых `Release`/`Diagnostic` timing cases по `<=60 s` с агрегированием распределений;
-- автоматический сбор всех численных критериев точности и производительности, которые не требуют субъективной оценки человека.
-
-HIL должен выдавать машинно читаемый отчёт со **всеми реально участвующими `quest_build_id`/`ev3_build_id`**, конфигурационными хэшами, временем запуска, сценарием, метриками и итогом. Ручное переписывание результатов в таблицу не является штатным способом приёмки.
-
-<a id="sec-9-1-5"></a>
-### 1.5. Ручные тесты готового приложения (`MANUAL ACCEPTANCE`)
-
-Ручные **функциональные и пользовательские** тесты проводятся только на установленном build, который уже прошёл `TEST`, `DEVICE INTEGRATION TEST` и обязательные для данного сценария HIL-проверки.
-
-Именно вручную проверяются свойства, для которых нужен реальный человек или субъективная/физическая оценка:
-
-- качество `Body_RightShoulder` и `Wrist` при движениях пользователя;
-- реальное распознавание напечатанных QR системным QR Trackable service Quest при разных ракурсах/освещении;
-- удобство запуска, XR permission/recovery flows и обычного управления; `Space Setup` оценивается только при включённой scene-aware функции;
-- понятность русского UI, подсказок, состояний и ошибок;
-- ощущение задержки и предсказуемости управления;
-- физическое соответствие движения руки и PHANTOM;
-- поведение Gripper с реальными объектами;
-- повторяемые пользовательские сессии, разбитые на независимые cases по `<=60 s`;
-- сквозные сценарии HOLD/SAFE_HOLD/восстановления, где важна наблюдаемая реакция системы.
-
-Для ручного теста заранее задаются шаги, ожидаемый результат и автоматически собираемая диагностическая трасса. Формат «попробовать и посмотреть, нормально ли» не является приёмочным тестом.
-
-<a id="sec-9-1-6"></a>
-### 1.6. Ручные проверки механической безопасности до автоматического движения
-
-Это исключение из правила «ручные тесты на готовом приложении». До первого HIL-движения обязательно вручную проверяются вещи, которые опасно впервые обнаруживать мотором:
-
-- соосность Shoulder/Elbow;
-- свободный ход без закусывания;
-- правильное зацепление шестерён;
-- затяжка/фиксация рам, осей и QR-креплений;
-- запас моторных кабелей во всём предполагаемом диапазоне;
-- положение физических ограничителей;
-- устойчивость основания;
-- работоспособность `LOCAL_STOP` при ещё запрещённом автоматическом движении;
-- отсутствие посторонних предметов и людей в swept volume.
-
-Эти проверки являются **safety inspection**, а не ручным тестированием пользовательского приложения. Их прохождение разрешает HIL, но не является функциональной приёмкой PHANTOM.
-
-<a id="sec-9-1-7"></a>
-### 1.7. Классификация проверок
-
-| Раздел | Основной уровень | Дополнительный уровень |
-|---|---|---|
-| [§2](#sec-9-2)–[§4](#sec-9-4) | `TEST` | — |
-| [§5](#sec-9-5) | `TEST` capability/state logic | `MANUAL ACCEPTANCE` Quest lifecycle/reference-space; `Space Setup` только для scene-aware UX |
-| [§6](#sec-9-6) | `TEST` для replay/alignment | `MANUAL ACCEPTANCE` на Quest 3 с пользователями |
-| [§7](#sec-9-7) | `TEST` provider/remap state logic | `MANUAL ACCEPTANCE` реального `graspValue/graspReady` |
-| [§8](#sec-9-8)–[§9](#sec-9-9) | `TEST` | `DEVICE INTEGRATION TEST`/HIL для реальной сети и EV3 |
-| [§10](#sec-9-10) | `TEST` для synthetic QR geometry | HIL/ручная камера для физических QR |
-| [§11](#sec-9-11)–[§14](#sec-9-14) | `TEST` для математики | `HIL` для реального робота |
-| [§15](#sec-9-15) | manual safety inspection + HIL | часть проверок требует физического наблюдения |
-| [§16](#sec-9-16)–[§19](#sec-9-19) | `HIL` | отдельные опасные сценарии требуют инженера рядом с `LOCAL_STOP` |
-| [§20](#sec-9-20)–[§23](#sec-9-23) | `MANUAL ACCEPTANCE` | численные метрики считаются автоматически |
-| [§24](#sec-9-24) | `TEST` + `DEVICE INTEGRATION TEST` + HIL | физический power-loss отдельно |
-| [§25](#sec-9-25)–[§26](#sec-9-26) | отчётность/Release gate | агрегируют результаты всех уровней |
-
-<a id="sec-9-1-8"></a>
-### 1.8. Регрессии и доказательства прохождения
-
-Каждый обнаруженный дефект, который можно воспроизвести без человека или физического риска, должен получить автоматический regression test на самом раннем возможном уровне.
-
-```text
-дефект найден вручную/HIL
-→ минимальный воспроизводимый сценарий
-→ по возможности TEST regression
-→ исправление
-→ локальный набор тестов
-→ полный обязательный gate
-```
-
-Для каждого build должны сохраняться:
-
-```text
-commit SHA
-quest_build_id
-ev3_build_id
-SHA-256 артефактов
-версии SDK/toolchain
-RobotGeometry hash
-DriveCalibration hash
-config hash
-результаты TEST
-результаты DEVICE INTEGRATION TEST
-результаты применимых HIL
-идентификаторы ручных приёмочных сценариев
-```
-
-Тестовый отчёт является частью доказательства готовности конкретного build. Результат другого commit/build нельзя переносить на текущий артефакт без повторного прохождения соответствующего gate.
-
-<a id="sec-9-2"></a>
-## 2. Модульные тесты и тесты свойств кинематики
-
-**Уровень:** `TEST`.
-
-Минимум `10 000` случайных валидных наборов:
-
-```text
-q → FK → IK на фиксированной branch → q_reconstructed
-```
-
-Вне сингулярностей:
-
-```text
-|q_base - q_base_reconstructed| <= 0.1°
-|q_shoulder - q_shoulder_reconstructed| <= 0.1°
-|q_elbow - q_elbow_reconstructed| <= 0.1°
-```
-
-Проверяются:
-
-- границы геометрической достижимости;
-- `RobotBaseFrame.origin == ShoulderCenter`;
-- commissioned joint bounds;
-- Shoulder/Elbow 90° flexion rule;
-- yaw singularity;
-- отсутствие `NaN/Inf`;
-- отсутствие переключения зафиксированного `branch_sign`;
-- constrained projection;
-- `norm(HumanArmVector) < human_vector_min_m` и yaw singularity hold-zone дают invalid target/`SAFE_HOLD`, не используют исторический/произвольный Base yaw;
-- `reach_ratio` всегда clamp-ится в `[0,1]`, а `mapping_reach_m=min(RobotGeometry.robot_nominal_reach_m, human_arm_reach*max_mapping_scale)`: tracking overshoot не может вынести `P_requested_B` дальше `mapping_reach_m`, и property test отдельно покрывает пользователя, для которого nominal scale превышал бы limit;
-- independent joint-bound clamp после IK даёт документированный `P_projected_B` через FK;
-- coupled collision/`JointSafeSet` не заменяется поиском «ближайшей» IK-ветви: такой target получает `TARGET_INVALID`.
-
-<a id="sec-9-3"></a>
-## 3. Тест абсолютного отображения руки
-
-**Уровень:** `TEST`.
-
-Для фиксированных `RobotBaseFrame`, `human_arm_reach` и заданного `HumanShoulderCenter` генерируется множество поз правой руки.
-
-Должно выполняться:
-
-```text
-same(HumanWristCenter - HumanShoulderCenter)
-→ same physical Shoulder_PHANTOM→TCP direction
-→ same P_requested_B
-```
-
-независимо от:
-
-- положения локтя пользователя при тех же плечевом центре и запястье;
-- ориентации HMD при неизменной позиции HMD;
-- предыдущей траектории руки;
-- предыдущей физической позы робота;
-- момента нажатия `Left Grip`;
-- количества циклов HOLD→TRACKING.
-
-Отдельный regression test доказывает независимость **чистой** цели от исходной позы робота: две разные физические начальные позы при одной и той же aligned-позе руки дают одинаковый `P_requested_B`. При одинаково seeded filter state они также дают одинаковые `P_control_B/q_target`; тест отдельно проверяет, что re-arm/reacquire выполняет seed и не наследует старую траекторию.
-
-Для `NFR-ACC-07/08` две разные предыстории фильтра завершаются одним и тем же
-постоянным валидным вектором. После переходного процесса обе `P_control_B` должны
-сойтись к соответствующей `P_requested_B` в пределах квалифицированного допуска
-фильтра, без сохраняющегося offset. Измеряются шум и добавленная задержка; отдельно
-проверяются обычный HOLD, dropout/reacquire и re-arm. Проверка только pure mapping
-не засчитывается как проверка сходимости управляющего фильтра.
-
-<a id="sec-9-4"></a>
-## 4. Тесты преобразования координат
-
-**Уровень:** `TEST`.
-
-Для заранее заданного `T_floor_base` проверяются эталонные мировые векторы `плечо → запястье`. После преобразования в `RobotBaseFrame` FK целевого робота должен давать тот же физический вектор при обратном переводе в `LOCAL_FLOOR`.
-
-Тест обязан ловить:
-
-- mirror по любой оси;
-- axis swap;
-- неверный handedness;
-- ошибочное применение translation к вектору;
-- зависимость результата от HMD yaw/pitch/roll.
-
-<a id="sec-9-5"></a>
-## 5. Тесты XR readiness, Multimodal lifecycle и reference-space changes
-
-**Уровень:** `TEST` для capability/state logic; затем `MANUAL ACCEPTANCE` на Quest 3.
-
-Проверяются сценарии:
-
-Для `FR-TRK-02` отдельно снимается шлем при удерживаемом Left Grip, в том числе
-при ещё активной XR session/передаче controller input. Отсутствующее или
-недостоверное presence должно запрещать пользовательское движение и очищать
-armed-latch. Возврат пользователя сам по себе не возобновляет движение; network-only
-scope без motor authority продолжает работать без надетого шлема.
-
-| Сценарий | Ожидаемый результат |
+| Что подготовить | Как убедиться в готовности |
 |---|---|
-| `LOCAL_FLOOR`, Spatial Data, Scene/Anchor support и QR capability валидны; room mesh отсутствует | core startup продолжается |
-| spatial permission не выдан | запрос/инструкция; движения нет |
-| Scene/Anchor capability для QR выключена | `READY` запрещён до исправления capability |
-| room/furniture semantics отсутствуют при `scene_aware_ux_enabled=false` | не блокируют core startup |
-| пользователь запускает опциональный `Space Setup` и отменяет | приложение повторяет scene-aware readiness check; core actuator path остаётся зависим только от обязательных capabilities |
-| `XrEventDataReferenceSpaceChangePending`/смена tracking origin | full A/B/C: немедленный `SAFE_HOLD`, `RobotLocalization` invalid, новая QR-локализация, затем deliberate re-arm; D-only qualification: scoped inhibit/dearm в `COMMISSIONING`, `GripperReference` не инвалидируется только из-за space change при доказанной encoder/JAW continuity, затем scope-specific readiness + deliberate re-arm |
-| pause/focus loss → resume | Multimodal/Hand/Body capabilities повторно включаются/проверяются; held Grip не возобновляет движение |
+| Назначенная пара и Diagnostic артефакты | Установить выбранные версии, сверить expected identities; не выбирать первый подключённый device |
+| Питание и неподвижный Quest | Зарядить устройства, положить шлем устойчиво; включить/разбудить штатной командой и запустить APK |
+| Выполнение приложения | Runner должен видеть процесс/свежий статус; подтвердить, что Horizon не приостановил приложение на время case |
+| Разрешения и credentials | Завершить provisioning, выдать нужные permissions; при запуске нет интерактивных диалогов |
+| Сеть и службы | Настроить LAN/Wi-Fi и запуск EV3 services; подготовить доступ для управляемого restart/fault injection |
+| Запрет движения | Проверить motor scope/inhibit до обмена; для network-only qualification actuator_scope_mask=0x00; zero/brake сохраняется при restart |
 
-Golden-vector tests отдельно проверяют OpenXR Y-up → robot Z-up adapter и отсутствие axis mirror/swap.
+Wakeup не гарантирует продолжительное выполнение: текущий OnApplicationPause останавливает
+сетевой клиент. При подтверждённом suspend case получает NOT_RUN; timeout с неизвестной
+причиной остаётся ошибкой. Нельзя просить надеть шлем или обходить датчик присутствия.
+UI, haptics, live tracking/QR и dynamic XR lifecycle без пользователя не проверяются.
 
-<a id="sec-9-6"></a>
-## 6. P0 compatibility, Body Tracking плеча и калибровка длины руки
+Каждый case имеет timeout и машинный результат. Автоматические entry points —
+[Quest runner](../scripts/quest-device-integration-test.ps1) и
+[EV3 runner](../scripts/ev3-device-integration-test.ps1). Настройка —
+[engineering.md](engineering.md#sec-8-5-1); текущие ограничения — [current-status.md](current-status.md).
 
-**Уровень:** replay/time-alignment — `TEST`; качество реального tracking — `MANUAL ACCEPTANCE` на Quest 3.
+<a id="sec-test-plan-integration-quest"></a>
+### 5.2. Quest
 
-Live full-arm Body/Wrist qualification и пользовательские cases этого раздела выполняются на реальном Quest 3 в штатной полной комбинации ниже. **P0 до них является scope-specific** и не обязан включать providers, помеченные `N_A(OUT_OF_SCOPE)` для `COMMISSIONING_QR`/`D_ONLY_USER`:
-
-```text
-passthrough enabled
-правый Hand Tracking
-левый Touch Plus Controller
-Multimodal Input
-Upper-Body Body Tracking
-IOBT = off
-FBS = off
-FMM = off
-WMM = off в actuator profile
-```
+| ID | Проверка | Ожидаемый результат |
+|---|---|---|
+| Q-01 Запуск установленного APK | Запустить APK без надетого шлема | Нет crash/диалогов; config и обычные Android/native libraries, доступные без XR session, загружены; identity совпадает с ожидаемой |
+| I-06 Перезапуск Quest | Завершить и повторно запустить APK | APK повторно запускается без crash/диалогов и зависимости от tracking; identity/config читаются |
 
 <a id="sec-test-plan-6-1"></a>
-### 6.1. P0 Quest platform compatibility AUTO
+#### 5.2.1. Наличие API и статическая конфигурация (P0)
 
-До первого физического milestone каждого XR path exact pinned platform matrix из build manifest проходит короткий полностью автоматический compatibility case на реальном Quest 3. P0 имеет три независимых applicability-scope и проверяет **только используемые данным path providers/API**:
+Не вызываются действия, требующие tracking frames, активной XR session/focus или движения
+пользователя. Проверяются наличие API/components/joint set, authored feature flags/permissions
+и известные SDK/runtime запреты комбинации. RobotTransport session/motor authority отсутствуют.
+Case длится 5..30 s. Проверяемые providers выбираются по scope:
 
-| `P0CompatibilityScope` | Обязателен до | Проверяемый минимум | Явно `N_A(OUT_OF_SCOPE)` |
+| `P0CompatibilityScope` | Обязателен до | Статически проверяемый минимум | Явно `N_A(OUT_OF_SCOPE)` |
 |---|---|---|---|
-| `COMMISSIONING_QR` | первого QR-driven `CALIBRATION_JOG` этапа 4; повторно перед A/B/C commissioning, если platform matrix изменилась | OpenXR lifecycle/reference-space API, passthrough/Spatial Data permissions, MRUK QR Trackables/anchors и commissioning adapters | Body/Wrist, grasp/Hand, Left Grip/haptics |
-| `D_ONLY_USER` | первого user-driven D этапа 5 | Hand/grasp provider, левый Touch Plus Grip+haptics, Multimodal/focus lifecycle, passthrough и требуемый JAW QR path | Body_RightShoulder/Wrist mapping |
-| `FULL_ARM_USER` | full-arm live qualification этапа 8 и обязательно до первого user-driven A/B/C этапа 9 | Wrist, выбранный UpperBody provider+`Body_RightShoulder`, Multimodal/focus lifecycle, passthrough, QR/local-space adapters | ничего из full actuator input stack |
-
-Case длится `5..30 s`, допускает лежащий на столе HMD и не требует live движения робота, жестов человека, haptics confirmation или pause/resume. Для каждого применимого provider проверяются наличие API/components, статическая конфигурация feature flags/permissions, отсутствие явного SDK/runtime запрета выбранной комбинации и отсутствие **активной `RobotTransport` session/actuator authority во время P0**. Неиспользуемый provider не может дать `FAIL`; он получает `N_A(OUT_OF_SCOPE)`. **FAIL применимого scope блокирует соответствующий actuator milestone**; его нельзя обходить HMD→shoulder heuristic, отключением Multimodal или silent provider fallback.
-
-P0 evidence сохраняется как отдельный versioned report и содержит `p0_compatibility_scope`, **`quest_build_id`**, `apk_sha256`, модель/серийно обезличенный id устройства, точный Horizon OS/runtime build, Unity/Meta XR Core/Movement SDK/MRUK/OpenXR versions, provider/joint-set, feature flags, permissions, время/длительность case, результаты каждого compatibility check и ссылки на device logs. Только реальный Quest 3 может дать `PASS`; отсутствие устройства даёт `NOT_RUN`, доказанная несовместимость provider/API — `FAIL`.
-
-P0 обязан различать состояния provider:
-
-| Состояние | Итог compatibility |
-|---|---|
-| требуемый текущим `P0CompatibilityScope` provider API отсутствует | `FAIL` |
-| применимый component/joint set сконфигурирован неверно | `FAIL` |
-| SDK или runtime явно отключает/запрещает provider в требуемом scope/profile | `FAIL` |
-| provider не используется данным P0 scope | `N_A(OUT_OF_SCOPE)`; не блокирует gate |
-| provider сконфигурирован, но XR session/focus неактивен и live samples нет | `PASS`; live evidence отдельно `NOT_RUN` |
-| provider инициализирован без live sample в данном коротком окне | `PASS`; sample отдельно `NOT_RUN` |
-| provider инициализирован и live sample доступен | `PASS` плюс дополнительное live evidence |
-
-Текущее отсутствие live observations на снятом/лежащем HMD никогда не используется как доказательство несовместимости. И наоборот, явный source/runtime guard нельзя переклассифицировать в «HMD не был надет». Наличие `OVRBody` в package не считается PASS само по себе: если pinned package source/runtime отключает выбранный provider при Multimodal, такой provider/profile получает `FAIL` до выбора другой документированной версии/provider и нового P0. При конфликте сначала выполняется дешёвый source/config audit минимального числа package/provider candidates; APK собирается только для кандидата, который не содержит известного запрета и сохраняет все обязательные API.
-
-После `FULL_ARM_USER P0` отдельными `MANUAL ACCEPTANCE` cases проверяется доступность и качество живых full-arm данных:
-
-- `Body_RightShoulder` присутствует в выбранном joint set;
-- joint имеет валидную позицию и обновляется непрерывно;
-- `Wrist` и `Body_RightShoulder` одновременно доступны при работающем левом Touch Plus;
-- приложение получает доступные body tracking calibration/status/fidelity поля и документированную временную информацию; отсутствие sensor timestamp не подменяется выдуманным значением.
-
-Физические сценарии выполняются минимум на `10` пользователях; каждый пронумерованный case имеет собственный отчёт и длительность `<=60 s`:
-
-1. **Голова без корпуса:** пользователь держит корпус и правую руку неподвижно, поворачивает голову примерно на `±90°` и наклоняет её вверх/вниз. Положение `HumanShoulderCenter` не должно повторять HMD yaw/pitch; допускается только шум отслеживания.
-2. **Шаг в сторону:** пользователь смещается примерно на `0.30 м` влево и вправо. `Body_RightShoulder` должен отражать соответствующую трансляцию без дополнительной shoulder-калибровки.
-3. **Шаг вперёд/назад:** аналогично проверяется продольная координата.
-4. **Приседание:** пользователь уменьшает высоту плеча минимум на `0.20 м` и возвращается в исходное положение; вертикальная координата tracked shoulder должна следовать движению.
-5. **Поворот корпуса:** пользователь поворачивает корпус примерно на `±45°`, не выполняя специального калибровочного жеста. Положение правого плеча должно обновляться непрерывно.
-6. **Движение руки при неподвижном корпусе:** изменение Wrist не должно искусственно переносить tracked shoulder вслед за кистью сверх допустимой ошибки body tracking.
-7. **Краткий tracking пропуск:** в grace-window actuator target заморожен; stale Shoulder не смешивается со fresh Wrist. После восстановления filter reseed выполняется текущим aligned-вектором, приложение остаётся в `HOLD` до deliberate re-arm и не просит пользователя двигать рукой для вычисления плеча.
-8. **Локоть без изменения управляющего вектора:** пользователь меняет положение локтя, сохраняя физические точки плеча и запястья. Их неподвижность подтверждается независимыми контрольными измерениями; изменение `P_requested_B` и установившейся `P_control_B` не должно превышать погрешность квалифицированного отслеживания.
-9. **Поворот кисти:** пользователь поворачивает кисть при неизменных физических точках плеча и запястья. Цель A/B/C сохраняется в пределах той же погрешности; изменившийся сигнал сжатия анализируется отдельно и не подменяет проверку пространственной цели.
-
-Для проверки пространственной ошибки используются статические контрольные позы и независимая измерительная точка/маркер вблизи правого плеча. Начальные критерии приёмки:
-
-| Метрика | Критерий |
-|---|---:|
-| p95 ошибка положения плеча в статических контрольных позах | `<=30 мм` |
-| p95 ложное смещение плеча при только головы yaw/pitch | `<=20 мм` |
-| ошибка изменения положения после шага/приседания | `<=30 мм` |
-| автоматическое восстановление после краткого пропуска | без пользовательской перекалибровки |
-
-Если эти критерии не выполняются, тест создаёт диагностический дефект с сохранением `Body_RightShoulder`, `Wrist`, quality/status, временные метки и состояния приложения. Основной алгоритм при этом не переключается на HMD-эвристику и не требует от пользователя дополнительной калибровки: причина сначала анализируется по журналам и `FlightRecorder`. Для финальной готовности системы критерии всё равно должны быть выполнены.
-
-Точность `Wrist` и итогового вектора проверяется в неподвижных контрольных позах. Для квалификационного теста допускается временный жёсткий `WRIST_TEST` маркер/крепление с заранее измеренным offset до анатомической точки Wrist; QR measurement снимается только после полной остановки руки и не используется в runtime управления. Минимум `20` пространственно различных поз на пользователя.
-
-Начальные критерии приёмки:
-
-| Метрика | Критерий |
-|---|---:|
-| p95 ошибка stationary `Wrist` относительно тестовое крепление | `<=20 мм` |
-| p95 ошибка длины `Shoulder→Wrist` | `<=30 мм` |
-| p95 ошибка направления `Shoulder→Wrist` | `<=3°` |
-| накопленный offset после возврата в ту же неподвижную позу | отсутствует; ошибка остаётся в том же статистическом диапазоне |
-
-Эти критерии измеряют tracking/mapping input до IK. Сквозная физическая точность PHANTOM отдельно проверяется [§20](#sec-9-20).
-
-Калибровка `human_arm_reach` проверяется отдельно:
-
-```text
->=10 пользователей
->=5 calibration runs на человека
-ровно 3 **принятые устойчивые** позы полностью выпрямленной руки; отклонённые/нестабильные попытки не засчитываются и могут повторяться без искусственного лимита
-```
-
-Критерии:
-
-- положение плеча берётся непосредственно из валидного `Body_RightShoulder`, а калибровка измеряет только `human_arm_reach`;
-- медианное значение `human_arm_reach` между повторными run одного пользователя отличается не более чем на `20 мм`;
-- поворот головы, шаг или приседание после калибровки не меняют сохранённый `human_arm_reach`;
-- одинаковые текущие `HumanShoulderCenter` и `HumanWristCenter` дают одинаковую цель независимо от положения локтя.
-
-Отдельно проверяется временное согласование Shoulder/Wrist. `tracking-replay` искусственно вводит известное рассогласование временных меток и дрожание, а затем сравнивает вычисленный `Shoulder→Wrist` с эталоном:
-
-```text
-stationary pose
-slow arm motion
-sinusoidal arm motion
-step-like change direction
-sample/query-time offsets: 0 / 10 / 20 / 40 / 60 ms + отдельные сценарии timing uncertainty
-short dropped samples
-```
-
-Критерии:
-
-- измерения старше настроенного alignment/extrapolation window не используются как свежие;
-- при допустимом рассогласовании временных меток интерполяция уменьшает ошибку вектора относительно варианта «брать последние два несинхронных измерения»;
-- stationary `Shoulder→Wrist` p95 дрожание после фильтра `<=15 мм` в квалифицированных условиях освещения/tracking;
-- дополнительная задержка фильтра относительно time-aligned raw vector p95 `<=30 мс` для обычного движения;
-- после краткого пропуска нет смешивания stale/fresh joints; `P_requested_B` остаётся pure, а после reseed `P_control_B` стартует от текущего raw-вектора без хвоста старого filter state.
-
-Если реальные платформенные данные требуют других численных filter thresholds, значения меняются только через измеренный config и повторный [§6](#sec-9-6), а не скрытым повышением smoothing latency.
-
-<a id="sec-9-7"></a>
-## 7. Тесты сигнала сжатия кисти
-
-**Уровень:** provider/remap logic — `TEST`; реальный Hand Tracking — `MANUAL ACCEPTANCE`/P0 на Quest 3.
-
-Default `OpenXrGraspProvider` проверяется так:
-
-- `graspReady=true`, raw `0`, `0.25`, `0.5`, `0.75`, `1` → identity/clamp mapping без обязательной пользовательской калибровки;
-- `graspReady=false` → `GRASP_VALID=0`, сохранение текущей физической gripper target, отсутствие автоматического открытия;
-- `NaN/Inf/out-of-contract` отклоняются до command builder;
-- после HOLD/SAFE_HOLD актуальный `grip_intent` может применяться только после общего deliberate re-arm;
-- EV3 rate/duty/contact logic ограничивает физический скачок даже при step input.
-
-Optional `GripRemapProfile` тестируется отдельно:
-
-- `g_open < g_closed`, span `>= remap_min_usable_span`;
-- remap монотонен и ограничен `[0,1]`;
-- invalid/zero/inverted span отклоняется;
-- profile compatibility metadata инвалидируется после несовместимого runtime/provider update;
-- включение/выключение remap вне `TRACKING` не переносит stale command.
-
-Если используется альтернативный `JointCurlGripProvider`, он обязан иметь отдельный qualification profile с теми же end-to-end safety tests; runtime silent fallback между providers запрещён.
-
-<a id="sec-9-8"></a>
-## 8. Тесты DNS-SD/mDNS обнаружения
-
-**Уровень:** `TEST` с сетевым симулятором; `DEVICE INTEGRATION TEST`/HIL с реальным EV3.
-
-Сценарии:
-
-1. один PHANTOM в сети;
-2. два PHANTOM с разными `robot_id`;
-3. сервис с неверным protocol major;
-4. корректный service type `_phantom-ev3._udp`, но неверный/non-local domain;
-5. resolve даёт только IPv6 endpoint при v1;
-6. IPv4 меняется после DHCP renew;
-7. Wi-Fi interface EV3 переподключается и получает новый IPv4;
-8. старый IPv4 занят другим host;
-9. сервис исчезает и появляется снова.
-10. `HELLO` retransmit с тем же nonce в retry-window возвращает тот же session id только пока исходная session/config generation остаётся authoritative; bundle/session/boot invalidation очищает HELLO cache, и повтор старого nonce не воскресит session. Competing CONTROL HELLO при свежей активной session получает rejected `HELLO_ACK(result_code=ERR_CONTROL_SESSION_BUSY, session_id=0)`; после stale/HOLD новый handshake получает новую EV3-generated session id, а старые COMMAND остаются невалидны.
-11. на реальном EV3 publisher использует Avahi D-Bus, а DEVICE INTEGRATION TEST посылает raw multicast DNS query и валидирует service type `_phantom-ev3._udp`, domain `local.`, IPv4 address/SRV port и TXT identity независимо от локального publisher process;
-12. restart controller меняет `controller_boot_id` и приводит к перепубликации TXT; restart `phantom-mdns` временно удаляет и затем восстанавливает service;
-13. TXT не содержит credential, PSK, HMAC material или session id.
-14. Quest LAN permission denied/revoked или platform multicast prerequisite отсутствует → discovery/UDP явно unavailable, старый endpoint/session не используется; после разрешения выполняется fresh discovery.
-
-Критерии приёмки:
-
-- Quest выбирает робота по `robot_id`, а не по сохранённому IP;
-- после смены адреса старый сетевой адрес/session не используется;
-- новый IPv4 сетевой адрес проходит новый `HELLO/HELLO_ACK`;
-- IPv6-only resolve в v1 не создаёт session и не запускает fallback на сохранённый IPv4;
-- робот с неверным `robot_id` никогда не получает actuator command текущей сессии.
-
-<a id="sec-9-9"></a>
-## 9. Тесты сетевого протокола и HMAC
-
-**Уровень:** `TEST`; performance parser/HMAC дополнительно проверяется на EV3 как `DEVICE INTEGRATION TEST`/HIL.
-
-Структура каждого message type определяется `wire_schema.yaml`, а общий behavioral contract — `semantics.yaml`; C# и C++ production encode/decode должны проходить общие golden/negative vectors. CI независимо проверяет structural `protocol_schema_hash`, semantic `protocol_semantics_hash`, derived compatibility `protocol_contract_hash`, exact payload lengths, enum/bit values и отсутствие drift generated constants/codecs. Отдельный schema assertion требует, чтобы `COMMAND` содержал только motion flags, абсолютные `q_target[3]`, `grip_intent` и reserved field; PWM/duty/raw motor commands в Quest→EV3 wire отсутствуют.
-
-Security tests:
-
-| Тест | Результат |
-|---|---|
-| bad magic / wrong version / unknown type / reserved bits != 0 | cheap reject до HMAC/type-specific parsing |
-| truncated datagram / bad exact length | cheap reject |
-| bit flip полезная часть | HMAC fail |
-| wrong PSK / unknown key slot | drop без создания session |
-| old/replayed sequence | drop |
-| duplicate/reordered packet | drop без repeated side effect |
-| wrong session | drop |
-| old boot id | drop |
-| repeated transaction в той же session | тот же semantic ACK payload/result, no repeated side effect; response datagram имеет новый EV3→Quest sequence/timestamp/HMAC |
-| exact retry с повтором старого request payload, но новым Quest→EV3 wire sequence | принимается как transaction retry; canonical request hash остаётся тем же, old header bytes в hash не входят |
-| новая state transaction `id=last+1` даёт operation-level `ERR_STATE/ERR_RANGE/...` | error ACK кэшируется как completed transaction и consume-ит id; исправленный payload обязан использовать следующий id |
-| bad HMAC/session/exact-length packet с видимыми случайными bytes transaction_id | drop до transaction layer, `last_transaction_id` не меняется |
-| повтор того же consumed error transaction id с исправленным payload | `ERR_TRANSACTION_CONFLICT`, state без изменения |
-| controller cached ACK payload на retry | `phantom-network` не replay-ит старую datagram: выдаёт fresh outbound sequence; Quest anti-replay принимает ответ |
-| `CALIBRATION_JOG`: ACK потерян, затем session потеряна | старый JOG **не** отправляется автоматически в новой session; состояние `OUTCOME_UNKNOWN`, новый `LOCAL_COMMISSION_ARM`/session + stationary `CALIBRATION_QUERY` + QR/encoder observation предшествуют любому следующему jog |
-| `COMMISSIONING_SAMPLE` ACK потерян | exact retry в той же session возвращает тот же `CONTROL_ACK` payload/result с fresh response sequence/HMAC; journal append/sample consume выполняются ровно один раз |
-| `REFERENCE_ACK` потерян и затем session потеряна | новая session не считает старую reference подтверждённой: fresh `CALIBRATION_QUERY` + QR observation + новый `SET_JOINT_REFERENCE`; старый transaction id не replay-ится |
-| HELLO `key_slot/session_role` selector до HMAC | используется только для выбора одного test_phaseed PSK; invalid HMAC не создаёт session/semantic side effect |
-| authenticated `HELLO` при busy CONTROL / commissioning без local arm | `HELLO_ACK.session_id=0`, `result_code=ERR_CONTROL_SESSION_BUSY/ERR_COMMISSIONING_NOT_ARMED`; session owner/sequence/authority не создаются |
-| rejected authenticated `HELLO_ACK` canonical fields | `client_nonce_echo` и HMAC-validated selectors совпадают с запросом; identity/build/hash/state fields декодируются как diagnostics, но не создают authority; profile-dependent safe limits при отсутствии применимого active profile равны canonical zero; Quest **не** применяет rejected ACK как config/reference readiness |
-| successful network-only/D-only `HELLO_ACK` canonical N_A | `0x00/0x00`: отсутствующие component hashes и все reference/A-B-C limit fields canonical zero при ненулевом network-only bundle hash; `0x08/0x08`: только присутствующие gripper subset hashes/Gripper reference могут быть ненулевыми, A/B/C JointReference/JointSafeSet/limits canonical zero; `-0.0`, NaN, stale values rejected by golden/schema test |
-| HELLO retry-cache invalidation | после cached successful ACK изменить/активировать bundle либо инвалидировать session/controller boot до истечения `hello_retry_window_ms`; повтор того же HELLO/nonce **не** получает старый session id/hash, cache очищен и handshake оценивается по текущей generation |
-| successful `HELLO_ACK` | `result_code=OK`, `session_id!=0`; subsequent session messages с zero id rejected |
-| role↔key-slot mismatch | при установленном/проверяемом slot authenticated reject `HELLO_ACK(result_code=ERR_AUTH,session_id=0)`; unknown/uninstalled slot — silent drop |
-| `SET_DRIVE_CALIBRATION` commit ACK потерян | EV3 остаётся в bounded `CONFIG_STALE_ACK_ONLY`; exact retry возвращает тот же ACK payload/result с fresh response sequence/HMAC, а reconnect/HELLO hash reconciliation однозначно определяет committed old/candidate revision |
-| `SET_DRIVE_CALIBRATION` reconnect после неопределённого ACK | Quest durable pending-candidate reconciles по `commissioning_bundle_hash`; third/unexpected hash → manual `ERR_HASH_MISMATCH`, motion authority=0 |
-| NaN/Inf target | reject |
-| `payload_length` превышает current schema-generated maximum, total datagram >1024 или exact-length mismatch | reject |
-| 1 000 000 malformed host fuzz packets | no crash/UB |
-| unauthenticated traffic flood within test limits | no actuator state change |
-| `MOTION_ENABLE=1` первым packet новой/recovered session без предыдущего OFF/HOLD | reject/no actuator target; `release_seen=false` |
-| противоречивый stop-like `COMMAND`: `MOTION_ENABLE=1,HOLD_REQUEST=1` | fail-safe stop/hold выполняется, moving target не принимается, но `release_seen` **не** становится true; deliberate re-arm требует отдельный canonical `0/1` OFF/HOLD |
-| Quest локально увидел release, но OFF/HOLD потерян | `last_accepted_command_sequence` не достигает `release_off_sequence`; Quest остаётся `armed=false`, moving packet не посылается |
-| OFF/HOLD принят, но telemetry stale/потеряна | EV3 уже fail-safe снял motion, но Quest остаётся `armed=false` до свежего подтверждения текущей session; automatic resume запрещён |
-| OFF/HOLD подтверждён свежей telemetry, затем новый false→true enable edge | допускается только после остальных обычных movement predicates |
-| command/session freshness lost while product state=`READY` | state не остаётся READY: `READY→SAFE_HOLD`, armed/release latch очищаются; после новой/восстановленной valid session переход только через `HOLD` и deliberate re-arm |
-| `HELLO role=CONTROL` при `STOPPED` | создаёт recovery-only session; COMMAND не имеет authority, разрешены только read/PING + `FAULT_ACK`/`RESET_STOPPED` |
-| попытка `SET_PAYLOAD_*`/обычного COMMAND в recovery-only STOPPED session | reject/no actuator change |
-| `SET_PAYLOAD_STATE=LOADED` при active profile `EMPTY` | reject/no state change |
-| moving A/B/C COMMAND при `PayloadState=UNKNOWN` либо mismatch profile↔safe-set | reject/inhibit, old moving target invalid, no A/B/C motor authority |
-| cold boot/controller restart до profile selection | `active_payload_profile_id=UNSELECTED`, active safe-set hash=0, `PayloadState=UNKNOWN`; `ROBOT_CALIBRATION→READY` запрещён до startup `SET_PAYLOAD_PROFILE` **и** `SET_PAYLOAD_STATE=EMPTY/LOADED` |
-| `SET_PAYLOAD_PROFILE` в `ROBOT_CALIBRATION` до full reference | reject `ERR_REFERENCE`; после full reference+stationary — accepted без motor motion, остаётся startup flow |
-| попытка передать `payload_profile_id=UNSELECTED` | reject; sentinel существует только локально и не является installed profile |
-| narrow A/B/C qualification: `SET_PAYLOAD_PROFILE/STATE` | только explicit `EMPTY/EMPTY` при full A/B/C reference, stationary motors, commissioning local authority и dearmed phase; `LOADED`/non-empty reject |
-| full 0x0F qualification-only payload transitions | installed profiles + `EMPTY/LOADED` допускаются только stationary/dearmed в `COMMISSIONING`; successful transaction не меняет state на READY/HOLD и требует новый qualification re-arm |
-| payload operation ACK потерян + session lost | новая session обязана заново выполнить безопасную profile/state selection/confirmation до motion; stale UI confirmation не переносится |
-| «SESSION_CLOSE» как неизвестный message type | cheap reject; v1 voluntary relinquish реализуется прекращением traffic + stale timeout |
-
-EV3 receive path использует общий HIL-квалифицированный token bucket `rx_rate_limit_pps`/`rx_burst_packets`, ограниченный socket receive buffer и не обрабатывает более `32` datagrams за один drain. Тест выполняется ниже, на границе и выше **фактически установленного** threshold; hard-coded `100/20` не является нормативным substitute для `MEASURED`. Oversize/header/length/type/reserved проверки выполняются до HMAC. Ни malformed packet, ни flood не создаёт per-source unbounded state, очередь или thread и не изменяет session/actuator state. Для network-only profile дополнительно проверяется, что после authenticated `COMMAND`, replay и flood motor state остаётся нулевым, а каждая отвергнутая motion request учтена в `motor_write_attempts_rejected`.
-
-На реальном EV3 direct on-device benchmark отдельно доказывает:
-
-```text
-HMAC + exact-length parse service time p99 < 2 ms на bounded valid-datagram benchmark;
-configured rx_rate_limit_pps/rx_burst_packets при valid+invalid flood не нарушают motor-loop p99 и watchdog budgets
-```
-
-<a id="sec-9-10"></a>
-## 10. Тесты QR RobotLocalization
-
-**Уровень:** synthetic geometry — `TEST`; реальные маркеры/камеры — HIL и `MANUAL ACCEPTANCE`.
-
-Не менее `30` независимых локализаций центра Shoulder и `RobotBaseFrame` после перемещения/повторного запуска.
-
-Критерии приёмки:
-
-```text
-coarse ShoulderCenter repeatability p95 <= 25 mm
-coarse RobotBaseFrame yaw repeatability p95 <= 5°
-accepted commissioning/startup q_qr uncertainty95 <= configured qr_joint_angle_uncertainty95_max_deg
-foreign robot_id / geometry_revision accepted = 0
-wrong marker_id-for-role / duplicate marker_id / duplicate role accepted = 0
-malformed/non-canonical PHANTOM1 QR payload accepted = 0
-READY without required QR set = 0
-base relocation after RobotLocalization without re-localization → A/B/C motion authority = 0
-localization source = MRUK QR Trackables only
-```
-
-Проверяются частичная окклюзия, неверный `marker_id`, два маркера с одной role/id, valid QR другого role, переставленное крепление, неверный prefix/geometry revision/encoding canonical payload, недостаточная геометрия видимых точек, слабое освещение, слишком большая дистанция и деформированный/наклонённый держатель. Отдельный TEST parser test round-trip-ит весь `qr_marker_manifest` и гарантирует однозначность role↔id.
-
-Для каждого принятого окна после остановки дополнительно сохраняются дрожание центра маркера и robust-остаточная ошибка расчёта. измерение не принимается, если видимый набор маркеров формально достаточен, но его геометрия плохо обусловлена или центры продолжают заметно двигаться. Пороги jitter, pair baseline, conditioning и propagated angular uncertainty фиксируются по физическим тестам. `25 мм / 5°` — только coarse localization/UI gate; калибровочная/стартовая точка принимается лишь если её собственный uncertainty budget достаточно мал для критериев [§12](#sec-9-12)/[§13](#sec-9-13). Если Quest QR stack не достигает этого бюджета, проект не ослабляет критерий молча: требуется улучшить fixtures/наблюдения или использовать отдельную более точную absolute-reference технологию в следующей revision.
-
-<a id="sec-9-11"></a>
-## 11. Инженерная калибровка RobotGeometry
-
-**Уровень:** математика — `TEST`; физическая квалификация — `HIL`.
-
-Минимум шесть и предпочтительно больше поз, покрывающих Base/Shoulder/Elbow range.
-
-Проверяются:
-
-- `L1`, `L2`, положение пола относительно Shoulder и TCP;
-- оси Shoulder/Elbow;
-- локальные координаты всех QR-креплений;
-- неизменность geometry при обычном запуске;
-- FK против независимых измерений/QR observations, не использованных в расчёте.
-
-Критерии приёмки:
-
-```text
-QR geometry residual p95 <= 25 mm
-FK TCP error against independent measurement p95 <= 15 mm
-```
-
-Механическое изменение крепления или звена создаёт новую `geometry_revision`.
-
-<a id="sec-9-12"></a>
-## 12. Инженерная калибровка `DriveCalibration` Base/Shoulder/Elbow
-
-QR hold-out точки проверяют повторяемость калибровочного sensor stack. Отдельно обязательна независимая физическая validation точности как минимум на нескольких контрольных позах с jig/угломером/линейкой либо иной метрологией известной погрешности; QR не может быть единственным «независимым» ground truth для собственной калибровки.
-
-**Уровень:** алгоритм fit/rejection — `TEST`; реальная процедура — `HIL`.
-
-Для каждой оси выполняется не менее `10` независимых запусков инженерной калибровки из разных допустимых исходных положений.
-
-Каждый запуск должен автоматически пройти тот же алгоритм, который описан в [Спецификация Quest §16](quest-specification.md#sec-5-16):
-
-```text
-неподвижное QR-измерение исходной позы
-→ очень малое первое калибровочное перемещение
-→ полная остановка
-→ QR-измерение и первая оценка знака/коэффициента
-→ не менее 5 остановленных измерений в одном направлении
-→ проход в обратном направлении
-→ не менее 5 новых остановленных измерений
-→ расчёт коэффициента, знака и люфта
-→ отдельные контрольные положения
-```
-
-Непрерывное измерение движущегося QR не используется. Каждая точка принимается только после полной остановки мотора и устойчивого многомаркерного QR-измерения.
-
-На полностью собранном роботе отдельно проверяется автоматический безопасный порядок приводов:
-
-```text
-D Gripper → C Elbow → B Shoulder → A Base
-```
-
-Проверяется, что:
-
-- одновременно motor-write authority имеет только одна калибруемая ось; чтение safety-observed encoder/QR других осей не считается motor authority;
-- перед `Elbow` исходная поза исключает контакт предплечья/захвата с основанием, верхним звеном и полом, а ещё не откалиброванный Shoulder механически фиксирован/поддержан так, что движение C не может вызвать его неконтролируемое опускание;
-- перед `Shoulder` уже откалиброванный `Elbow` переводит механизм в `SHOULDER_CAL_POSE`, эта поза подтверждается QR, C имеет валидные calibration/reference+HOLD gate либо дополнительно фиксируется fixture;
-- перед `Base` уже откалиброванные `Shoulder`/`Elbow` переводят руку в компактную `BASE_CAL_POSE`, имеют валидные calibration/reference+HOLD gates либо fixture, после чего проверяются кабельный запас и свободный описываемый объём;
-- попытка активного HOLD ещё не откалиброванной/не referenced нагрузочной оси считается FAIL теста;
-- fixture/support removal выполняется только после получения соответствующей calibration/reference и отдельной проверки удержания;
-- риск выхода за безопасный объём, потеря QR, движение motor-disabled оси сверх допуска, препятствие или `LOCAL_STOP` немедленно прекращают автоматическую процедуру.
-
-Для A/B/C проверяются:
-
-- стабильность `count_per_rot` и абсолютного счётчика энкодера;
-- знак `k_axis`;
-- `encoder_scale_rad_per_count`;
-- согласованность прямого и обратного проходов;
-- `backlash_total_angle`;
-- остаточная ошибка расчёта;
-- ошибка на контрольных положениях;
-- повторяемость одной физической позиции при подходе с двух сторон;
-- независимость результата от порядка сохранённых измерений.
-
-Для номинальной передачи `5:1` ожидаемый порядок `k_axis` — около `0.2°` физического угла на один градус/отсчёт моторного вала. Это только проверка здравого смысла: значительное отклонение требует проверки сборки и конфигурации.
-
-Начальные критерии приёмки A/B/C:
-
-```text
-sign(k_axis) stable across runs
-scale repeatability p95 <= 0.5% relative
-fit residual p95 <= 1.0°
-hold-out encoder→QR prediction p95 <= 1.5°
-hold-out max error <= 3.0°
-backlash_total_angle <= 3.0°
-forward/reverse same-pose discrepancy p95 <= 2.0°
-```
-
-Имена полей в блоке выше являются служебными метриками; пользовательский отчёт отображает их русские названия.
-
-Если люфт или нелинейность выше допуска, исправляется механика, передача либо крепление QR. Более сложная математическая компенсация не считается успешной калибровкой без отдельной механической квалификации.
-
-Дополнительно выполняется автоматический тест отсутствия программного накопления ошибки:
-
-```text
-привязка при запуске
-→ 1000 безопасных циклов туда/обратно в квалифицированном диапазоне
-→ периодический возврат к заранее выбранным абсолютным отсчётам энкодера
-→ сравнение q_actual с независимым QR-измерением после остановки
-```
-
-Критерии разделяются:
-
-- **программный:** один и тот же `encoder_count` при одной `DriveCalibration`, одной `JointReference` и одинаковом состоянии модели люфта всегда даёт тот же `q_actual` до численной погрешности, независимо от числа циклов и пропусков периода управления; `speed*dt` никогда не является источником положения;
-- **механический:** физическая ошибка при возврате к тому же отсчёту энкодера не должна расти с номером цикла и должна оставаться внутри допуска люфта/повторяемости. Рост ошибки означает проскальзывание, ослабление крепления или износ и блокирует приёмку.
-
-<a id="sec-9-13"></a>
-## 13. QR→энкодерная `JointReference` при запуске
-
-**Уровень:** protocol/state logic — `TEST`; реальные QR+encoder — `HIL`.
-
-Не менее `30` независимых циклов запуска для каждой квалифицируемой конфигурации:
-
-```text
-перезапуск EV3
-→ обнаружение сервиса и установление сессии
-→ робот остаётся неподвижным
-→ устойчивое многомаркерное QR-измерение №1
-→ атомарный снимок энкодеров / sample_id
-→ SET_JOINT_REFERENCE
-→ REFERENCE_ACK
-→ устойчивое многомаркерное QR-измерение №2
-→ сравнение q_actual и q_qr
-→ READY только после успешной проверки
-```
-
-Все десять QR не обязаны быть видимы одновременно, но весь startup capture относится к одной неподвижной механической позе: EV3 фиксирует pre-scan и post-scan encoder snapshots, и любое изменение сверх stationary threshold отклоняет capture. Каждая marker observation имеет max age; stale pose из прошлого положения не используется.
-
-Обычный запуск **не должен двигать ни один сустав или губку ради привязки**. Инженерная `DriveCalibration` уже существует; QR только сообщает текущую физическую позу, а EV3 связывает её с текущими абсолютными отсчётами энкодеров.
-
-Отдельно, только в инженерном тесте после успешной привязки выполняется малое безопасное движение в обе стороны, затем полная остановка и QR-измерение. Это проверяет, что абсолютная энкодерная модель продолжает предсказывать физический угол.
-
-Критерии:
-
-```text
-second QR verification vs q_actual p95 <= 1.5°
-second QR verification max <= 3.0°
-post-move encoder→QR prediction p95 <= 2.0°
-reference without valid QR = 0/30
-stale/reused sample_id accepted = 0/30
-wrong controller_boot_id accepted = 0/30
-incompatible DriveCalibration hash accepted = 0/30
-READY before second verification = 0/30
-```
-
-Служебные имена метрик сохраняются в машинном отчёте. После перезапуска EV3 или нарушения непрерывности энкодера старая `JointReference` не восстанавливается из файла.
-
-Отдельный partial-qualification regression создаёт bundle с `actuator_scope_mask=C` (затем `B+C`) и `safety_observation_mask=0x07`. `CALIBRATION_QUERY/SET_JOINT_REFERENCE` обязаны получить/принять реальные A/B/C в одном snapshot, `REFERENCE_ACK` подтверждает JointReference, telemetry содержит реальные q всех safety-observed A/B/C, а non-authorized axes получают zero motor writes. Подмена A/B raw/q полей нулями или потеря их reference должна блокировать qualification до motor write.
-
-<a id="sec-9-14"></a>
-## 14. Калибровка и проверка захвата по QR
-
-**Уровень:** curve/rejection logic — `TEST`; физическая процедура — `HIL`.
-
-Инженерная калибровка D повторяется не менее `10` раз из разных допустимых начальных раскрытий.
-
-Автоматически проверяется полный алгоритм:
-
-```text
-низкоскоростное закрывание
-→ подтверждение GRIPPER_HOME
-→ фиксация E_closed; stall до home = fault
-→ загрузка signed independently commissioned gripper_open_limit_delta_counts
-→ нормализация d=open_encoder_sign*(E-E_closed_cal)
-→ пошаговое открывание с полной остановкой только до d=D_open_counts
-→ QR-измерение фактического зазора рабочих поверхностей после каждого шага
-→ достижение safe open endpoint без stall/unsafe condition
-→ двунаправленный сбор промежуточных точек
-→ построение двух монотонных кусочно-линейных кривых
-→ контрольные положения, не участвовавшие в построении
-```
-
-Проверяются:
-
-- абсолютная семантика энкодера;
-- корректное определение closed/home по `GRIPPER_HOME`, включая debounce/repeatability;
-- отсутствие продолжительного силового давления после определения закрытой границы;
-- независимое доказательство безопасного `gripper_open_limit_delta_counts` до автоматической QR-калибровки;
-- запрет выхода за `d∈[0,D_open_counts]` независимо от QR и от absolute encoder intercept;
-- преобразования `JAW_LEFT/RIGHT → рабочие поверхности губок`;
-- фактическое QR-измерение `opening_open_mm` в `d=D_open_counts`;
-- нелинейная зависимость `encoder ↔ jaw opening`;
-- прямой/обратный люфт и отсутствие скачка реконструкции до фактического backlash take-up;
-- симметрия движения губок и стабильность TCP;
-- однозначная монотонность всего рабочего участка closed→safe-open endpoint;
-- привязка при запуске из произвольного положения без движения к упору;
-- независимость contact FSM от QR после `READY`.
-
-Критерии приёмки:
-
-```text
-jaw opening reconstruction p95 <= 2 mm
-hold-out opening error <= 4 mm
-center shift due to symmetric opening p95 <= 2 mm
-startup grip_actual error <= 0.05 normalized
-false GRIPPER_HOME detection = 0
-stall-before-home accepted as closed = 0
-encoder command that can exceed d∈[0,D_open_counts] = 0
-reboot/new GripperReference never reuses calibration-session absolute E_open_limit_cal
-unsafe/non-monotonic section before d=D_open_counts accepted = 0
-hysteresis branch switched before qualified take-up = 0
-forward/reverse same-opening discrepancy <= configured gripper backlash limit
-```
-
-Если кривая раскрытия немонотонна внутри commissioned рабочего диапазона или губки движутся заметно несимметрично, сначала исправляется механика/граница; программная калибровка не должна маскировать такую конструкцию.
-
-<a id="sec-9-15"></a>
-## 15. Механические тесты
-
-**Уровень:** ранняя manual safety inspection + HIL. Не откладывается до пользовательской приёмки.
-
-<a id="sec-9-15-1"></a>
-### 15.1. Соосность
-
-Shoulder и Elbow без приводных gears должны свободно вращаться, не закусывать и не раздвигать рамы.
-
-<a id="sec-9-15-2"></a>
-### 15.2. Shoulder HOLD
-
-Наиболее тяжёлая горизонтальная поза собранной руки без внешнего предмета, `60 s`:
-
-```text
-TCP drift <= 10 mm
-joint drift <= 1.5°
-steady duty average <= 40%
-steady duty p95 <= 50%
-```
-
-<a id="sec-9-15-3"></a>
-### 15.3. Безопасные границы
-
-инженерная калибровка должна доказать:
-
-- Base software bounds имеют cable slack с обеих сторон;
-- Base mechanical hard-stop срабатывает раньше натяжения connector/cable;
-- Shoulder software flexion никогда не превышает `90°`;
-- Elbow software flexion никогда не превышает `90°`;
-- физические механические ограничители расположены за software bounds и до опасной геометрии.
-
-<a id="sec-9-15-4"></a>
-### 15.4. Слежение суставов
-
-Репрезентативная траектория:
-
-```text
-dynamic q tracking error p95 <= 2.5°
-max transient <= 8°
-steady velocity tracking bias caused by derivative term <= qualified limit
-```
-
-Отдельный trajectory case с постоянной ненулевой `qdot_ref` подтверждает, что D-term использует `qdot_ref-qdot_actual_filtered`, а не только `-qdot_actual`; при одинаковом profile feed-forward отключение/включение не должно менять знак velocity feedback.
-
-Отдельный feed-forward HIL sweep проходит representative `(q, tau_model_Nm, battery_mv, PayloadState)` domain для Base/Shoulder/Elbow: output `FeedForwardMap` конечен, bounded в duty%, монотонность/знак соответствуют измеренному стенду там, где это задано model schema, LOADED payload term появляется только после LOADED ACK, а запрос вне qualified torque/battery domain даёт derating/inhibit вместо extrapolation. Unit/property test отдельно гарантирует, что значение в N·m не может напрямую попасть в сумматор `% duty`.
-
-<a id="sec-9-15-5"></a>
-### 15.5. Повторяемость TCP
-
-Одна точка достигается с разных направлений:
-
-```text
-TCP repeatability p95 <= 10 mm
-max <= 15 mm
-```
-
-<a id="sec-9-15-6"></a>
-### 15.6. Потеря питания и независимый POWER_CUT
-
-Проверяются отдельно: отключение питания EV3/приводов, аппаратный `POWER_CUT`, недоступность `phantom-controller` и отсутствие активного HOLD. `POWER_CUT` должен срабатывать независимо от Linux и не требовать нахождения оператора внутри swept volume. После восстановления выполняется новый EV3 boot; старая session/reference не восстанавливается, требуется QR reference и re-arm.
-
-В нескольких worst-case позах физически снимается питание с EMPTY и каждым разрешённым PayloadProfile. Проверяются все критерии [Спецификация механики §15](mechanical-specification.md#sec-6-15), включая peak TCP speed `<= power_loss_peak_tcp_speed_limit_mps`, displacement/time-to-rest, отсутствие cable tension/part or payload ejection и безопасное containment, если passive payload retention не гарантируется. Отдельно измеряется `POWER_CUT command/actuation → power removed`; результат должен удовлетворять qualified `power_cut_max_disconnect_ms` SafetyEnvelope, а не только визуальному PASS.
-
-<a id="sec-9-15-7"></a>
-### 15.7. JointSafeSet, coupled collision и проверка пути
-
-**Уровень:** `TEST` для генератора/математического proof, затем `HIL` на финальной механике.
-
-Для `EMPTY` и каждого разрешённого `PayloadProfile` проверяется:
-
-1. `JointSafeSet` metadata/hash однозначно связывает exact `RobotCollisionModel`, PayloadProfile, independent bounds, grid resolution и inflation margin;
-2. offline validator **исчерпывающе перепроверяет каждую cell, помеченную SAFE** тем же либо более строгим independent conservative proof. Любой unsafe false-negative (`SAFE`, хотя whole-cell safety не доказана) — безусловный FAIL; консервативный false-positive (`UNSAFE` для фактически безопасной cell) допустим как потеря workspace;
-3. boundary cases для floor/base/self/payload/joint/cable forbidden geometry классифицируются fail-closed;
-4. строится пара безопасных endpoint, путь между которыми пересекает хотя бы одну `UNSAFE` cell: endpoint-only реализация обязана быть поймана тестом, а EV3 DDA — отклонить step;
-5. DDA проверяется в обоих направлениях, включая face/edge/corner tie cases и максимальный допустимый `q_ref` step; rounding не может пропустить пересечённую cell;
-6. missing/corrupt/wrong-hash set, неверный PayloadProfile, out-of-grid target и set больше `joint_safe_set_max_bytes` дают fail-closed до motion;
-7. Quest coupled-collision preview даёт `TARGET_INVALID` без generic nearest-point/alternate-branch search; EV3 независимо отклоняет тот же unsafe target/path;
-8. `SET_PAYLOAD_PROFILE` атомарно переключает `{profile,set}` и не допускает `TRACKING` между unload/validation/swap;
-9. partial A/B/C qualification сначала проходит reference regression [§13](#sec-9-13) и выполняется только с пустым Gripper на candidate/installed `EMPTY` PayloadProfile/JointSafeSet; после reference обязательны explicit engineering `SET_PAYLOAD_PROFILE=EMPTY` + `SET_PAYLOAD_STATE=EMPTY`, но pickup/release, LOADED/non-empty и product/user payload transitions запрещены. `actuator_scope_mask` используется только как motor authority, `safety_observation_mask = 0x07 | actuator_scope_mask` как минимум: любой motor-enabled привод наблюдаем, disabled A/B/C encoder/reference остаются реальными fixed coordinates. Нагрузочная disabled ось механически fixture/support-ится; попытка q-based HOLD через запрещённый motor write является FAIL. Injected zero/stale/invalid reference или выход fixture-drift за qualified bound должен inhibit motion; попытка применить LOADED/non-EMPTY profile к narrow qualification case также должна fail-closed;
-10. HIL у граничных безопасных/unsafe cells сохраняет cell indices, traversed path, effective q, active hashes и фактический motor result в evidence.
-
-<a id="sec-9-16"></a>
-## 16. Тесты защиты моторов
-
-**Уровень:** модель fault logic — `TEST`; реальная защита — `HIL` под наблюдением инженера.
-
-<a id="sec-9-16-1"></a>
-### 16.1. Препятствие и заклинивание основных суставов
-
-Каждая ось низкоскоростно блокируется контролируемым тестовым приспособлением. Рукой оператора или хрупким предметом блокировать механизм запрещено.
-
-Проверяются обе стадии:
-
-```text
-OBSTRUCTION_CANDIDATE latched with pre-inhibit evidence
-→ duty больше не растёт
-→ q_ref speed уменьшается
-→ candidate timer продолжается независимо от уже сниженного q_ref
-
-persistent obstruction
-→ FAULT_JOINT_STALL
-→ moving target invalid
-→ configured fault_stop_mode без роста усилия
-```
-
-Критерии приёмки:
-
-```text
-candidate response <= configured candidate timeout + 1 motor-loop period
-no duty growth after candidate
-stall fault <= configured stall timeout + 1 motor-loop period
-no automatic high-duty retry
-incident log + FlightRecorder created
-```
-
-<a id="sec-9-16-2"></a>
-### 16.2. Реверс и выбор люфта
-
-На каждой A/B/C выполняются многократные смены направления на малой, средней и максимально квалифицированной user speed.
-
-Проверяется:
-
-- duty проходит через zero crossing;
-- acceleration limits не нарушаются;
-- внутри measured backlash band применяется пониженный take-up duty;
-- нет отдельного ударного motor kick;
-- зубчатая передача не получает видимого ударного расхождения;
-- `q_actual` не совершает математического скачка на величину motor-side backlash.
-
-<a id="sec-9-16-3"></a>
-### 16.3. Длительная нагрузка / `MotorStressScore`
-
-На motor bench и затем на собранной оси выполняются сценарии:
-
-1. bounded HOLD с нормальной нагрузкой (`<=60 s`) и ускоренным временем `MotorStressScore`;
-2. повторяющиеся движения с умеренным duty;
-3. искусственно повышенная, но безопасная нагрузка;
-4. high-duty состояние, доведённое до warning/derating threshold без повреждения оборудования.
-
-Проверяется:
-
-```text
-stress растёт при нагрузке
-stress уменьшается во время охлаждения
-warn threshold → derating + event
-critical threshold → motion cancelled + fault/stop policy
-hard max_high_duty_ms действует независимо от integral score
-```
-
-`MotorStressScore` не сравнивается с градусами температуры; задача серии bounded cases — доказать консервативное ограничение накопленной motor load. В software/bench case используется ускоренный monotonic time, а физический case безопасно достигает инъецированного квалификационного порога не дольше `60 s`. Отдельный HIL case перезапускает controller/EV3 при WARN и CRITICAL и доказывает, что restart floor/cooldown не позволяет обнулить защиту. Case отдельно проверяет, что `CLOCK_MONOTONIC` после reboot не засчитывается как off-time; без квалифицированного persistent time source применяется полный restart cooldown.
-
-<a id="sec-9-16-4"></a>
-### 16.4. Перегрузка при удержании
-
-В тяжёлых, но квалифицированных позах проверяется duty удержания Shoulder/Elbow. Если `hold_duty_limit_permille` устойчиво превышается, система должна зафиксировать `FAULT_HOLD_OVERLOAD`, прекратить high-duty HOLD и требовать mechanical/payload inspection согласно [Спецификация EV3 §14.5](ev3-specification.md#sec-7-14-5).
-
-Одновременно механические тесты потери питания должны доказывать, что снятие активного момента не создаёт разрушительного падения.
-
-<a id="sec-9-16-5"></a>
-### 16.5. Подозрение на нарушение передачи
-
-Поскольку post-gear slip не наблюдается motor encoder напрямую, тест проверяет maintenance lock, а не несуществующее live detection.
-
-Инжектируются:
-
-- флаг механического вмешательства;
-- encoder discontinuity;
-- изменение `DriveCalibration` hash;
-- оператором подтверждённый пропуск зуба/проворот.
-
-Во всех случаях:
-
-```text
-новое движение запрещено
-JointReference invalid или maintenance lock active
-→ механическая проверка
-→ QR reference / DriveCalibration по необходимости
-→ только затем READY
-```
-
-<a id="sec-9-16-6"></a>
-### 16.6. Контакт и заклинивание захвата
-
-Не менее `100` open/close cycles, плюс отдельные payload-state transition cases:
-
-- без предмета;
-- мягкий compliant object;
-- small rigid cylinder;
-- medium rigid block/cylinder;
-- объект около максимального раскрытия.
-
-Критерии:
-
-```text
-false contact <= 1/100
-opening jam never treated as normal contact
-confirmed closing contact stops further force growth
-soft object has no visible damage from continued motor forcing
-full stroke within commissioned timing range
-stall/contact incident is logged when applicable
-```
-
-`contact_min_travel_ratio`, `contact_duty_min_permille`, `contact_speed_max_counts_s`, `contact_position_error_min_counts`, `contact_confirm_ms` и `release_intent_hysteresis` подбираются только по этому HIL dataset с разделением nominal closing / backlash take-up / compliant contact / rigid contact / jam / release. Принятые значения обязаны удовлетворять false-contact критерию и не маскировать opening jam; изменение любого из них требует повторного [§16.6](#sec-9-16-6).
-
-Отдельный D-only case (`FR-GRP-09`) выполняется с отключёнными A/B/C, без
-PayloadProfile/JointSafeSet и с валидной привязкой D: закрытие до подтверждённого
-контакта → ограниченное открывание по текущему намерению кисти → снятие контакта.
-Открывание не требует payload confirmation; отсутствие A/B/C не блокирует D.
-Проверяются локальный допуск, Left Grip, opening jam, LOCAL_STOP, потеря grasp/focus/связи
-и deliberate re-arm. Ненулевые motor writes на A/B/C во всех случаях равны нулю.
-
-Дополнительно payload-state HIL обязан проверить **оба state-domain**: production и full `0x0F` qualification-only. В production cold boot/controller restart даёт `active_payload_profile_id=UNSELECTED`, safe-set hash=0 и `PayloadState=UNKNOWN`; `ROBOT_CALIBRATION→READY` до startup `SET_PAYLOAD_PROFILE` и последующего `SET_PAYLOAD_STATE=EMPTY/LOADED` отклоняется; startup profile selection после reference загружает совместимый safe-set без motor motion, затем state confirmation также проходит без motor motion; выбор non-empty `PayloadProfile` без предмета (limits уже conservative, feed-forward payload=off), startup-подтверждение `EMPTY/LOADED` допускается в `ROBOT_CALIBRATION` после full reference+profile selection; последующие runtime-подтверждения — только в `READY/HOLD` при stationary motors, включение payload feed-forward после `LOADED` ACK, запрет `TRACKING` при неизвестном/несогласованном state; при release из `GRIP_CONTACT_HOLD + LOADED/UNKNOWN` A/B/C должны замереть до начала D-opening, D открывается bounded, после снятия контакта система остаётся `HOLD + UNKNOWN`, а переход `UNKNOWN→EMPTY` возможен только явной confirmation transaction при stationary motors; до ACK/new re-arm продолжение `TRACKING` запрещено.
-
-
-Обязательно проверяются переходы `EMPTY → contact → UNKNOWN → LOADED`, `LOADED/UNKNOWN → bounded release → UNKNOWN → EMPTY`, unexpected contact при profile `EMPTY`, смена profile → `UNKNOWN`, reboot/controller continuity loss → `UNKNOWN`. Во всех этих cases A/B/C не продолжают старую trajectory до явного подтверждения допустимого payload state. В full qualification-only те же contact/release transitions обязаны оставлять wire state=`COMMISSIONING` (не `HOLD/READY`), очищать qualification armed-latch и разрешать `SET_PAYLOAD_*` только stationary/dearmed по [Спецификация протокола §2.5](protocol-specification.md#sec-4-7-5); narrow A/B/C qualification при object contact fail/inhibit и остаётся EMPTY-only.
-
-<a id="sec-9-17"></a>
-## 17. EV3 HIL: точность, временной бюджет и ресурсы
-
-**Уровень:** `HIL` на установленном build после успешного `DEVICE INTEGRATION TEST`.
-
-Конфигурация:
-
-```text
-3 Large + 1 Medium active
-real mechanisms connected
-authenticated Wi-Fi
-Release: набор независимых representative-movement cases, каждый <=60 s
-Diagnostic: тот же набор независимых cases, каждый <=60 s
-```
-
-Проверяются одновременно:
-
-- `50 Hz` цикл управления моторами;
-- absolute encoder reads всех четырёх моторов;
-- q_ref/regulator/protection;
-- UDP/HMAC traffic;
-- штатная телеметрия;
-- FlightRecorder ring writes;
-- logger rotation/incident flush;
-- `phantom-safety` heartbeat;
-- worst-case разрешённый Diagnostic traffic.
-
-Критерии временного бюджета:
-
-```text
-loop p99 <= 25 ms
-max normal interval < 50 ms
-scheduler-induced SAFE_HOLD = 0
-unexplained missed deadline = 0
-```
-
-Критерии ресурсов:
-
-```text
-no unbounded heap growth after READY
-bounded RX/log/telemetry queues
-no motor-loop filesystem open/path lookup
-no motor-loop JSON/YAML/HMAC/network send
-Diagnostic backpressure reduces diagnostic rate before motor deadline is affected
-```
-
-Отдельно измеряются cross-device cadence contracts:
-
-- Quest logical control sender следует configured `~60 Гц` независимо от выбранной поддерживаемой HMD render refresh rate; изменение refresh rate не меняет sender semantics;
-- EV3 штатная `TELEMETRY` следует configured `~20 Гц` при нормальной нагрузке; backpressure сначала снижает/отбрасывает Diagnostic stream и не вытесняет motor loop/штатную telemetry.
-
-Отдельно создаётся worst-case logger test: медленная SD-card write/temporary storage stall. Цикл управления моторами обязан сохранять заданный временной бюджет; допускается потеря diagnostic records с `log_drop_count`, но не потеря safety events в резервной очереди.
-
-Точность во время HIL:
-
-```text
-absolute encoder-derived position never uses integrated speed as source
-same encoder/reference/backlash state → same q_actual
-no position drift after repeated HOLD/TRACKING cycles without mechanical motion
-```
-
-Если `Diagnostic` не способен сохранять `p99<=25 ms` при максимальном объёме данных, его частота выборки обязана автоматически уменьшаться до выполнения временного бюджета.
-
-Для `FR-SAFE-11/12` выполняются TEST с инъекцией и применимые DEVICE/HIL cases:
-ошибка чтения питания, невалидное значение, зависший sampler и старый snapshot,
-потеря обязательного датчика или ошибки motor read/write. Проверяется запрет
-движения затронутого scope, отсутствие fallback к прежнему `NORMAL`, запись причины
-и запрет автоматического возобновления после восстановления I/O. Бюджет свежести
-питания фиксируется в отчёте квалификации выбранного периода опроса; fault injection
-не требует физически снижать напряжение до повреждения устройства.
-
-<a id="sec-9-18"></a>
-## 18. Сетевые тесты отказов
-
-**Уровень:** `TEST` в симуляции + `HIL` на реальной сети.
-
-Сценарии:
-
-```text
-single packet loss
-10% burst loss
-50% burst loss
-full link loss
-reordering
-duplicates
-Quest process kill
-wrong session/HMAC traffic
-DHCP address change
-mDNS service disappear/reappear
-traffic to actuator port from disallowed interface/subnet
-wildcard-listener / firewall-misconfiguration negative check
-unexpected routed/Internet-side source (lab-isolated test path)
-```
-
-Критерии приёмки:
-
-- старая цель не восстанавливается после более новой;
-- full link loss → full product path: `SAFE_HOLD` p95 `<=150 ms`; `ACTUATOR_QUALIFICATION`: scoped inhibit/dearm в `COMMISSIONING`, а при утрате commissioning session/local authority qualification полностью завершается и recovery начинается с `DISCOVERY`;
-- после transient command/telemetry loss **при всё ещё свежей той же CONTROL session** допускается восстановление этой session, но она остаётся dearmed до полного release-handshake; если session stale/lost, endpoint/boot изменился или controller перезапущен — требуется новый authenticated `HELLO`, и новая session также начинается dearmed;
-- qualification path при живой той же commissioning session может восстановиться только через deliberate re-arm; если commissioning session/local authority потеряна, требуется новая локальная commissioning procedure;
-- если временная причина устранена и `Left Grip` всё ещё удерживается, state machine остаётся в `HOLD`; после release Quest обязан дождаться EV3-confirmed OFF/HOLD прежде чем вооружиться, затем требуется новый rising edge;
-- если Grip отпущен — состояние остаётся `HOLD`;
-- latched fault condition (`STOPPED + fault_code`) не снимается сетевым восстановлением;
-- старый COMMAND из предыдущей session не принимается новой EV3-generated session; exact HELLO retry внутри retry-window возвращает тот же session id без сброса sequence;
-- competing CONTROL HELLO при свежей активной session получает `ERR_CONTROL_SESSION_BUSY`; после stale/HOLD новая session не наследует target/sequence/armed-latch;
-- exact retry последней state transaction идемпотентен; stale/conflict/gap IDs отклоняются без side effect и без cache-exhaustion режима.
-- Release listener существует только на ожидаемом LAN bind address/interface; wildcard listener при наличии иных routable interfaces является FAIL;
-- packet к actuator port с разрешённого interface+trusted subnet достигает parser, а тот же packet с disallowed interface/subnet блокируется до actuator authority; spoof/replay/HMAC-негативные cases всё равно безопасно отклоняются;
-- effective firewall соответствует provisioned policy после boot/reconnect; отсутствие rules, permissive fallback или автоматический Internet/NAT publication являются FAIL;
-- смена provisioned subnet без обновления/повторной DEVICE/HIL policy-check не допускает Release motion.
-
-Дополнительные asymmetric/security cases обязательны:
-
-- **только EV3→Quest `TELEMETRY` потеряна**, Quest→EV3 `COMMAND` ещё проходит: при telemetry age `>100 ms` Quest очищает `MOTION_ENABLE`, выдаёт OFF/HOLD и не re-arm-ится автоматически после восстановления; отдельный bidirectional-loss case подтверждает EV3 command-watchdog;
-- LAN permission Quest отозван уже после established session: network subsystem становится unavailable, старая endpoint/session не используются для actuator authority, восстановление идёт через fresh discovery/session;
-- CONTROL/COMMISSIONING datagrams с запрещённого interface/subnet, wildcard listener regression и ошибочная firewall policy не достигают actuator parser/motion path;
-- release provisioning audit подтверждает отсутствие Wi-Fi credential/control PSK/commissioning PSK в Git, APK/resources, build manifest, `CommissioningBundle`, DNS-SD TXT, telemetry и обычных логах; credential files имеют ожидаемые минимальные ownership/permissions. Автоматическая часть — `tools/security_scan.py` (`--include-artifacts` для APK и build manifests). Он не освобождает от проверки целые каталоги: исключения задаются поимённым allowlist синтетических фикстур с указанием причины, и сам сканер покрыт `tools/test_security_scan.py`, включая требование никогда не печатать найденный секрет;
-- control credential не авторизует commissioning role/operations; Release build не имеет доступного commissioning secret.
-
-<a id="sec-9-19"></a>
-## 19. Испытания процессов EV3
-
-**Уровень:** `DEVICE INTEGRATION TEST`/`HIL`.
-
-Не менее `30` повторов каждого критического сценария:
-
-```text
-SIGKILL phantom-controller
-SIGSTOP phantom-controller
-SIGTERM phantom-controller
-abort
-deadlock
-kill phantom-safety
-```
-
-Дополнительно для process boundary `phantom-network ↔ phantom-controller` выполняются:
-
-```text
-SIGKILL phantom-network
-SIGSTOP phantom-network
-restart phantom-network with old queued IPC
-forged/stale session_generation IPC
-malformed payload_length/reserved IPC
-transaction IPC queue saturation/drop
-reply IPC loss after controller side effect
-```
-
-Ожидается: network restart не наследует старую session generation/authority; stale generation, malformed length/reserved, неверные peer credentials и IPC от постороннего uid/gid отвергаются controller/socket policy. Effective uid/gid/groups проверяются на устройстве: `phantom-net` не может открыть motor sysfs или `/run/phantom/motor-control.lock` на запись, `phantom-ctrl` не может прочитать control/commissioning PSK, `phantom-mdns` не имеет ни motor, ни secret access; IPC принимает только ожидаемые peer credentials. Успешный CONTROL/COMMISSIONING `HELLO_ACK(result_code=OK,session_id!=0)` не выдаётся до `SESSION_OPEN_ACCEPT` controller; после `SESSION_OPEN_REJECT` допускается только authenticated rejected `HELLO_ACK(session_id=0,result_code!=OK)`; commissioning session без свежего физического `LOCAL_COMMISSION_ARM` отвергается; loss/overflow IPC не блокирует motor loop и не создаёт непроверенный side effect. Для cached transaction reply network worker обязан завернуть controller ACK payload в **новый** outbound wire sequence/timestamp/HMAC. При потере network process во время движения EV3 command freshness сам переводит motion-capable scope в fail-safe inhibit/HOLD policy даже если explicit `SESSION_INVALIDATE` не дошёл. Отдельный negative test подтверждает границу заявленной гарантии: произвольная compromise/Byzantine логика процесса, уже исполняющегося как `phantom-net`, **не маркируется PASS как "изолированная"**; это threat-model exclusion, а не свойство IPC.
-
-Controller loss:
-
-```text
-safety detects heartbeat timeout
-→ SIGKILL controller
-→ verifies lock/PID release
-→ acquires motor lease
-→ zero/brake command p99 <= controller_watchdog_takeover_limit_ms from watchdog expiry
-```
-
-Для `LOCAL_STOP` отдельно проверяются **оба** path: healthy controller cooperative zero/brake+lease release без смены boot id и forced path при зависшем controller с `SIGKILL`, сменой boot id и invalidation session/references. От физического input edge до выдачи zero/brake/stop на все обнаруженные motor outputs измеряется latency; `p99 <= local_stop_response_limit_ms`. Отдельно измеряется механический time-to-rest/stopping displacement в применимых позах. Ни один path не допускает concurrent motor writers; safety удерживает lease до reset.
-
-Для motion-capable profile отдельно проверяется, что restarted controller не получает actuator authority до explicit safety reset, даже если процесс снова запущен и lease технически доступен. Для network-only scope `0x00` проверяется обратная эксплуатационная гарантия: после takeover safety завершает zero/brake writes и освобождает lease, target перезапускается без ручного вмешательства, boot id меняется, старые sessions уничтожены, а authority и nonzero writes всё равно невозможны.
-
-Safety supervisor loss:
-
-```text
-controller detects loss
-→ cancels movement
-→ BRAKE
-→ STOPPED + FAULT_CONTROLLER_PROCESS
-→ structured subsystem=SAFETY
-```
-
-Ни один тест не оставляет бесконечно активное управляющее воздействие `duty` мотора.
-
-<a id="sec-9-20"></a>
-## 20. Сквозной тест повторения движения руки
-
-**Уровень:** `MANUAL ACCEPTANCE` готовой системы; численные метрики вычисляются автоматически.
-
-Пользователь выполняет:
-
-```text
-forward/back
-left/right
-up/down
-diagonals
-closed loops
-same hand pose after different robot initial poses
-```
-
-Записывается Diagnostic trace:
-
-```text
-HumanShoulderCenter
-HumanWristCenter
-P_requested
-P_projected
-q_target
-q_ref
-q_actual
-P_actual
-```
-
-Для центральных unclipped movements:
-
-```text
-|P_actual - P_projected| p95 <=25 mm
-```
-
-Ключевой тест абсолютности:
-
-1. робот физически ставится в позу A;
-2. пользователь держит одну заданную позу руки;
-3. фиксируется `q_target_A`;
-4. робот переводится в заметно отличающуюся позу B и выполняется HOLD;
-5. пользователь сохраняет ту же позу руки;
-6. при новом разрешении движения фиксируется `q_target_B`.
-
-Требование:
-
-```text
-q_target_A == q_target_B within numerical/tracking tolerance
-```
-
-Физический робот из B должен начать безопасно двигаться к той же абсолютной цели, а не считать B новым origin.
-
-Для `C-01` unclipped контрольные позы отдельно сравнивают измеренные направление
-и удаление TCP от плеча робота с направлением и масштабированным расстоянием
-плечо→запястье. Одного совпадения `actual` с `projected` недостаточно: неправильное
-отображение могло бы дать согласованную, но неверную цель. Для clipped/rejected поз
-проверяется именно поведение рабочей области и отказа по `C-04`.
-
-Для `C-02` повторяются физические cases локтя и поворота кисти из [§6](#sec-9-6).
-Для `C-03` замкнутые движения и многократные HOLD→TRACKING завершаются исходной
-позой руки; после переходного процесса остаточная ошибка остаётся в том же
-квалифицированном диапазоне, без роста с числом циклов. Отчёт различает ошибку
-отслеживания, отображения и физического следования.
-
-<a id="sec-9-21"></a>
-## 21. HOLD и SAFE_HOLD
-
-**Уровень:** state machine — `TEST`; сквозное физическое поведение — HIL/`MANUAL ACCEPTANCE`.
-
-Во время движения вызываются:
-
-```text
-Left Grip release
-tracking loss
-focus loss
-Wi-Fi loss
-XR reference-space invalidation
-LOCAL_STOP
-controller SIGKILL
-```
-
-Журнал должен доказывать:
-
-```text
-event time
-state transition time
-q_actual at event
-q_hold
-q_ref evolution
-physical stop
-```
-
-Старая дальняя цель не должна продолжать выполняться после входа в HOLD/SAFE_HOLD.
-
-Для временного `SAFE_HOLD` обязательно проверяется deliberate re-arm:
-
-- причина восстановилась, Grip всё ещё held → робот **остаётся в HOLD**, движения нет;
-- после этого Grip released → Quest посылает priority OFF/HOLD, но armed-latch **ещё не готов**;
-- потеря первого OFF/HOLD либо stale telemetry → Quest остаётся `armed=false`; sender может повторять bounded OFF/HOLD, но moving packet не посылается;
-- только fresh telemetry текущего boot/session с `last_accepted_command_sequence >= release_off_sequence` → Quest может установить `armed=true`;
-- только последующий новый rising edge Grip → разрешён `TRACKING` к **текущей абсолютной** цели руки;
-- если при этом `PayloadState=UNKNOWN` или active PayloadProfile/JointSafeSet несовместимы, новый rising edge **не** разрешает A/B/C `TRACKING`; после valid payload confirmation требуется новый deliberate re-arm;
-- отдельный TEST/session test подаёт первым packet новой CONTROL session `MOTION_ENABLE=1`: EV3/controller обязан оставить `release_seen=false` и не принять moving target; отдельные lost-OFF/stale-telemetry cases доказывают, что Quest не armed до acceptance-confirmation;
-- в полном `TRACKING` потерянный OFF/HOLD UDP datagram не должен нарушать `Left Grip release → HOLD p95 ≤80 мс`; отдельный stage-5 gripper qualification case проверяет тот же `≤80 мс` предел до scoped hold/inhibit без требования состояния `HOLD`.
-
-<a id="sec-9-22"></a>
-## 22. Физические тесты Quest
-
-**Уровень:** `MANUAL ACCEPTANCE` установленного Quest build; применимость определяется active stage/profile и фиксируется через `applicable_to_stage`/`N_A`.
-
-Для **этапа 5 / gripper-only `0x08`** выполняется отдельный ограниченный subset физических Quest cases:
-
-- одновременная работа правого Hand Tracking/grasp и левого Touch Plus/`Left Grip`;
-- применимые haptics предупреждения/подтверждения левого Touch Plus;
-- passthrough presentation реального Gripper без нарушения выбранной Multimodal комбинации;
-- application focus/pause/resume и Multimodal lifecycle;
-- `LOCAL_FLOOR`/Spatial Data/QR Trackable capability, необходимая для JAW startup reference;
-- устойчивость `JAW_LEFT/RIGHT` measurement при D-only reference;
-- standard grasp signal и optional `GripRemapProfile`, только если он включён;
-- русский engineering gripper UI, telemetry и deliberate re-arm после focus/grasp/network interruption;
-- stage-5 latency/performance/thermal cases, не требующие full-arm mapping;
-- отключение QR Tracking после успешной D-only `GripperReference`.
-
-`Body_RightShoulder`, Wrist-vector time alignment, `human_arm_reach`, full `RobotLocalization`, полный QR-набор, IK/FK overlay и абсолютное A/B/C mapping для этого gate имеют `N_A` с `reason=OUT_OF_SCOPE` и становятся обязательными на этапах 8–9. Они не могут скрыто блокировать завершение этапа 5.
-
-Для **финального полного Release** на реальном Quest 3 выполняется серия независимых cases длительностью `5..60 s` с единым агрегированным отчётом. Нормальная работа, lifecycle faults, QR и performance проверяются раздельно, чтобы ни один case не требовал более `60 s`. Проверяются:
-
-- одновременная работа правого Hand Tracking и левого Touch Plus;
-- `LOCAL_FLOOR`, Spatial Data/Scene/Anchor/QR capabilities; опциональный Space Setup тестируется только при включённом scene-aware UX;
-- устойчивость и качество распознавания полного предусмотренного QR-набора;
-- Body Tracking правого плеча и временное согласование с `Wrist`;
-- совпадение runtime feature flags с full-arm `TrackingQualificationProfile`; базовый estimated `Body_RightShoulder` допускается только в квалифицированной комбинации;
-- калибровка/повторное использование `human_arm_reach` профиля и проверка standard grasp signal; optional `GripRemapProfile` тестируется только когда включён;
-- абсолютное отображение движения без накопления смещения;
-- русский пользовательский интерфейс и визуальные подсказки;
-- наложение целевой и фактической модели PHANTOM;
-- потеря и восстановление фокуса приложения;
-- стабильность температуры и производительности;
-- удержание выбранной частоты XR-рендеринга и бюджета кадра без устойчивого снижения частоты;
-- отсутствие повторяющихся управляемых выделений памяти в критическом коде управления/UI после прогрева;
-- отключение QR Tracking после завершения применимой привязки, подтверждённое профилировщиком и состоянием приложения.
-
-Для `NFR-PERF-12` частота отображения и бюджет кадра измеряются отдельно после
-холодного запуска, в прогретом установившемся режиме и в квалифицированном
-термически ограниченном состоянии. Подготовка температурного состояния отделяется
-от bounded motion segments; один короткий холодный запуск не подтверждает все три
-режима. Отчёт фиксирует runtime, выбранную частоту, температурное состояние и
-измеренные задержки/пропуски кадров.
+| `COMMISSIONING_QR` | первого QR-driven `CALIBRATION_JOG` этапа 4; повторно перед A/B/C commissioning, если platform matrix изменилась | Наличие OpenXR/reference-space API, passthrough/Spatial Data permissions, MRUK QR Trackables/anchors и commissioning adapters | Body/Wrist, grasp/Hand, Left Grip/haptics |
+| `D_ONLY_USER` | первого user-driven D этапа 5 | Hand/grasp provider, наличие adapters левого Touch Plus Grip/haptics, Статическая Multimodal configuration, passthrough и требуемый JAW QR path | Body_RightShoulder/Wrist mapping |
+| `FULL_ARM_USER` | full-arm live qualification этапа 8 и обязательно до первого user-driven A/B/C этапа 9 | Наличие Wrist API и выбранного UpperBody provider+`Body_RightShoulder`, Статическая Multimodal configuration, passthrough, QR/local-space adapters | ничего из full actuator input stack |
+
+Отсутствующее обязательное API, неверная конфигурация или известный SDK guard — FAIL.
+Неиспользуемый provider — N_A. Если заключение требует недоступной live инициализации,
+оно остаётся NOT_RUN; наличие OVRBody в package не доказывает live совместимость.
+Live поведение проверяется после надевания шлема вручную. Статический FAIL блокирует
+соответствующий path; silent fallback и ослабление safety запрещены.
+Report сохраняет scope, identities, SDK/runtime versions и результаты статических checks.
+
+<a id="sec-test-plan-integration-ev3"></a>
+### 5.3. EV3
+
+| ID | Проверка | Ожидаемый результат |
+|---|---|---|
+| E-01 Установленные службы и IPC | Запустить systemd-службы, проверить config/build identity, runtime users, IPC handshake и фактические права | Службы готовы, соответствует установленный кандидат; network/mDNS не получают моторных прав или чужих secrets |
+| E-02 Устройства и сеть | Прочитать battery/sensor/motor metadata, проверить Wi-Fi interface/carrier/DHCP | Доступны обязательные для stage/profile/scope устройства, драйверы и сеть; motor output запрещён |
+| E-03 Zero-output timing | Выполнить >=250 ticks по 20 ms без допуска движения | interval p99 <=25 ms, max <50 ms, nonzero writes=0 |
+| I-07 Отказ controller | В zero-output режиме завершить controller и проверить supervisor/перезапуск | Реальный supervisor обнаруживает отказ; zero/brake сохранён; службы и IPC восстанавливаются без допуска движения |
+
+Release: A/B/C/D + GRIPPER_HOME + LOCAL_STOP; D-only: D и оба sensors;
+network-only не требует моторов. Battery обязательна. Motor discovery: address/driver,
+count_per_rot=360; disabled motors запрещены к выходу.
+Stage-3 сеть: WNA1100 0846:9030/ath9k_htc. Startup применяется с этапа 2, сеть с этапа 3,
+D-only с этапа 4; будущие функции — N_A(OUT_OF_SCOPE).
+
+<a id="sec-test-plan-integration-pair"></a>
+### 5.4. Quest ↔ EV3
+
+| ID | Проверка | Ожидаемый результат |
+|---|---|---|
+| I-01 Обнаружение | Quest-клиент ищет EV3 через настоящие Android NSD/mDNS и Wi-Fi | Найден назначенный EV3, endpoint/identity соответствует паре |
+| I-02 Сессия | Клиент и phantom-network выполняют handshake и аутентификацию | Сессия установлена; protocol/config/bundle compatibility подтверждена |
+| I-03 Телеметрия | Получение сообщений, heartbeat и состояния от EV3 | Данные свежие и соответствуют EV3 runtime; нет ошибок codec, IPC или native bridge |
+| I-04 Потеря связи | Автоматически прервать и восстановить соединение | Потеря обнаружена, устаревшие данные не считаются свежими; связь восстановлена |
+| I-05 Перезапуск EV3 | Перезапустить службы EV3 во время сессии | Новый boot/session identity; старая сессия недействительна; Quest повторно подключается |
+
+<a id="sec-9-1-5"></a>
+## 6. Ручные тесты
+
+Пользователь проверяет обычную работу готовой системы. Формы и таблицы результатов
+вручную не заполняются. При проблеме работа прекращается, дефект сообщается разработчику;
+система автоматически сохраняет доступные логи/метрики для разбора.
+
+Сценарии ниже покрывают наблюдаемую часть всех C-01–C-13. Негативные программные варианты,
+криптографические гарантии и точные метрики дополнительно проверяются автоматически.
+Отсутствие жалобы не доказывает численную точность или прохождение автоматического теста.
+
+<a id="sec-test-plan-prerequisites"></a>
+### 6.1. Подготовка к ручным тестам
+
+Подготовка выполняется до запуска сценариев, не является отдельным case.
+
+<a id="sec-test-plan-system-setup"></a>
+#### 6.1.1. Система
+
+1. Выбрать назначенную пару Quest/EV3 и установить согласованные Diagnostic артефакты
+   по [правилам сборки/установки](engineering.md#sec-8-5-1). Завершить provisioning и permissions.
+2. Зарядить аккумуляторы, включить EV3, подключить оба устройства к настроенной сети.
+   Выполнить применимые программные/интеграционные проверки; устранить обнаруженные ошибки.
+3. Проверить, что установленная geometry/calibration и допустимая нагрузка относятся к этой
+   модели. После изменения механики выполнить нужную инженерную калибровку через штатный
+   мастер; не вводить коэффициенты и не менять bundle вручную.
+4. После подготовки безопасной зоны надеть шлем, запустить приложение и пройти мастер.
+   Получить tracking/QR observations и startup reference, требуемые текущим scope.
+   По подсказкам выполнить локальное подтверждение/re-arm; до этого output запрещён.
+5. Выбрать разрешённые предметы и позы для текущего PayloadProfile. Проверить, что доступен
+   штатный просмотр/экспорт диагностики и включена нужная ограниченная запись.
+
+Diagnostic не отменяет commissioning/scope/safety predicates. Если мастер не допускает
+движение, сначала устранить показанную причину; запрет не обходить.
+
+<a id="sec-9-1-6"></a>
+#### 6.1.2. Модель и безопасная зона
+
+1. При запрещённом motor output проверить соосность, зацепление gears и крепления рам/осей.
+   По безопасной процедуре сборки убедиться в свободном ходе без закусывания; не разбирать
+   силовой узел под нагрузкой. Правила — [механическая спецификация](mechanical-specification.md).
+2. Устойчиво закрепить основание; проверить фиксацию QR-креплений и физических ограничителей.
+   Проверить запас кабелей в предполагаемом диапазоне без натяжения/зацепления.
+3. Освободить весь swept volume от людей и предметов. Для нагрузочного опыта установить
+   fixture/support; проверить, что разрешённая нагрузка и потеря питания безопасны.
+4. Разместить LOCAL_STOP и независимый POWER_CUT в доступном месте вне swept volume.
+   Проверить их по безопасной процедуре до автоматического движения. Неисправность устранить.
+5. Начинать с предусмотренных commissioning limits и разрешённого scope. Движение внутри
+   case ограничено segments <=60 s (предпочтительно 5..30 s); длинная сессия содержит остановки.
+
+Опасные физические опыты выполняет инженер; обычный пользователь не блокирует мотор рукой.
 
 <a id="sec-9-23"></a>
-## 23. UI/UX-приёмка
+### 6.2. Сценарии по группам
 
-**Уровень:** `MANUAL ACCEPTANCE` установленного Release candidate.
+Повторяемые штатные действия проверяются пользователем. Опасные воздействия допускаются
+только инженером с fixture/support и независимым POWER_CUT.
 
-Испытание проводится с пользователями, которые не читали техническую часть спецификации и получают только короткое описание назначения PHANTOM.
+<a id="sec-test-plan-manual-start"></a>
+#### 6.2.1. Запуск, привязка и повторная сессия
 
-
-До финальной Release-приёмки этап 5 имеет отдельный `MANUAL ACCEPTANCE` UI gate для gripper-only Diagnostic profile. Он не засчитывается вместо финального [§23](#sec-9-23) и проверяет только ранний scope D:
-
-```text
-приложение явно показывает ИНЖЕНЕРНЫЙ РЕЖИМ, а не READY
-LOCAL_COMMISSION_ARM и локальный ENTER невозможно пропустить
-fresh TELEMETRY `status_flags.commissioning_actuator_qualification_active` обязательно подтверждает ACTUATOR_QUALIFICATION после локального ENTER; без этого authoritative flag UI не разрешает moving command и не показывает qualification-ready
-мастер не просит human_arm_reach / Body Shoulder/Wrist / полный QR-набор
-пользователь видит connection, gripper reference, grip_intent/grip_actual, contact/fault и battery
-потеря focus/network/grasp или Left Grip release визуально подтверждает запрет дальнейшего движения
-после recovery UI требует deliberate re-arm, а не показывает ложное автоматическое восстановление
-```
-
-Проверяются два разных сценария:
-
-1. **Обычный запуск и управление** — без инженерных параметров.
-2. **Инженерная калибровка** — только для подготовленного инженера и явно отделена от обычного пользовательского интерфейса.
-
-Критерии обычного сценария:
-
-```text
->=90% пользователей завершают мастер запуска без помощи инженера
-100% пользовательского текста на русском языке
-100% пространственно неоднозначных шагов имеют картинку, схему или 3D-подсказку
-обычный пользователь не вводит IP/порт/коэффициент энкодера/угол сустава/хэш
-пользователь различает ГОТОВО / ДВИЖЕНИЕ / УДЕРЖАНИЕ / БЕЗОПАСНОЕ УДЕРЖАНИЕ / ОШИБКА
-пользователь понимает: удерживать Left Grip = разрешить движение; отпустить = прекратить следование
-при проблеме QR пользователь понимает, какой участок робота нужно показать камерам
-UI показывает конкретный отсутствующий или нестабильный QR, а не только общий код ошибки
-обычный запуск не показывает CALIBRATION_JOG, encoder_count, k_axis, HMAC и имена сообщений протокола
-действие инженерной калибровки, способное двигать мотор, требует явного инженерного режима, показа оси/направления и инструкции CANCEL/LOCAL_STOP
-медианное время обычного запуска после обучения <=90 с в квалифицированной комнате и сети
-обычный запуск и управление выполняются при отключённом инженерном компьютере, без ADB/SSH или host runner
-```
-
-Для мастера QR отдельно проверяются плохое освещение, слишком большая дистанция, частичная окклюзия и неверный маркер. Интерфейс должен предлагать понятное действие: улучшить освещение, приблизиться, изменить ракурс или показать конкретный участок робота.
-
-При неисправности обычному пользователю показывается:
-
-```text
-что произошло
-какой узел затронут
-можно ли продолжать
-что безопасно сделать дальше
-```
-
-`FAULT_JOINT_STALL`, `HMAC`, `JointReference`, `IK` и другие технические идентификаторы доступны в раскрываемом разделе «Технические данные», но не являются основным текстом ошибки.
-
-Инженерная калибровка требует явного перехода в инженерный режим и не запускается случайно из обычного мастера.
-
-<a id="sec-9-24"></a>
-## 24. Профили `Release`/`Diagnostic` и разбор инцидентов
-
-**Уровень:** `TEST` + `DEVICE INTEGRATION TEST` + HIL для реальных инцидентов.
-
-Оба профиля проходят одинаковые **product-mode** функциональные тесты и тесты безопасности. Diagnostic qualification-only surfaces проверяются отдельными stage/HIL cases и не засчитываются как различие product control semantics.
-
-Проверяется, что:
-
-- `Release` и `Diagnostic` используют один control/state/safety core и одинаковые regulator/protection coefficients для одного CommissioningBundle;
-- для одного и того же full product-mode входа включение `Diagnostic` не меняет `q_target`, переходы `READY/TRACKING/HOLD/SAFE_HOLD`, безопасные границы или команды приводам сверх детерминированной численной погрешности;
-- qualification-only `COMMISSIONING/ACTUATOR_QUALIFICATION` surface доступна только Diagnostic, требует локальные `ENTER+UP`/`ENTER` gates и не ослабляет motor protection/safety; Release build/runtime не должен иметь доступного пути включить её;
-- дополнительная диагностическая нагрузка не нарушает временные критерии [§17](#sec-9-17).
-
-<a id="sec-9-24-1"></a>
-### 24.1. Тесты инцидентов `FlightRecorder`
-
-Поочерёдно вызываются:
-
-```text
-заклинивание сустава
-LOCAL_STOP
-сетевой watchdog
-искусственное FAULT_LOOP_OVERRUN
-SIGKILL процесса phantom-controller
-потеря heartbeat phantom-safety
-отклонение калибровки
-заполненное хранилище / ошибка записи журнала
-```
-
-Для каждого инцидента проверяется:
-
-- безопасное действие выполняется **до** потенциально долгой записи на диск;
-- создаётся `incident_id`, а `session_id`/`controller_boot_id` позволяют межустройственную корреляцию;
-- пакет EV3 содержит контекст `FlightRecorder` до события и короткий хвост после события;
-- Quest сохраняет **scope-specific** связанный контекст: full-arm — Wrist/Shoulder/aligned target; gripper-only — grasp/Left Grip/grip intent; network-only — discovery/session/RTT/telemetry state;
-- присутствуют применимые identifiers/hashes: полный product включает `RobotGeometry`/`DriveCalibration`/safe-set; network-only не обязан выдумывать geometry hashes;
-- actuator evidence соответствует `safety_observation_mask`/scope: full-arm — `q_target/q_ref/q_actual`, encoder/speed/duty; gripper-only — D encoder/speed/duty+Gripper FSM; network-only actuator fields canonical `N_A`/zero;
-- всегда присутствуют возраст команды, состояние/fault/stop reason, battery/loop health и controller/safety heartbeat context;
-- падение `phantom-controller` фиксируется отдельным аварийным событием `phantom-safety`;
-- изображения/видео сквозного режима не сохраняются;
-- переполнение диска не блокирует цикл управления моторами и отражается как ухудшение доступности журналирования.
-
-<a id="sec-9-24-2"></a>
-### 24.2. Хранение журналов и некорректное завершение
-
-Проверяются ограничение объёма, удаление старых файлов, отключение питания во время записи инцидента и последующий запуск.
-
-После незавершённой записи приложение показывает, что предыдущая сессия закончилась аварийно или пакет инцидента неполон, и не интерпретирует повреждённый файл как валидный полный журнал.
-
-<a id="sec-9-24-3"></a>
-### 24.3. Конфиденциальность и права доступа журналов
-
-**Уровень:** `TEST` + `DEVICE INTEGRATION TEST` + ограниченная `MANUAL ACCEPTANCE` экспорта.
-
-Проверяется:
-
-- Release schema/content scan не находит passthrough image/video и непрерывную историю всех hand joints;
-- высокочастотные Wrist/Shoulder/raw tracking записи Diagnostic по умолчанию выключены, включаются только явным engineering action и имеют видимый recording indicator;
-- retention фактически соблюдает `7 суток OR 250 MB` для Release; Diagnostic имеет отдельный bounded policy. Тест искусственно создаёт old/oversized файлы и проверяет rotation без блокировки control loop;
-- production logs/incident/credential-adjacent directories имеют минимальные OS ownership/permissions и не world-readable;
-- экспорт sensitive diagnostic package требует явного действия и показывает состав пакета; manual review подтверждает отсутствие запрещённых данных;
-- если threat model данного deployment требует encryption-at-rest, acceptance evidence содержит утверждённый механизм и key handling; если не требует — case имеет явный `N_A` с ссылкой на threat-model decision, а не молчаливый PASS.
-
-<a id="sec-9-24-4"></a>
-### 24.4. Release artifacts, SBOM и воспроизводимость
-
-**Уровень:** `TEST`/CI + release review.
-
-Checkout с зафиксированными exact source inputs обязан воспроизводимо создать release manifests/evidence, связывающие:
-
-- `source_tree_hash`, provenance source commit, три protocol identities, отдельные `quest_build_id`/`ev3_build_id` и SHA-256 фактических APK/EV3 artifacts; изменение только commit при неизменных input bytes не меняет `build_id`;
-- exact EV3 base image/toolchain/container hashes, SBOM и vulnerability/risk record для legacy/EOL компонентов; известная vulnerability без documented disposition/mitigation блокирует Release;
-- versioned LEGO Studio/CAD artifact/hash той mechanical revision, на которую ссылаются `RobotGeometry`, QR mounts и cable routing;
-- Quest Unity/Meta XR Core/Movement SDK/provider/MRUK/OpenXR versions, tested Horizon OS/runtime, `apk_sha256` и применимые P0 reports; изменение platform matrix инвалидирует старый P0;
-- доказательство, что Release/Diagnostic используют один control/state/safety core, а qualification-only surfaces отсутствуют/недоступны в Release;
-- rollback artifact с валидными manifests/hashes; несовместимые protocol schema/bundle/config не могут активироваться как actuator-compatible rollback.
-
-Reproducibility result различает `build_identity_stable` (совпали content-derived
-`build_id`) и `artifact_byte_reproducible` (совпали hashes финальных bytes). Report обязан
-дать оба boolean и `difference_class`; первый без второго не называется побайтовой
-воспроизводимостью. Неповторимый EV3 package блокирует gate. Отличающийся Quest APK может
-быть принят только отдельным documented review конкретного toolchain-generated difference,
-а не общим утверждением о воспроизводимости.
-
-<a id="sec-9-25"></a>
-## 25. Матрица трассируемости
-
-Матрица связывает принятые требования с владельцами решений и процедурами приёмки.
-Она подтверждает документарное покрытие; наличие ссылки не означает прохождение теста.
-Результаты и незакрытые проверки находятся в [Текущем состоянии](current-status.md),
-а доказательство PASS — в опубликованном отчёте для конкретных артефактов.
-
-<a id="sec-test-plan-25-1"></a>
-### 25.1. Проверка критериев достижения цели
-
-| Критерий продукта | Что должно быть доказано | Приёмочные процедуры |
+| ID | Действия | Ожидаемый результат |
 |---|---|---|
-| [C-01](product-requirements.md#criterion-c-01) | Направление и масштаб проверены по независимым измерениям, а не только по совпадению target/actual. | [§3](#sec-9-3), [§4](#sec-9-4), [§6](#sec-9-6), [§20](#sec-9-20) |
-| [C-02](product-requirements.md#criterion-c-02) | Локоть, поворот кисти и головы не меняют цель при фиксированных плече и запястье; движения корпуса учитываются. | [§3](#sec-9-3), [§6](#sec-9-6), [§20](#sec-9-20) |
-| [C-03](product-requirements.md#criterion-c-03) | Повторные движения, HOLD/re-arm и восстановление отслеживания не оставляют смещения; фильтр сходится к абсолютной цели. | [§3](#sec-9-3), [§13](#sec-9-13), [§14](#sec-9-14), [§17](#sec-9-17), [§20](#sec-9-20) |
-| [C-04](product-requirements.md#criterion-c-04) | Безопасны цель, весь путь, ограничения приводов и квалифицированная нагрузка, включая неуправляемые связанные суставы. | [§15](#sec-9-15), [§16](#sec-9-16), [§17](#sec-9-17), [§20](#sec-9-20) |
-| [C-05](product-requirements.md#criterion-c-05) | Проверены пропорциональность, контакт, открывание, opening jam и запуск из неизвестной предыстории захвата. | [§7](#sec-9-7), [§14](#sec-9-14), [§16.6](#sec-9-16-6) |
-| [C-06](product-requirements.md#criterion-c-06) | Проверены release/re-arm, потери входов и связи, отказы процессов/I/O, LOCAL_STOP и независимый POWER_CUT. | [§5](#sec-9-5), [§15.6](#sec-9-15-6), [§17](#sec-9-17), [§18](#sec-9-18), [§19](#sec-9-19), [§21](#sec-9-21) |
-| [C-07](product-requirements.md#criterion-c-07) | Для текущего режима подтверждены входы, P0, QR-локализация, калибровка и независимая проверка стартовой привязки. | [§5](#sec-9-5), [§6](#sec-9-6), [§10](#sec-9-10), [§11](#sec-9-11), [§12](#sec-9-12), [§13](#sec-9-13), [§14](#sec-9-14) |
-| [C-08](product-requirements.md#criterion-c-08) | Проверены обнаружение после смены адреса, identity, владелец, HMAC/replay, идемпотентность, LAN permission и изоляция. | [§8](#sec-9-8), [§9](#sec-9-9), [§18](#sec-9-18), [§22](#sec-9-22), [§24.3](#sec-9-24-3) |
-| [C-09](product-requirements.md#criterion-c-09) | Пользователи проходят русский мастер, понимают запреты и остановку; обычный запуск укладывается в 90 с по медиане и не требует PC. | [§22](#sec-9-22), [§23](#sec-9-23) |
-| [C-10](product-requirements.md#criterion-c-10) | Инцидент содержит сопоставимый контекст Quest/EV3; отказы записи и ротации не задерживают защиту. | [§17](#sec-9-17), [§24.1](#sec-9-24-1), [§24.2](#sec-9-24-2) |
-| [C-11](product-requirements.md#criterion-c-11) | Зафиксированы exact artifacts, механика, конфигурация и runtime; проверены совместимость, rollback и единое ядро Release/Diagnostic. | [§1](#sec-9-1), [§6](#sec-9-6), [§19](#sec-9-19), [§24](#sec-9-24), [§24.4](#sec-9-24-4), [§26](#sec-9-26) |
-| [C-12](product-requirements.md#criterion-c-12) | Проверены отсутствие запрещённых данных/секретов, явное включение расширенной записи, retention, права и экспорт. | [§24.1](#sec-9-24-1), [§24.2](#sec-9-24-2), [§24.3](#sec-9-24-3) |
-| [C-13](product-requirements.md#criterion-c-13) | Измерены cadence, stop latency, ресурсы и thermal behavior при штатной и квалифицированной неблагоприятной нагрузке. | [§17](#sec-9-17), [§18](#sec-9-18), [§19](#sec-9-19), [§21](#sec-9-21), [§22](#sec-9-22) |
+| M-01 | Надеть шлем, включить систему, пройти мастер | Робот обнаружен без IP/портов; русский UI объясняет шаги и запреты; до допуска нет движения |
+| M-04 | Завершить сеанс, снять шлем, снова надеть и запустить | Tracking/связь возобновляются; выполнена нужная привязка; движение требует нового разрешения |
+| M-11 | Пройти штатную калибровку/привязку модели | До движения готовы inputs/references; неподготовленная система показывает причину запрета |
 
-<a id="sec-test-plan-25-2"></a>
-### 25.2. Покрытие функциональных и нефункциональных требований
+Обычный запуск не требует PC/ADB/SSH. M-01 завершают >=90% пользователей без инженера;
+после обучения median startup <=90 s в квалифицированной комнате/сети.
+Статистику собирают автоматически, без ручного заполнения.
 
-Каждый ID указан явно; ссылка на семейство или диапазон ID не заменяет покрытие
-отдельного требования. Текст требования хранится только в требованиях к продукту.
-Разделы проверки определяют применимый уровень TEST/DEVICE/HIL/MANUAL и критерии PASS;
-инженерный scope не заменяет финальную приёмку полного продукта.
+<a id="sec-test-plan-manual-control"></a>
+#### 6.2.2. Управление и tracking
 
-| Область требований | ID | Владельцы решения | Проверка |
-|---|---|---|---|
-| [Положение руки и движения корпуса](product-requirements.md#sec-product-3-1-1) | `FR-TRK-01`, `FR-TRK-07`, `FR-CAL-01`, `FR-CAL-04`, `FR-TRK-08` | [Quest §4.3](quest-specification.md#sec-5-4-3), [Quest §6](quest-specification.md#sec-5-6), [Quest §8](quest-specification.md#sec-5-8) | [§3](#sec-9-3), [§4](#sec-9-4), [§6](#sec-9-6), [§20](#sec-9-20) |
-| [Сжатие кисти](product-requirements.md#sec-product-3-1-2) | `FR-TRK-03`, `FR-CAL-05` | [Quest §9](quest-specification.md#sec-5-9), [Quest §11](quest-specification.md#sec-5-11) | [§7](#sec-9-7), [§16.6](#sec-9-16-6) |
-| [Разрешение движения через Left Grip](product-requirements.md#sec-product-3-1-3) | `FR-TRK-02`, `FR-TRK-04`, `FR-TRK-05` | [Quest §4.2](quest-specification.md#sec-5-4-2), [EV3 §13](ev3-specification.md#sec-7-13) | [§5](#sec-9-5), [§21](#sec-9-21), [§23](#sec-9-23) |
-| [Повторное разрешение движения](product-requirements.md#sec-product-3-1-4) | `FR-TRK-06`, `FR-TRK-09`, `FR-TRK-10` | [Quest §4.2](quest-specification.md#sec-5-4-2), [Протокол §2.7](protocol-specification.md#sec-4-7-7), [EV3 §13](ev3-specification.md#sec-7-13) | [§9](#sec-9-9), [§21](#sec-9-21), [§23](#sec-9-23) |
-| [Проверка готовности перед движением](product-requirements.md#sec-product-3-2-1) | `FR-XR-01`, `FR-XR-02`, `FR-XR-06`, `FR-XR-07` | [Quest §2](quest-specification.md#sec-5-2), [Архитектура §6](system-architecture.md#sec-4-4) | [§5](#sec-9-5), [§6](#sec-9-6), [§22](#sec-9-22), [§23](#sec-9-23) |
-| [Изменение пространства, пауза и восстановление](product-requirements.md#sec-product-3-2-2) | `FR-XR-03`, `FR-XR-04`, `FR-XR-05` | [Quest §2](quest-specification.md#sec-5-2), [Quest §5](quest-specification.md#sec-5-5), [Quest §18](quest-specification.md#sec-5-18) | [§5](#sec-9-5), [§22](#sec-9-22), [§21](#sec-9-21) |
-| [Калибровка пользователя](product-requirements.md#sec-3-1-3) | `FR-CAL-03` | [Quest §7](quest-specification.md#sec-5-7) | [§6](#sec-9-6) |
-| [Отображение руки в движение робота](product-requirements.md#sec-3-1-4) | `FR-MAP-01`, `FR-MAP-02`, `FR-MAP-03`, `FR-MAP-05`, `FR-MAP-08` | [Quest §10](quest-specification.md#sec-5-10), [Quest §13](quest-specification.md#sec-5-13), [Quest §14](quest-specification.md#sec-5-14), [EV3 §10](ev3-specification.md#sec-7-10) | [§2](#sec-9-2), [§3](#sec-9-3), [§4](#sec-9-4), [§15.7](#sec-9-15-7), [§20](#sec-9-20) |
-| [Движение по сжатию кисти](product-requirements.md#sec-product-3-5-1) | `FR-GRP-01`, `FR-GRP-02`, `FR-GRP-03` | [Quest §9](quest-specification.md#sec-5-9), [Quest §11](quest-specification.md#sec-5-11), [EV3 §15.1](ev3-specification.md#sec-7-15-1) | [§7](#sec-9-7), [§14](#sec-9-14), [§16.6](#sec-9-16-6) |
-| [Контакт с предметом и заклинивание](product-requirements.md#sec-product-3-5-2) | `FR-GRP-04`, `FR-GRP-05` | [EV3 §15](ev3-specification.md#sec-7-15) | [§16.6](#sec-9-16-6), [§21](#sec-9-21) |
-| [Пространственная локализация](product-requirements.md#sec-product-3-6-1) | `FR-QR-01`, `FR-QR-02`, `FR-QR-10` | [Quest §5](quest-specification.md#sec-5-5), [Quest §15](quest-specification.md#sec-5-15), [Quest §16.9](quest-specification.md#sec-5-16-9), [Механика §9](mechanical-specification.md#sec-6-9), [Механика §11](mechanical-specification.md#sec-6-11) | [§10](#sec-9-10), [§11](#sec-9-11), [§15.3](#sec-9-15-3) |
-| [Стартовая привязка и работа после неё](product-requirements.md#sec-product-3-6-2) | `FR-QR-05`, `FR-QR-06`, `FR-QR-07`, `FR-QR-08`, `FR-GRP-06`, `FR-GRP-08` | [Quest §16.9](quest-specification.md#sec-5-16-9), [EV3 §5.4](ev3-specification.md#sec-7-5-4), [EV3 §6](ev3-specification.md#sec-7-6) | [§13](#sec-9-13), [§14](#sec-9-14), [§22](#sec-9-22) |
-| [Инженерная калибровка приводов](product-requirements.md#sec-product-3-6-3) | `FR-QR-03`, `FR-QR-04`, `FR-QR-09`, `FR-GRP-07` | [Quest §16](quest-specification.md#sec-5-16), [EV3 §5](ev3-specification.md#sec-7-5), [Механика §14.4](mechanical-specification.md#sec-6-14-4) | [§11](#sec-9-11), [§12](#sec-9-12), [§14](#sec-9-14) |
-| [Обнаружение и обновление адреса](product-requirements.md#sec-product-3-7-1) | `FR-NET-01`, `FR-NET-02`, `FR-NET-03` | [Протокол §1](protocol-specification.md#sec-4-6), [EV3 §22](ev3-specification.md#sec-7-22), [Разработка §12](engineering.md#sec-8-12) | [§8](#sec-9-8), [§18](#sec-9-18), [§22](#sec-9-22) |
-| [Передача целей и принятие операций](product-requirements.md#sec-product-3-7-2) | `FR-NET-04`, `FR-NET-05`, `FR-NET-06`, `FR-NET-07` | [Протокол §2](protocol-specification.md#sec-4-7), [EV3 §2.2](ev3-specification.md#sec-7-2-2), [EV3 §8](ev3-specification.md#sec-7-8) | [§9](#sec-9-9), [§18](#sec-9-18), [§19](#sec-9-19) |
-| [Рабочие пределы, траектория и нагрузка](product-requirements.md#sec-product-3-8-1) | `FR-MAP-04`, `FR-SAFE-04`, `FR-SAFE-06`, `FR-SAFE-07`, `FR-SAFE-08`, `FR-SAFE-09`, `FR-SAFE-10` | [Quest §14](quest-specification.md#sec-5-14), [EV3 §10](ev3-specification.md#sec-7-10), [EV3 §16](ev3-specification.md#sec-7-16), [Безопасность §1](safety.md#sec-11-3) | [§15.3](#sec-9-15-3), [§15.7](#sec-9-15-7), [§16](#sec-9-16), [§20](#sec-9-20) |
-| [Обнаружение заклинивания и перегрузки](product-requirements.md#sec-product-3-8-2) | `FR-SAFE-01`, `FR-SAFE-02`, `FR-SAFE-05` | [EV3 §14](ev3-specification.md#sec-7-14) | [§16](#sec-9-16), [§21](#sec-9-21) |
-| [Удержание и реакция на потерю управления или неисправность](product-requirements.md#sec-product-3-8-3) | `FR-HOLD-01`, `FR-HOLD-02`, `FR-CAL-06`, `FR-MAP-07`, `FR-SAFE-03`, `FR-SAFE-11`, `FR-SAFE-12` | [Quest §18](quest-specification.md#sec-5-18), [EV3 §13](ev3-specification.md#sec-7-13), [EV3 §14.6](ev3-specification.md#sec-7-14-6), [EV3 §14.7](ev3-specification.md#sec-7-14-7), [EV3 §24](ev3-specification.md#sec-7-24) | [§5](#sec-9-5), [§17](#sec-9-17), [§18](#sec-9-18), [§19](#sec-9-19), [§21](#sec-9-21) |
-| [Физическая остановка и восстановление питания](product-requirements.md#sec-product-3-8-4) | `FR-STOP-01`, `FR-STOP-02`, `FR-STOP-03` | [Механика §10](mechanical-specification.md#sec-6-10), [Механика §15](mechanical-specification.md#sec-6-15), [EV3 §17](ev3-specification.md#sec-7-17), [EV3 §18](ev3-specification.md#sec-7-18) | [§15.6](#sec-9-15-6), [§19](#sec-9-19), [§21](#sec-9-21) |
-| [Состояния и отображение движения](product-requirements.md#sec-product-3-9-1) | `FR-UI-01`, `FR-UI-04`, `FR-MAP-06` | [Quest §17.4](quest-specification.md#sec-5-17-4), [Quest §17.6](quest-specification.md#sec-5-17-6) | [§20](#sec-9-20), [§22](#sec-9-22), [§23](#sec-9-23) |
-| [Мастер запуска и пространственные подсказки](product-requirements.md#sec-product-3-9-2) | `FR-UI-02`, `FR-UI-03`, `FR-UI-07`, `FR-UI-08` | [Quest §17.1](quest-specification.md#sec-5-17-1), [Quest §17.3](quest-specification.md#sec-5-17-3), [Quest §17.7](quest-specification.md#sec-5-17-7) | [§22](#sec-9-22), [§23](#sec-9-23) |
-| [Инженерные проверки и отдельные режимы](product-requirements.md#sec-product-3-9-3) | `FR-UI-05`, `FR-UI-06`, `FR-UI-09`, `FR-GRP-09` | [Quest §17.3](quest-specification.md#sec-5-17-3), [Quest §17.7](quest-specification.md#sec-5-17-7), [EV3 §15](ev3-specification.md#sec-7-15), [Безопасность §2.2](safety.md#sec-11-4-2) | [§16.6](#sec-9-16-6), [§22](#sec-9-22), [§23](#sec-9-23) |
-| [Регистрация событий и разбор инцидентов](product-requirements.md#sec-product-diagnostics) | `FR-DIAG-02`, `FR-DIAG-03`, `FR-DIAG-05`, `FR-DIAG-06`, `FR-DIAG-07` | [EV3 §20](ev3-specification.md#sec-7-20), [Разработка §13](engineering.md#sec-8-13), [Разработка §14](engineering.md#sec-8-14) | [§24.1](#sec-9-24-1), [§24.2](#sec-9-24-2) |
-| [Качество измерений и подавление шума](product-requirements.md#sec-product-4-1-1) | `NFR-ACC-01`, `NFR-ACC-08` | [Quest §4.3](quest-specification.md#sec-5-4-3), [Quest §8](quest-specification.md#sec-5-8), [EV3 §11](ev3-specification.md#sec-7-11) | [§3](#sec-9-3), [§6](#sec-9-6), [§15.4](#sec-9-15-4), [§20](#sec-9-20) |
-| [Повторяемость цели и положения суставов](product-requirements.md#sec-product-4-1-2) | `NFR-ACC-02`, `NFR-ACC-04`, `NFR-ACC-07` | [Quest §10](quest-specification.md#sec-5-10), [EV3 §5.1](ev3-specification.md#sec-7-5-1), [EV3 §6](ev3-specification.md#sec-7-6), [Справочник §2.4](reference.md#sec-11-1-4) | [§3](#sec-9-3), [§13](#sec-9-13), [§14](#sec-9-14), [§17](#sec-9-17), [§20](#sec-9-20) |
-| [Точность калибровки и контрольной привязки](product-requirements.md#sec-product-4-1-3) | `NFR-ACC-03`, `NFR-ACC-05`, `NFR-ACC-06` | [Quest §16](quest-specification.md#sec-5-16), [EV3 §5.6](ev3-specification.md#sec-7-5-6), [Механика §9](mechanical-specification.md#sec-6-9) | [§10](#sec-9-10), [§11](#sec-9-11), [§12](#sec-9-12), [§13](#sec-9-13), [§14](#sec-9-14) |
-| [Частоты и стабильность обновления](product-requirements.md#sec-product-4-2-1) | `NFR-PERF-01`, `NFR-PERF-02`, `NFR-PERF-03`, `NFR-PERF-04` | [EV3 §7](ev3-specification.md#sec-7-7), [EV3 §19](ev3-specification.md#sec-7-19), [Архитектура §7](system-architecture.md#sec-4-5) | [§17](#sec-9-17), [§22](#sec-9-22) |
-| [Задержки прекращения движения](product-requirements.md#sec-product-4-2-2) | `NFR-PERF-05`, `NFR-PERF-06`, `NFR-PERF-07`, `NFR-PERF-13` | [Quest §18](quest-specification.md#sec-5-18), [EV3 §9](ev3-specification.md#sec-7-9), [EV3 §17](ev3-specification.md#sec-7-17), [EV3 §2.4](ev3-specification.md#sec-7-2-4) | [§18](#sec-9-18), [§19](#sec-9-19), [§21](#sec-9-21) |
-| [Ресурсы и плавность работы приложения](product-requirements.md#sec-product-4-2-3) | `NFR-PERF-08`, `NFR-PERF-09`, `NFR-PERF-11`, `NFR-PERF-12` | [EV3 §7.3](ev3-specification.md#sec-7-7-3), [Quest §3](quest-specification.md#sec-5-3), [Quest §16.9](quest-specification.md#sec-5-16-9) | [§17](#sec-9-17), [§22](#sec-9-22), [§24](#sec-9-24) |
-| [Устойчивость к отказам связи и процессов](product-requirements.md#sec-product-4-3-1) | `NFR-REL-01`, `NFR-REL-02`, `NFR-REL-03`, `NFR-REL-13` | [EV3 §2.2](ev3-specification.md#sec-7-2-2), [EV3 §2.4](ev3-specification.md#sec-7-2-4), [EV3 §9](ev3-specification.md#sec-7-9), [EV3 §24](ev3-specification.md#sec-7-24) | [§18](#sec-9-18), [§19](#sec-9-19), [§21](#sec-9-21) |
-| [Механические пределы и допустимая нагрузка](product-requirements.md#sec-product-4-3-2) | `NFR-REL-05`, `NFR-REL-06`, `NFR-REL-10`, `NFR-REL-12` | [Механика §8](mechanical-specification.md#sec-6-8), [Механика §12](mechanical-specification.md#sec-6-12), [EV3 §14.5](ev3-specification.md#sec-7-14-5), [EV3 §16](ev3-specification.md#sec-7-16), [Quest §14](quest-specification.md#sec-5-14) | [§15.2](#sec-9-15-2), [§15.3](#sec-9-15-3), [§15.7](#sec-9-15-7), [§16.4](#sec-9-16-4) |
-| [Безопасность при препятствии, отказе или потере питания](product-requirements.md#sec-product-4-3-3) | `NFR-REL-09`, `NFR-REL-04`, `NFR-REL-11` | [Механика §15](mechanical-specification.md#sec-6-15), [EV3 §14](ev3-specification.md#sec-7-14), [EV3 §18](ev3-specification.md#sec-7-18), [Безопасность §1](safety.md#sec-11-3) | [§15.6](#sec-9-15-6), [§16](#sec-9-16), [§21](#sec-9-21) |
-| [Ограничения записи журналов](product-requirements.md#sec-3-2-4) | `NFR-LOG-02`, `NFR-LOG-05`, `NFR-LOG-06` | [EV3 §20](ev3-specification.md#sec-7-20), [Разработка §13](engineering.md#sec-8-13) | [§17](#sec-9-17), [§24.1](#sec-9-24-1), [§24.2](#sec-9-24-2) |
-| [Удобство использования](product-requirements.md#sec-3-2-5) | `NFR-UX-01`, `NFR-UX-05`, `NFR-UX-07` | [Quest §17](quest-specification.md#sec-5-17) | [§23](#sec-9-23) |
-| [Защита секретов](product-requirements.md#sec-product-4-6-1) | `NFR-SEC-02`, `NFR-SEC-08` | [Разработка §11](engineering.md#sec-8-11), [Разработка §12](engineering.md#sec-8-12) | [§18](#sec-9-18), [§24.3](#sec-9-24-3) |
-| [Подлинность сообщений и защита от повторов](product-requirements.md#sec-product-4-6-2) | `NFR-SEC-01`, `NFR-SEC-04` | [Протокол §2.2](protocol-specification.md#sec-4-7-2), [Протокол §2.7](protocol-specification.md#sec-4-7-7) | [§9](#sec-9-9), [§18](#sec-9-18) |
-| [Изоляция сети и разрешения доступа](product-requirements.md#sec-product-4-6-3) | `NFR-SEC-05`, `NFR-SEC-06`, `NFR-SEC-09` | [Разработка §12](engineering.md#sec-8-12), [Quest §2](quest-specification.md#sec-5-2), [Протокол §1](protocol-specification.md#sec-4-6) | [§5](#sec-9-5), [§18](#sec-9-18), [§22](#sec-9-22) |
-| [Ограничение входящего трафика](product-requirements.md#sec-product-4-6-4) | `NFR-SEC-03`, `NFR-SEC-07` | [Протокол §2.3](protocol-specification.md#sec-4-7-3), [EV3 §23](ev3-specification.md#sec-7-23) | [§9](#sec-9-9), [§17](#sec-9-17), [§18](#sec-9-18) |
-| [Совместимость конфигурации и калибровки](product-requirements.md#sec-product-4-7-1) | `NFR-MNT-01`, `NFR-MNT-03` | [Разработка §9](engineering.md#sec-8-9), [Quest §16.10](quest-specification.md#sec-5-16-10), [EV3 §5.6](ev3-specification.md#sec-7-5-6) | [§12](#sec-9-12), [§13](#sec-9-13), [§14](#sec-9-14), [§24.4](#sec-9-24-4) |
-| [Идентификация сборки, механики и платформы](product-requirements.md#sec-product-4-7-2) | `NFR-MNT-02`, `NFR-MNT-05`, `NFR-MNT-07` | [Разработка §6](engineering.md#sec-8-6), [Разработка §8](engineering.md#sec-8-8), [Механика §19](mechanical-specification.md#sec-6-19) | [§6](#sec-9-6), [§24.4](#sec-9-24-4), [§26](#sec-9-26) |
-| [Сохранение ядра управления и поддержка платформ](product-requirements.md#sec-product-4-7-3) | `NFR-MNT-04`, `NFR-MNT-06` | [Архитектура §4](system-architecture.md#sec-4-2), [EV3 §1](ev3-specification.md#sec-7-1), [Разработка §5](engineering.md#sec-8-5), [Разработка §8](engineering.md#sec-8-8) | [§19](#sec-9-19), [§24](#sec-9-24), [§24.4](#sec-9-24-4) |
-| [Конфиденциальность](product-requirements.md#sec-3-2-8) | `NFR-PRIV-01`, `NFR-PRIV-02`, `NFR-PRIV-03`, `NFR-PRIV-04` | [EV3 §20](ev3-specification.md#sec-7-20), [Разработка §13](engineering.md#sec-8-13) | [§24.1](#sec-9-24-1), [§24.2](#sec-9-24-2), [§24.3](#sec-9-24-3) |
+| ID | Действия | Ожидаемый результат |
+|---|---|---|
+| M-02 | Нажать Left Grip, выполнить разрешённые движения, отпустить Grip | Направление/масштаб соответствуют руке; отпускание прекращает следование |
+| M-05 | При фиксированных положениях плеча/кисти повернуть голову/кисть, изменить положение локтя; затем сдвинуть корпус | Неуправляющие движения не меняют цель; перемещение плеча учитывается; tracking/UI не скачут |
+| M-06 | Несколько раз вернуться в ту же позу, отпуская и снова нажимая Grip | Нет видимого накопленного смещения; возврат повторяемый |
 
-<a id="sec-test-plan-25-3"></a>
-### 25.3. Полнота связей и evidence
+Это воспроизводимые действия и визуальная оценка. Пользователь не измеряет p95 ошибки плеча
+или миллиметры TCP; их источники и анализ — [метрики](metrics-and-logs.md#sec-test-plan-manual-criteria).
 
-`tools/doclint.py` проверяет, что все определения FR/NFR и все критерии продукта
-присутствуют в матрице, неизвестные ID отсутствуют, у каждого требования есть ссылки
-на владельца решения и процедуру проверки. Эта проверка не доказывает семантическую
-достаточность решения или фактическое выполнение приёмки.
+<a id="sec-test-plan-manual-load"></a>
+#### 6.2.3. Захват, удержание и нагрузка
 
-CI должен формировать machine-readable `requirements_trace.json` из текущих ID и
-metadata процедур. Финальный gate `TRACEABILITY` требует:
+| ID | Действия | Ожидаемый результат |
+|---|---|---|
+| M-03 | Сжать/разжать кисть, захватить и отпустить разрешённый предмет | Закрытие пропорционально жесту; контакт прекращает закрытие; предмет отпускается |
+| M-07 | Удержать разрешённую нагрузку в подготовленных позах | Нет видимого проседания, проскальзывания, ударов или нештатного движения |
+| M-08 | Подойти к контрольной позе с двух направлений; открыть/закрыть захват | Нет заметного motor kick, опасного люфта/асимметрии или повторного силового давления |
 
-```text
-requirements_without_test = 0
-unknown_test_requirement_ids = 0
-duplicate_requirement_definition_ids = 0
-unknown_requirement_references = 0
-criteria_without_acceptance_procedure = 0
-criteria_without_required_evidence = 0
-duplicate_section_anchors = 0
-broken_internal_links = 0
-```
+Нагрузки и позы — в квалифицированном domain. Блокировка мотора рукой или хрупким предметом
+запрещена; специальные опыты выполняются инженером. Точные отклонения требуют метрик/эталона.
 
-Каждая запись содержит ID, процедуру, применимость к stage/profile/scope, candidate
-identity, результат и immutable evidence URI/SHA-256. Для требований, которые нельзя
-полностью автоматизировать, обязательны HIL/MANUAL procedure и её реальный результат.
-Повтор ID как ссылка разрешён; нормативное определение остаётся единственным в
-[Требованиях к продукту](product-requirements.md). Общая строка матрицы, software-only
-PASS или старое evidence не заменяют требуемый физический PASS.
+<a id="sec-test-plan-manual-stop"></a>
+#### 6.2.4. Остановка и восстановление
+
+| ID | Действия | Ожидаемый результат |
+|---|---|---|
+| M-09 | Инженером со fixture/support выполнить LOCAL_STOP и POWER_CUT по безопасной процедуре | Остановка имеет приоритет; энергия снимается независимо от ОС; после восстановления нет автоматического продолжения |
+| M-12 | В безопасной позе прекратить управление, снять/надеть шлем или выполнить штатный перезапуск | Прежняя траектория не продолжается; новое управление требует readiness и нового разрешения |
+
+Потеря питания/нагрузочные опыты воспроизводятся только в безопасном setup.
+Штатное снятие шлема воспроизводится пользователем. Физические jam/overload опыты добавляются
+инженером при изменениях, влияющих на защиту; реакции алгоритмов покрыты на PC.
+
+<a id="sec-test-plan-manual-diagnostics"></a>
+#### 6.2.5. Длительная работа, диагностика и приватность
+
+| ID | Действия | Ожидаемый результат |
+|---|---|---|
+| M-10 | Выполнить рабочую сессию разрешёнными segments | Управление/UI плавные; нет неприемлемого нагрева; метрики собираются автоматически |
+| M-13 | Просмотреть автоматически созданный отчёт/инцидент после остановки или сбоя | Доступны время, причина и контекст Quest/EV3, identity комплекта; запись не мешает защите |
+| M-14 | Проверить индикатор записи и штатный просмотр/экспорт диагностики | Запись включается явно; обычный report не содержит изображений камер, secrets и непрерывной подробной истории движений |
+
+M-13 использует естественный инцидент или безопасный M-09, не требует создания опасного дефекта.
+Строгие privacy/retention/security проверки автоматические. Stage 5/D-only выполняет
+доступные сценарии захвата; A/B/C и Body/Wrist mapping не проверяются.
+
+Сбор метрик, инциденты и анализ — [metrics-and-logs.md](metrics-and-logs.md).
 
 <a id="sec-9-26"></a>
-## 26. Итоговый критерий готовности
+## 7. Production-сборка
 
-Перед обычным пользовательским использованием должны быть выполнены все пункты. Результаты относятся к одному и тому же Release candidate: `source_tree_hash`, `protocol_contract_hash` с его schema/semantics constituents, **соответствующие `quest_build_id` и `ev3_build_id`** и хэши их артефактов/конфигураций должны согласованно повторяться во всех отчётах; provenance commits могут различаться при byte-identical inputs, а Quest/EV3 build IDs не сравниваются между собой на равенство.
-
-Итоговый отчёт приёмки указывает редакцию требований (Git commit и путь документа
-либо immutable snapshot URI/SHA-256) и для каждого критерия из
-[§25.1](#sec-test-plan-25-1) связывает применимые процедуры с опубликованным evidence.
-Эта ссылка является provenance проверки и не входит в runtime handshake или build identity.
-Для финального Release ни один критерий целиком не может получить `N_A`: отсутствие
-обязательного результата означает `NOT_RUN` или `FAIL`, даже если остальные проверки прошли.
-
-```text
-[ ] TEST полностью пройден на конкретных Quest/EV3 build artifacts до DEVICE/HIL/Release qualification
-[ ] DEVICE INTEGRATION TEST пройден после установки именно соответствующих `quest_build_id` и `ev3_build_id` на Quest и EV3
-[ ] обязательные HIL сценарии пройдены и имеют машинно читаемые отчёты
-[ ] ручная функциональная/UX-приёмка выполнялась на том же Release candidate, а не на отдельном development build
-[ ] ранняя manual safety inspection механики пройдена до первого автоматического движения
-[ ] RobotGeometry измерена, сохранена и имеет хэш
-[ ] DriveCalibration A/B/C/D повторяема и прошла контрольные положения
-[ ] все 10 QR-креплений, включая неподвижную SHOULDER pair и rotating TURRET pair, жёстко зафиксированы и однозначно идентифицированы
-[ ] QR→энкодерная привязка при запуске проходит тест повторяемости
-[ ] измерены кабельный диапазон Base и физические механические ограничители
-[ ] фиксация основания прошла worst-case slip test; PHANTOM v1 не полагается на отсутствующий online base-slip sensor после выключения QR
-[ ] подтверждено ограничение сгибания Shoulder/Elbow <=90°
-[ ] проверены `LOCAL_STOP`, `GRIPPER_HOME` и независимый аппаратный `POWER_CUT`
-[ ] проверена двухступенчатая защита от препятствия/заклинивания
-[ ] проверены ограничения duty, реверса и безопасный выбор люфта
-[ ] проверены MotorStressScore, длительная высокая нагрузка и перегрузка HOLD
-[ ] reboot при MotorStressScore WARN/CRITICAL не обнуляет защиту; restart floor/cooldown проверены
-[ ] battery NORMAL→DERATED→SAFE_HOLD→FAULT_BATTERY_LOW transitions и re-arm/ACK проверены
-[ ] для EMPTY и каждого разрешённого PayloadProfile загружен/проверен собственный JointSafeSet, atomic profile→safe-set swap и payload-release interlock (freeze A/B/C → D release → HOLD+UNKNOWN → explicit EMPTY)
-[ ] exhaustive SAFE-cell proof и 3D DDA path cases §15.7 пройдены; unsafe cell не может быть пропущена endpoint-only/rounding реализацией
-[ ] partial A/B/C qualification доказала actuator_scope_mask ⊆ safety_observation_mask и separation authority/observation: disabled axes не получают motor write, нагрузочные disabled axes fixture/support-ятся, но их реальные reference/q_actual участвуют в coupled safety; narrow scopes пройдены только EMPTY-only и отвергают LOADED/non-EMPTY payload
-[ ] после нарушения непрерывности энкодера или механического вмешательства движение блокируется до новой привязки
-[ ] проверены контакт захвата и QR-калибровка захвата
-[ ] FlightRecorder формирует пригодный для разбора scope-specific пакет по критическим классам ошибок
-[ ] privacy/retention/permissions/export gates §24.3 пройдены
-[ ] release manifests, CAD hash, SBOM, vulnerability/risk record и reproducibility/rollback gates §24.4 пройдены
-[ ] профиль Release проходит 50-Гц HIL по времени
-[ ] профиль Diagnostic проходит HIL по времени
-[ ] тесты отказа процессов приводят к BRAKE
-[ ] протокол, HMAC и fuzz-тесты пройдены
-[ ] повторное обнаружение после DHCP/mDNS изменений пройдено
-[ ] все применимые scope-specific P0CompatibilityScope reports PASS для exact installed Quest platform matrix этого Release candidate; изменение matrix инвалидирует соответствующий PASS
-[ ] `LOCAL_FLOOR`, Spatial Data, Scene/Anchor/QR capabilities и Multimodal lifecycle проходят проверку; room mesh не является core gate
-[ ] Body_RightShoulder и human_arm_reach проходят критерии точности
-[ ] абсолютное отображение не зависит от исходной позы робота
-[ ] сквозное повторение движения руки проходит приёмку
-[ ] русский UI и визуальные подсказки проходят пользовательскую приёмку
-[ ] откат, развёртывание и проверки хэшей конфигурации пройдены
-```
-
-До выполнения всех пунктов обычное пользовательское использование запрещено.
-Инженерные движения допускаются только после применимых gates текущего этапа
-из [Этапов реализации](implementation-stages.md), в разрешённом scope и с локальным
-допуском; низкая скорость сама по себе не разрешает обходить условия безопасности.
+После прохождения проверок разработчик может выбрать Release.
+Сборка, проверка артефактов и допуск production-версии описаны в
+[engineering.md](engineering.md#sec-engineering-build-validation).

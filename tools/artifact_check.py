@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """Post-build metadata, hash, architecture, profile, and lock-file gate."""
-import argparse,hashlib,json,pathlib,re,subprocess,sys,tarfile,zipfile
+import argparse,hashlib,json,pathlib,re,struct,subprocess,sys,tarfile,zipfile
 from build_identity import identity
 ROOT=pathlib.Path(__file__).resolve().parents[1]
 def load(path):return json.loads(path.read_text(encoding="utf-8-sig"))
@@ -66,7 +66,12 @@ def verify_quest_embedded_identity(apk,manifest):
             if len(secret)>=4:
                 for item in archive.infolist():require(secret not in archive.read(item),f"Quest signing password leaked into APK: {item.filename}")
 def sha_bytes(data):return hashlib.sha256(data).hexdigest()
-def verify_ev3_archive(package):
+def verify_ev3_elf(path):
+    with path.open("rb") as stream:header=stream.read(52)
+    require(len(header)==52 and header[:7]==b"\x7fELF\x01\x01\x01","EV3 runtime must be ELF32 little-endian: "+str(path))
+    require(struct.unpack_from("<H",header,18)[0]==40,"EV3 runtime must target ARM: "+str(path))
+    require(not struct.unpack_from("<I",header,36)[0]&0x400,"EV3 runtime must not use hard-float ABI: "+str(path))
+def verify_ev3_archive(package, directory=None):
     with tarfile.open(package,"r:gz") as archive:
         members=archive.getmembers()
         require(bool(members),"EV3 package is empty")
@@ -78,12 +83,23 @@ def verify_ev3_archive(package):
             require(normalized not in members_by_name,"duplicate EV3 archive member: "+member.name)
             members_by_name[normalized]=member
             require(not (member.issym() or member.islnk()),"EV3 package must not contain links: "+member.name)
+            require(member.isfile() or member.isdir(),"unsupported EV3 archive member: "+member.name)
         required={"build-manifest.json","SHA256SUMS","bin/phantom-controller","bin/phantom-safety","bin/phantom-network","bin/phantom-mdns","bin/phantom-device-integration-test","bin/phantom_protocol.py","bin/jcs.py","bin/ipc_layout.py","bin/wire_schema.yaml","bin/semantics.yaml"}
         require(required.issubset(members_by_name),"EV3 package inventory is incomplete")
         executables={"bin/phantom-controller","bin/phantom-safety","bin/phantom-network","bin/phantom-mdns","bin/phantom-device-integration-test"}
         for name in executables:
             member=members_by_name[name]
             require(member.isfile() and member.mode & 0o111,"EV3 runtime entry is not executable: "+name)
+        if directory is not None:
+            expected={path.relative_to(directory).as_posix():path for path in directory.rglob("*") if path.is_file()}
+            actual={name:member for name,member in members_by_name.items() if member.isfile()}
+            require(set(actual)==set(expected),"EV3 archive/file inventory mismatch")
+            for name,member in actual.items():
+                require(member.size==expected[name].stat().st_size,"EV3 archive size mismatch: "+name)
+                digest=hashlib.sha256()
+                with archive.extractfile(member) as stream:
+                    for chunk in iter(lambda:stream.read(65536),b""):digest.update(chunk)
+                require(digest.hexdigest()==sha(expected[name]),"EV3 archive content mismatch: "+name)
 def main():
     parser=argparse.ArgumentParser(description="Validate one BUILD artifact")
     parser.add_argument("--component",required=True,choices=("QUEST","EV3"))
@@ -163,7 +179,7 @@ def main():
     else:
         lock=load(ROOT/"toolchains/ev3dev-stretch.lock.json")
         require(lock["cross_image_digest"]=="sha256:819ea7442bbe109d2b39c6c7766e7d1fe635bb98b86c4f6c3b636c0ce176a29f","cross image digest not pinned")
-        expected_source=source_hash("ev3","protocol","deploy")
+        expected_source=source_hash("--component","EV3")
         directory=pathlib.Path(args.ev3_directory).resolve() if args.ev3_directory else ROOT/f"build/ev3-armel/{profile}"
         manifest=load(directory/"build-manifest.json")
         require(manifest.get("schema_version")==5 and manifest.get("build_identity_schema")=="PHANTOM-BUILD-V4" and manifest.get("component")=="EV3","EV3 build manifest schema mismatch")
@@ -182,6 +198,7 @@ def main():
         require(lock["cross_toolchain_binary_sha256"] in manifest["toolchain_facts"],"armel compiler hash mismatch")
         require(manifest["controller_sha256"]==sha(directory/"bin/phantom-controller"),"controller hash mismatch")
         require(manifest["safety_sha256"]==sha(directory/"bin/phantom-safety"),"safety hash mismatch")
+        for name in ("phantom-controller","phantom-safety"):verify_ev3_elf(directory/"bin"/name)
         ev3_manifest=manifest
         package=pathlib.Path(args.artifact).resolve() if args.artifact else ROOT/"build/ev3-packages"/ev3_package_name(ev3_manifest["build_id"])
         provenance=pathlib.Path(str(package)+".build-manifest.json")
@@ -191,7 +208,7 @@ def main():
         require(package_manifest.get("build_id")==ev3_manifest["build_id"],"EV3 package build_id mismatch")
         require(package_manifest.get("source_tree_hash")==ev3_manifest["source_tree_hash"],"EV3 package source hash mismatch")
         require(package_manifest.get("artifact_sha256")==sha(package),"EV3 package SHA-256 mismatch")
-        verify_ev3_archive(package)
+        verify_ev3_archive(package,directory)
     print("BUILD artifact validation PASS: component=%s profile=%s"%(args.component,args.profile))
 if __name__=="__main__":
     try:main()

@@ -75,7 +75,7 @@ S53 Всегда actuator_scope_mask ⊆ safety_observation_mask. При partial
 S54 Retry state transaction сохраняет semantic ACK payload/result, но никогда не replay-ит старую wire datagram: каждый EV3→Quest ответ имеет новый sequence/timestamp/HMAC.
 S55 Idempotency state-changing transaction ограничена текущей session. После session loss операция с физическим side effect и неизвестным исходом, особенно CALIBRATION_JOG, не может автоматически повторяться; сначала восстанавливается наблюдаемое физическое состояние.
 S56 `phantom-network` не может единолично создать CONTROL/COMMISSIONING actuator authority: session становится authoritative только после controller-side SESSION_OPEN_ACCEPT, а commissioning требует consume свежего физического LOCAL_COMMISSION_ARM controller-ом.
-S57 Incremental partial A/B/C ACTUATOR_QUALIFICATION является EMPTY-only: narrow motor authority требует явных engineering EMPTY profile+state gates и не разрешает LOADED/non-EMPTY payload, pickup/release или расширение safety envelope. Payload HIL допускается только в full 0x0F/0x0F qualification bundle с отдельными commissioning payload transactions.
+S57 Incremental partial A/B/C ACTUATOR_QUALIFICATION является EMPTY-only: narrow motor authority требует явных engineering EMPTY profile+state gates и не разрешает LOADED/non-EMPTY payload, pickup/release или расширение safety envelope. Payload MANUAL допускается только в full 0x0F/0x0F qualification bundle с отдельными commissioning payload transactions.
 ```
 
 <a id="sec-11-4"></a>

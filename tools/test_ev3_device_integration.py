@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 """Pure regressions for the EV3 installed-runtime integration runner."""
 import importlib.util,json,pathlib,sys,tempfile,types,unittest
+from unittest import mock
 
 ROOT=pathlib.Path(__file__).resolve().parents[1]
 if sys.platform=="win32":sys.modules.setdefault("grp",types.ModuleType("grp"))
@@ -8,6 +9,22 @@ SPEC=importlib.util.spec_from_file_location("phantom_ev3_device_integration",str
 RUNNER=importlib.util.module_from_spec(SPEC);SPEC.loader.exec_module(RUNNER)
 
 class RunnerLogicTests(unittest.TestCase):
+    def test_main_queries_services_without_shadowing_active(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root=pathlib.Path(directory)
+            (root/"build-manifest.json").write_text('{}',encoding="utf-8")
+            with mock.patch.object(RUNNER,"CURRENT",root),mock.patch.object(RUNNER.os,"geteuid",return_value=0,create=True),mock.patch.object(RUNNER,"active",return_value=False) as active,mock.patch.object(RUNNER,"write_report",return_value="FAIL"):
+                self.assertEqual("FAIL",RUNNER.main())
+                self.assertEqual(4,active.call_count)
+    def test_installed_bundle_hash_preserves_canonical_numbers(self):
+        import hashlib
+        with tempfile.TemporaryDirectory() as directory:
+            path=pathlib.Path(directory)/"bundle.json";data=b'{"value":1e+30}'
+            path.write_bytes(data+b'\n')
+            self.assertEqual(hashlib.sha256(data).hexdigest(),RUNNER.installed_bundle_hash(path))
+        generated=ROOT/"config/generated/commissioning_bundle-network-only.generated.json"
+        manifest=json.loads((ROOT/"config/generated/config-manifest.json").read_text())
+        self.assertEqual(manifest["artifact_hashes"]["commissioning_bundle-network-only"],RUNNER.installed_bundle_hash(generated))
     def test_unsynchronised_but_plausible_clock_requires_host_correlation(self):
         status,_,evidence=RUNNER.wall_clock_state(1788706800,"NTP synchronized: no\n")
         self.assertEqual("PASS",status);self.assertEqual("HOST_CORRELATION_REQUIRED",evidence["chronology_trust"])

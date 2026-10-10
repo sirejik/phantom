@@ -270,7 +270,7 @@ sequenceDiagram
   E-->>Q: HELLO_ACK(result_code, session_id) + controller_boot_id + hashes
   alt result_code != OK или session_id == 0
     Q->>U: показать причину, остаться в discovery/recovery, motion authority=0
-    Q->>Q: прекратить этот startup attempt; новый путь начинается с fresh discovery/HELLO
+    Q->>Q: прекратить этот startup attempt, новый путь начинается с fresh discovery/HELLO
   else result_code == OK и session_id != 0
     Q->>U: покажите PHANTOM QR-маркеры
     R-->>Q: base/link/gripper marker poses для startup-калибровки
@@ -281,14 +281,14 @@ sequenceDiagram
     Q->>Q: QR↔encoder consistency check
     Q->>U: выбрать применимый PayloadProfile
     Q->>E: SET_PAYLOAD_PROFILE в ROBOT_CALIBRATION
-    E-->>Q: CONTROL_ACK; active profile/safe-set authoritative
+    E-->>Q: CONTROL_ACK, active profile/safe-set authoritative
     Q->>U: подтвердить фактическое EMPTY/LOADED
     Q->>E: SET_PAYLOAD_STATE в ROBOT_CALIBRATION
-    E-->>Q: CONTROL_ACK; payload state authoritative
+    E-->>Q: CONTROL_ACK, payload state authoritative
     Q->>Q: product-state READY, motion disabled
     Q->>Q: operational-ready indication после valid payload gates
     Q->>Q: armed=false, дождаться Left Grip released
-    Q->>E: priority OFF/HOLD COMMAND; remember release_off_sequence
+    Q->>E: priority OFF/HOLD COMMAND, remember release_off_sequence
     E-->>Q: fresh TELEMETRY last_accepted_command_sequence >= release_off_sequence
     Q->>Q: armed=true только после подтверждения EV3 release_seen
     alt новый Left Grip rising edge

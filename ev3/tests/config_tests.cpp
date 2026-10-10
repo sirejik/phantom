@@ -72,6 +72,11 @@ int main(){
     ::unlink(path.c_str());
   };
   std::string broken=config_source;
+  for(const auto& item:{std::make_pair(std::string("\"loop_safe_hold_ms\":60"),std::string("\"loop_safe_hold_ms\":61")),std::make_pair(std::string("\"loop_fault_ms\":100"),std::string("\"loop_fault_ms\":101"))}){
+    const auto offset=config_source.find(item.first);
+    check(offset!=std::string::npos,"fixture contains loop deadline");
+    expect_rejection(config_source.substr(0,offset)+item.second+config_source.substr(offset+item.first.size()),"loop deadline cannot exceed safety budget");
+  }
   const std::size_t safe_hold=broken.find("\"loop_safe_hold_ms\":60");
   check(safe_hold!=std::string::npos,"fixture contains loop_safe_hold_ms");
   expect_rejection(broken.substr(0,safe_hold)+"\"loop_safe_hold_ms\":150"+broken.substr(safe_hold+std::string("\"loop_safe_hold_ms\":60").size()),

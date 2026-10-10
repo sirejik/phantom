@@ -13,6 +13,22 @@ import copy
 
 
 class DocumentationTests(unittest.TestCase):
+    def test_local_links_require_anchor_in_the_destination_file(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            source = root / "README.md"
+            source.write_text('<a id="criterion-c-01"></a>\n', encoding="utf-8")
+            target = root / "target file.md"
+            target.write_text('<a id="sec-test"></a>\n## Repeated\n## Repeated\n', encoding="utf-8")
+            valid = ("[section](target%20file.md#sec-test) "
+                     "[criterion](#criterion-c-01) [heading](target%20file.md#repeated-1)")
+            self.assertEqual(doclint.local_link_errors(valid, source), [])
+            for link in ("[wrong file](README.md#sec-test)",
+                         "[missing](gone.md)", "[criterion](target%20file.md#criterion-c-01)"):
+                with self.subTest(link=link):
+                    self.assertTrue(doclint.local_link_errors(link, source))
+            self.assertEqual(doclint.local_link_errors("[external](https://example.com/#absent)", source), [])
+
     def test_prose_declared_measured_fields_exist_in_canonical_config(self):
         sources = {path.stem: configgen.load(path)
                    for path in (spec_contract_check.ROOT / "config/source").glob("*.json")}
@@ -30,12 +46,12 @@ class DocumentationTests(unittest.TestCase):
         docs = doclint.ROOT / "docs"
         self.assertEqual(doclint.acceptance_traceability_errors(
             (docs / "product-requirements.md").read_text(encoding="utf-8"),
-            (docs / "test-plan.md").read_text(encoding="utf-8")), [])
+            (docs / "metrics-and-logs.md").read_text(encoding="utf-8")), [])
 
     def test_acceptance_traceability_rejects_missing_and_unknown_ids(self):
         docs = doclint.ROOT / "docs"
         product = (docs / "product-requirements.md").read_text(encoding="utf-8")
-        acceptance = (docs / "test-plan.md").read_text(encoding="utf-8")
+        acceptance = (docs / "metrics-and-logs.md").read_text(encoding="utf-8")
         for identifier in ("FR-TRK-01", "NFR-PRIV-04"):
             with self.subTest(identifier=identifier):
                 changed = acceptance.replace("`" + identifier + "`", "`FR-UNKNOWN-01`")
@@ -46,7 +62,7 @@ class DocumentationTests(unittest.TestCase):
     def test_acceptance_traceability_requires_criteria_owners_and_procedures(self):
         docs = doclint.ROOT / "docs"
         product = (docs / "product-requirements.md").read_text(encoding="utf-8")
-        acceptance = (docs / "test-plan.md").read_text(encoding="utf-8")
+        acceptance = (docs / "metrics-and-logs.md").read_text(encoding="utf-8")
         start = acceptance.index('<a id="sec-test-plan-25-1">')
         end = acceptance.index('<a id="sec-test-plan-25-3">')
         matrix = acceptance[start:end]
@@ -54,7 +70,7 @@ class DocumentationTests(unittest.TestCase):
             matrix.replace('[C-02](product-requirements.md#criterion-c-02)',
                            '[C-01](product-requirements.md#criterion-c-01)'),
             matrix.replace('quest-specification.md#', 'product-requirements.md#'),
-            matrix.replace('](#sec-', '](missing-test.md#sec-'),
+            matrix.replace('#sec-', '#missing-'),
             matrix.replace('`FR-TRK-07`', '`FR-TRK-01`'),
             matrix.replace('`FR-TRK-01`, `FR-TRK-07`', '`FR-TRK-01..07`'),
         )

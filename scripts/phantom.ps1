@@ -1,6 +1,6 @@
 <# Stable ExecutionPolicy-independent entry point. Dispatches exactly one requested phase. #>
 param(
-    [Parameter(Mandatory=$true)][ValidateSet('TEST','BUILD','PROVISION','TRANSFER','INSTALL','START','DEBUG','DEVICE','RECOVERY')][string]$Phase,
+    [Parameter(Mandatory=$true)][ValidateSet('TEST','BUILD','PROVISION','TRANSFER','INSTALL','START','DEBUG','DEVICE')][string]$Phase,
     [Parameter(Mandatory=$true)][ValidateSet('EV3','QUEST','PAIR')][string]$Component,
     [Parameter(ValueFromRemainingArguments=$true)][string[]]$PhaseArguments
 )
@@ -22,7 +22,6 @@ $script=switch($key)
     'DEBUG:QUEST' {'quest-start.ps1';$PhaseArguments=@('-CaptureDebug')+$PhaseArguments}
     'DEVICE:EV3' {'ev3-device-integration-test.ps1'}
     'DEVICE:QUEST' {'quest-device-integration-test.ps1'}
-    'RECOVERY:EV3' {'ev3-recover.ps1'}
     default {throw "Lifecycle phase is not implemented for component: $key"}
 }
 $powershell=Join-Path $PSHOME 'powershell.exe'

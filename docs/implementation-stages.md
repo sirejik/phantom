@@ -97,8 +97,8 @@ flowchart TD
 | Точность | для новой функции заранее определяется измеряемая ошибка; расчёты не должны накапливать программный drift; физические допуски проверяются по мере появления соответствующего оборудования |
 | Производительность | новая функция не должна нарушать бюджет кадра Quest, 50-Hz цикл EV3, ограничения очередей, памяти и сетевого обмена; критический путь профилируется сразу, а не в конце проекта |
 | Удобство использования | пользовательские действия и ошибки сразу проектируются с русскими понятными сообщениями; инженерные детали не попадают в обычный UI; новые обязательные действия не добавляются без необходимости |
-| Автоматические тесты | всё, что можно проверить без человека и физической неопределённости, получает unit/property/protocol/replay/simulation regression и входит в `TEST` |
-| Аппаратные и ручные проверки | по мере появления физической функции добавляются `DEVICE INTEGRATION TEST`, HIL и необходимые ручные safety/UX проверки из [План проверки](test-plan.md); применимость определяется active stage/profile, но финальный Release требует полный production комплект |
+| Автоматические тесты | вся реализованная программная функциональность EV3 и Quest получает модульное и функциональное покрытие production-кода по [План проверки §3](test-plan.md#sec-9-1-2); применимые property/protocol/replay/simulation и интеграционные сценарии входят в `TEST` |
+| Аппаратные и ручные проверки | заключительная проверка кандидата этапа после применимых software TEST и BUILD: интеграционные и ручные safety/UX/физические проверки из [План проверки §1](test-plan.md#sec-9-1); применимость определяется active stage/profile, но финальный Release требует полный production комплект |
 
 Если дефект обнаружен на более позднем этапе, исправление возвращается в тот слой, где он должен был быть обнаружен. Если дефект воспроизводим программно, вместе с исправлением добавляется автоматический regression test. После исправления повторяется затронутый stage gate и применимый regression.
 
@@ -122,7 +122,7 @@ flowchart TD
 
 **Этап считается выполненным, если:** чистый checkout воспроизводимо собирается; применимый
 `TEST` проходит; Quest способен работать с симулятором EV3, EV3 controller — с
-mock-моторами; ошибки фундамента наблюдаемы и журналируются. Scope-specific P0 [План проверки §6](test-plan.md#sec-9-6) остаётся
+mock-моторами; ошибки фундамента наблюдаемы и журналируются. Scope-specific P0 [Метрики и анализ §4.1](metrics-and-logs.md#sec-9-6) остаётся
 отдельным prerequisite соответствующего actuator milestone: `COMMISSIONING_QR` до первого
 QR-driven движения этапа 4, `D_ONLY_USER` до этапа 5, `FULL_ARM_USER` до full-arm live
 qualification/этапа 9. Отсутствие required evidence = `NOT_RUN`. Качество live observations квалифицируется отдельными bounded physical cases.
@@ -133,7 +133,7 @@ qualification/этапа 9. Отсутствие required evidence = `NOT_RUN`. 
 Цель — Quest и EV3 запускаются независимо; EV3 безопасен при zero output. Полная механика и
 Wi-Fi не являются gate. Scope-aware `qualification_only`/`actuator_scope_mask`/
 `safety_observation_mask` вводятся последующими этапами. До первого движения D на этапе 4
-установленный build обязан повторно пройти применимый DEVICE INTEGRATION TEST уже с gripper-only
+установленный build обязан повторно пройти применимые интеграционные тесты уже с gripper-only
 profile; для каждого последующего нового actuator scope выполняется его применимый DEVICE
 regression. Это новый gate соответствующей функции, а не переоценка более раннего этапа.
 
@@ -141,7 +141,7 @@ regression. Это новый gate соответствующей функции
 оборудовании; `phantom-controller`/`phantom-safety` heartbeat и takeover проходят zero-output
 tests; scoped I/O обнаруживается корректно; отсутствующий out-of-scope I/O не считается
 fault; ни startup, ни shutdown не создают ненулевой motor output; применимые
-`TEST`/`DEVICE INTEGRATION TEST` имеют PASS.
+Программные и интеграционные тесты имеют PASS.
 
 <a id="sec-10-5"></a>
 ## 5. Этап 3 — Wi-Fi EV3, Quest↔EV3 и телеметрия
@@ -159,7 +159,7 @@ production serializers/deserializers общими cross-codec/negative vectors �
 | Направление | Работы |
 |---|---|
 | EV3/Wi-Fi | проверить WNA1100; DHCP/auto reconnect; DNS-SD/mDNS `type=_phantom-ev3._udp`, `domain=local.` (full browse-name `_phantom-ev3._udp.local.`); network logs без credential |
-| Security | provision независимый `control` PSK/key_id по [Разработка и развёртывание §11](engineering.md#sec-8-11) и проверить CONTROL-authenticated network-only session; commissioning PSK отдельный и не требуется для Stage-3 gate |
+| Security | provision независимый `control` PSK/key_id по [Разработка и развёртывание §6.1](engineering.md#sec-8-11) и проверить CONTROL-authenticated network-only session; commissioning PSK отдельный и не требуется для Stage-3 gate |
 | Quest | discovery по `robot_id`; success/rejected `HELLO/HELLO_ACK`; HMAC; `PING/PONG`; receive current-schema `TELEMETRY`; русский экран состояния |
 | Reliability | IP change; Wi-Fi loss/reconnect; controller/network/mDNS restart; stale session; loss/duplicate/replay; bounded telemetry/network bursts `<=60 s`; bounded queues; CPU/network budget |
 | UI/telemetry | connection/session state, battery, controller state/fault, command age, `ev3_build_id` + Quest local `quest_build_id`, component/config hashes, `incident_id`; Diagnostic raw counters where available |
@@ -190,7 +190,7 @@ Motor output от сети на этом этапе невозможен из-з
 |---|---|
 | Механика | законченный Gripper; жёсткое безопасное крепление стенда; `GRIPPER_HOME`; JAW_LEFT/RIGHT; pinch zone; `POWER_CUT` |
 | EV3 | D encoder; bounded `CALIBRATION_JOG`; home; `E_closed`; bounded safe-open sweep до независимо подтверждённой границы (не поиск внутреннего максимума); timeout/stall/contact; scoped hard-inhibit A/B/C |
-| Security | provision отдельный commissioning PSK/key_id по [Разработка и развёртывание §11](engineering.md#sec-8-11) в Diagnostic build/Quest secure storage; control PSK не должен авторизовать `COMMISSIONING` |
+| Security | provision отдельный commissioning PSK/key_id по [Разработка и развёртывание §6.1](engineering.md#sec-8-11) в Diagnostic build/Quest secure storage; control PSK не должен авторизовать `COMMISSIONING` |
 | Quest/QR | JAW poses → contact points → actual gap; build opening/closing curves; validation points |
 | Persistence | сохранить partial qualification `DriveCalibration[D]`; изменение D mechanics/QR/contact transforms инвалидирует его |
 
@@ -202,7 +202,7 @@ Motor output от сети на этом этапе невозможен из-з
 2. отдельный commissioning PSK provisioned/валиден; control key не авторизует commissioning; local commissioning arm создаётся только физическим ENTER+UP: нормально в `DISCOVERY`, либо после истечения fresh CONTROL owner через локальный `HOLD→DISCOVERY` transition [Спецификация EV3 §5.2](ev3-specification.md#sec-7-5-2); commissioning `HELLO` может consume только bounded arm-window, сеть сама по себе не может создать authority;
 3. процедура [Спецификация Quest §16.8](quest-specification.md#sec-5-16-8) полностью проходит на реальном Gripper;
 4. определены calibration-session `E_closed_cal`, signed `gripper_open_limit_delta_counts`/`D_open_counts`, `opening_open_mm`, opening/closing curves и measured hysteresis;
-5. контрольные раскрытия удовлетворяют [План проверки §14](test-plan.md#sec-9-14);
+5. контрольные раскрытия удовлетворяют [Метрики и анализ §4.6](metrics-and-logs.md#sec-9-14);
 6. stall до home, opening jam и timeout дают fault, а не ложный endpoint; open-search hard bound по encoder/time/speed/duty никогда не превышается; достижение независимо подтверждённого `D_open_counts` является штатным safe-open endpoint даже если локальная производная QR gap остаётся положительной. FAIL возникает только при unsafe/non-monotonic/quality violation или jam/stall **до** endpoint, либо при попытке выйти за `D_open_counts`;
 7. закрытие на объекте переходит в contact policy и не продолжает длительно наращивать усилие;
 8. `LOCAL_STOP`, safety heartbeat loss и `POWER_CUT` корректно прекращают движение;
@@ -295,7 +295,7 @@ Motor output от сети на этом этапе невозможен из-з
 5. `RobotCollisionModel` и PayloadProfile-specific `JointSafeSet` сгенерированы/проверены;
 6. обычная неподвижная startup QR-привязка создаёт `JointReference A/B/C` + `GripperReference` без автоматического движения;
 7. повторное QR measurement согласуется с `q_actual/grip_actual` в допусках [План проверки](test-plan.md);
-8. geometry/collision/safe-set artifacts прошли normative [Разработка и развёртывание §9](engineering.md#sec-8-9) deployment на Quest+EV3, новый `HELLO_ACK` подтверждает один `commissioning_bundle_hash`;
+8. geometry/collision/safe-set artifacts прошли normative [Разработка и развёртывание §8](engineering.md#sec-8-9) deployment на Quest+EV3, новый `HELLO_ACK` подтверждает один `commissioning_bundle_hash`;
 9. полный candidate bundle остаётся `qualification_only=true`, имеет `actuator_scope_mask=safety_observation_mask=0x0F`, содержит все production-required component bytes/hashes, но **не может перейти в `READY`** и ещё не имеет production `qualification_evidence_manifest_hash`; promotion в Release выполняется только после этапа 9.
 
 <a id="sec-10-10"></a>
@@ -318,7 +318,7 @@ Gripper channel продолжает использовать проверенн
 **Этап считается выполненным, если:**
 
 1. `human_arm_reach` calibration проходит требуемые тесты;
-2. Shoulder/Wrist temporal alignment и tracking qualification [План проверки §6](test-plan.md#sec-9-6) пройдены;
+2. Shoulder/Wrist temporal alignment и tracking qualification [Метрики и анализ §4.1](metrics-and-logs.md#sec-9-6) пройдены;
 3. IK/FK/property/replay tests проходят;
 4. одинаковый time-aligned текущий Shoulder→Wrist vector даёт одинаковую чистую `P_requested_B` независимо от истории; возможная краткая история `P_control_B` ограничена только tracking filter по `NFR-ACC-07`;
 5. virtual PHANTOM корректно следует руке и показывает clipping/invalid target;
@@ -331,18 +331,18 @@ Gripper channel продолжает использовать проверенн
 
 Цель — расширить уже работающий D vertical slice на A/B/C после complete commissioning.
 
-В HIL привод authority наращивается постепенно. Рекомендуемый default order — **C → B+C → A+B+C**, Base последней; конкретный порядок может быть изменён только documented safety result. Все incremental narrow-authority cases выполняются с **пустым Gripper, без внешнего payload**, на `EMPTY` PayloadProfile/`EMPTY` JointSafeSet; захват/освобождение объекта и LOADED state проверяются только в последующем full-`0x0F` qualification case. Каждый incremental case использует **отдельную immutable `qualification_only=true` revision `CommissioningBundle`**, детерминированно производную от полного production-candidate component set этапа 7: component bytes/hashes `RobotGeometry`, `DriveCalibration`, `RobotCollisionModel`, `EMPTY` PayloadProfile/`JointSafeSet` и `SafetyEnvelope` не меняются, меняются только qualification metadata/`actuator_scope_mask`/`safety_observation_mask`, поэтому каждый derived bundle имеет собственный `commissioning_bundle_hash`. In-place изменение candidate/production bundle или масок запрещено. Переключение bundle инвалидирует session/reference; после каждого switch выполняются новый `HELLO`, проверка hash и новая QR↔encoder reference до motor write.
+В MANUAL привод authority наращивается постепенно. Рекомендуемый default order — **C → B+C → A+B+C**, Base последней; конкретный порядок может быть изменён только documented safety result. Все incremental narrow-authority cases выполняются с **пустым Gripper, без внешнего payload**, на `EMPTY` PayloadProfile/`EMPTY` JointSafeSet; захват/освобождение объекта и LOADED state проверяются только в последующем full-`0x0F` qualification case. Каждый incremental case использует **отдельную immutable `qualification_only=true` revision `CommissioningBundle`**, детерминированно производную от полного production-candidate component set этапа 7: component bytes/hashes `RobotGeometry`, `DriveCalibration`, `RobotCollisionModel`, `EMPTY` PayloadProfile/`JointSafeSet` и `SafetyEnvelope` не меняются, меняются только qualification metadata/`actuator_scope_mask`/`safety_observation_mask`, поэтому каждый derived bundle имеет собственный `commissioning_bundle_hash`. In-place изменение candidate/production bundle или масок запрещено. Переключение bundle инвалидирует session/reference; после каждого switch выполняются новый `HELLO`, проверка hash и новая QR↔encoder reference до motor write.
 
 `actuator_scope_mask` на каждом шаге ограничивает только motor writes, но `safety_observation_mask` для любого A/B/C qualification шага обязан быть как минимум **`0x07 | actuator_scope_mask`**: их полные `JointReference` заново устанавливаются для текущего derived bundle, а неподвижные неразрешённые оси нужны как реальные fixed coordinates 3D `JointSafeSet`. Нулевые q-поля disabled axes не могут подменять их физическое состояние. Любая motor-disabled ось, способная двигаться под тяжестью/внешней нагрузкой, на этом incremental case механически фиксируется/поддерживается; active HOLD через запрещённый motor write не используется как fixture. До первого **real Quest-driven** A/B/C, в том числе если он выполняется в Diagnostic `ACTUATOR_QUALIFICATION`, обязателен актуальный `P0CompatibilityScope=FULL_ARM_USER PASS` для exact installed Quest build/runtime matrix; изменение platform matrix после этапа 8 требует повторного P0.
 
-После narrow cases активируется отдельный **full `0x0F/0x0F` qualification-only bundle** с теми же production-candidate component hashes. После полной A/B/C/D reference при снятом motion-arm engineering path [Спецификация протокола §2.5](protocol-specification.md#sec-4-7-5) явно выбирает профиль/safe-set и подтверждает `EMPTY`; затем выполняются EMPTY HIL. Для разрешённых payload cases между движениями при stationary motors используются те же wire `SET_PAYLOAD_PROFILE/SET_PAYLOAD_STATE` с commissioning role/local authority; после contact/release `UNKNOWN` закрывается явным engineering ACK и новым re-arm. Product `READY/TRACKING/HOLD` при этом недоступны: wire state остаётся `COMMISSIONING` до завершения qualification. Только когда все обязательные HIL/P0/stop/power-loss/resource/accuracy cases PASS, tooling формирует `QualificationEvidenceManifest` и затем новую immutable production revision `qualification_only=false`, `actuator_scope_mask=safety_observation_mask=0x0F`, с теми же квалифицированными component hashes и `qualification_evidence_manifest_hash`. После установки production revision старые session/reference инвалидируются, выполняются новый `HELLO`, startup QR reference + payload selection/state confirmation, и лишь тогда разрешаются обычные `READY/TRACKING/HOLD/SAFE_HOLD`. Любое изменение квалифицированного component byte/hash после manifest делает evidence несовместимым и требует повторной qualification.
+После narrow cases активируется отдельный **full `0x0F/0x0F` qualification-only bundle** с теми же production-candidate component hashes. После полной A/B/C/D reference при снятом motion-arm engineering path [Спецификация протокола §2.5](protocol-specification.md#sec-4-7-5) явно выбирает профиль/safe-set и подтверждает `EMPTY`; затем выполняются EMPTY MANUAL. Для разрешённых payload cases между движениями при stationary motors используются те же wire `SET_PAYLOAD_PROFILE/SET_PAYLOAD_STATE` с commissioning role/local authority; после contact/release `UNKNOWN` закрывается явным engineering ACK и новым re-arm. Product `READY/TRACKING/HOLD` при этом недоступны: wire state остаётся `COMMISSIONING` до завершения qualification. Только когда все обязательные MANUAL/P0/stop/power-loss/resource/accuracy cases PASS, tooling формирует `QualificationEvidenceManifest` и затем новую immutable production revision `qualification_only=false`, `actuator_scope_mask=safety_observation_mask=0x0F`, с теми же квалифицированными component hashes и `qualification_evidence_manifest_hash`. После установки production revision старые session/reference инвалидируются, выполняются новый `HELLO`, startup QR reference + payload selection/state confirmation, и лишь тогда разрешаются обычные `READY/TRACKING/HOLD/SAFE_HOLD`. Любое изменение квалифицированного component byte/hash после manifest делает evidence несовместимым и требует повторной qualification.
 
 **Этап считается выполненным, если:**
 
-1. каждый incremental motor-authority scope проходит low-limit **EMPTY-only** HIL на собственной immutable derived qualification bundle revision без collision/safety violation; component hashes production-candidate geometry/calibration/EMPTY-safe-set совпадают с этапом 7, bundle switch даёт новый hash/session/reference, LOADED/non-EMPTY/pickup operation fail-closed, оси вне authority имеют zero motor write, нагрузочные disabled оси имеют documented fixture/support, все A/B/C остаются safety-observed и их reference-loss/fixture drift немедленно inhibits qualification;
+1. каждый incremental motor-authority scope проходит low-limit **EMPTY-only** MANUAL на собственной immutable derived qualification bundle revision без collision/safety violation; component hashes production-candidate geometry/calibration/EMPTY-safe-set совпадают с этапом 7, bundle switch даёт новый hash/session/reference, LOADED/non-EMPTY/pickup operation fail-closed, оси вне authority имеют zero motor write, нагрузочные disabled оси имеют documented fixture/support, все A/B/C остаются safety-observed и их reference-loss/fixture drift немедленно inhibits qualification;
 2. затем full `0x0F` **qualification-only** A+B+C+D path работает через штатный `COMMAND` от реального Quest tracking и проходит EMPTY + разрешённые payload/contact/release cases без использования product `READY`;
 3. TCP повторяет Shoulder→Wrist с требуемой точностью/latency, Gripper — кисть;
-4. скорость/ускорение/duty/reversal/PD/feed-forward/`MotorStressScore` проходят HIL;
+4. скорость/ускорение/duty/reversal/PD/feed-forward/`MotorStressScore` проходят MANUAL;
 5. HOLD/SAFE_HOLD, tracking loss, network loss, stale command, `LOCAL_STOP`, stall/contact и process failure работают безопасно;
 6. payload transitions `EMPTY → contact → UNKNOWN → LOADED` и `LOADED/UNKNOWN → release → UNKNOWN → EMPTY` проходят без продолжения старой A/B/C trajectory; в qualification они выполняются оставаясь в `COMMISSIONING`, в production smoke — через `HOLD`; смена profile/reboot также даёт `UNKNOWN` до явного подтверждения;
 7. робот не выходит из `JointSafeSet` и independent bounds;
@@ -359,11 +359,11 @@ Gripper channel продолжает использовать проверенн
 
 1. один зафиксированный Release candidate проходит полный `TEST`;
 2. именно эти артефакты установлены на Quest/EV3;
-3. полный production `DEVICE INTEGRATION TEST` проходит с A/B/C/D и обязательными sensors;
-4. все применимые HIL/safety/network/calibration/accuracy/resource tests по [План проверки](test-plan.md) имеют PASS;
+3. полный набор интеграционных тестов production-системы проходит с A/B/C/D и обязательными sensors;
+4. все применимые MANUAL/safety/network/calibration/accuracy/resource tests по [План проверки](test-plan.md) имеют PASS;
 5. серия независимых bounded runs `<=60 s` и повторных starts/restarts не выявляет blocking regressions;
-6. Release/Diagnostic, rollback, config/bundle/schema hashes согласованы; CAD/mechanical artifact hash, SBOM, legacy-EOL vulnerability/risk record и exact toolchain/image provenance закрыты по [План проверки §24.4](test-plan.md#sec-9-24-4);
-7. manual functional/UI/UX acceptance и privacy/export acceptance [План проверки §24.3](test-plan.md#sec-9-24-3) выполнены на том же Release candidate; все применимые scope-specific P0 reports (`COMMISSIONING_QR`, `D_ONLY_USER`, `FULL_ARM_USER`) относятся к его exact Quest platform matrix либо имеют документированное `N_A`, а изменение matrix инвалидирует acceptance;
-8. checklist [План проверки §26](test-plan.md#sec-9-26) полностью закрыт;
+6. Release/Diagnostic и config/bundle/schema hashes согласованы; CAD/mechanical artifact hash, SBOM, legacy-EOL vulnerability/risk record и exact toolchain/image provenance закрыты по [Разработка §5.3](engineering.md#sec-engineering-build-validation);
+7. manual functional/UI/UX acceptance и privacy/export acceptance [Метрики и журналы §2.1](metrics-and-logs.md#sec-8-13) выполнены на том же Release candidate; все применимые scope-specific P0 reports (`COMMISSIONING_QR`, `D_ONLY_USER`, `FULL_ARM_USER`) относятся к его exact Quest platform matrix либо имеют документированное `N_A`, а изменение matrix инвалидирует acceptance;
+8. checklist [План проверки §7](test-plan.md#sec-9-26) полностью закрыт;
 9. конкретная физическая сборка имеет зафиксированные mechanical revision, `RobotGeometry`, `DriveCalibration`, payload/safe-set configs и software versions;
 10. blocking defects отсутствуют.

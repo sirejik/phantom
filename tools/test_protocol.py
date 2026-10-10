@@ -8,7 +8,7 @@ class ProtocolTests(unittest.TestCase):
    root=pathlib.Path(directory)
    with patch.object(protocolgen,"ROOT",root),patch.object(sys,"argv",["protocolgen"]):
     protocolgen.main()
-    document=root/"protocol/protocol.md"
+    document=root/"docs/protocol-wire-reference.md"
     document.write_bytes(b"edited documentation\n")
     with patch.object(sys,"argv",["protocolgen","--check"]):protocolgen.main()
     with patch.object(sys,"argv",["protocolgen","--check","--include-docs"]):

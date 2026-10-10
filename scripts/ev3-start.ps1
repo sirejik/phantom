@@ -9,6 +9,6 @@ $ErrorActionPreference='Stop'
 $destinationRoot=if($Destination){$Destination}elseif($CaptureDebug){'results/ev3/debug'}else{'results/ev3/start'}
 $report=Join-Path ([System.IO.Path]::GetFullPath($destinationRoot)) "$BuildId/start.json"
 $verbosity=if($CaptureDebug){'debug'}else{'normal'}
-$command="timeout -k $StepTimeoutSeconds $TimeoutSeconds env PHANTOM_START_STEP_TIMEOUT_SECONDS=$StepTimeoutSeconds PHANTOM_START_VERBOSITY=$verbosity /usr/local/libexec/phantom-maintenance/start-release"
+$command="timeout -k $StepTimeoutSeconds $TimeoutSeconds env PHANTOM_START_STEP_TIMEOUT_SECONDS=$StepTimeoutSeconds PHANTOM_START_VERBOSITY=$verbosity /usr/local/libexec/phantom-maintenance/start-release '$BuildId'"
 $result=Invoke-PhantomEv3ReportedPhase $command '/var/lib/phantom/start-result.json' $report $BuildId $(if($CaptureDebug){'DEBUG'}else{'START'}) $StateRoot ($TimeoutSeconds+$StepTimeoutSeconds+8)
 Write-Output "EV3 START: PASS build_id=$($result.build_id) report=$report"

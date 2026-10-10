@@ -190,6 +190,9 @@ PY
 ) || fail_start start-admission "installed build manifest is invalid"
 build_id=$(printf '%s\n' "$identity" | cut -f1)
 build_profile=$(printf '%s\n' "$identity" | cut -f2)
+if test "$#" -gt 0 && test "$build_id" != "$1"; then
+  fail_start start-admission "installed build does not match the requested candidate"
+fi
 
 stop_runtime || fail_start pre-start-stop "existing runtime could not be stopped cleanly"
 force_and_verify_zero_output || fail_start pre-start-safe-state "could not establish zero-output before activation"

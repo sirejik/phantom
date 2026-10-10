@@ -113,9 +113,14 @@ int main(){
     now+=70000;core.set_safety_heartbeat_alive(true);core.tick(now,70000);
     check(core.state()==phantom::State::SafeHold&&core.fault()==phantom::Fault::None,"loop_safe_hold_ms threshold did not fire");
     now+=120000;core.set_safety_heartbeat_alive(true);core.tick(now,120000);
-    check(core.state()==phantom::State::SafeHold&&core.fault()==phantom::Fault::LoopOverrun,"loop_fault_ms threshold did not raise FAULT_LOOP_OVERRUN");
+    check(core.state()==phantom::State::Stopped&&core.fault()==phantom::Fault::LoopOverrun&&core.fault_latched(),"loop_fault_ms threshold did not latch FAULT_LOOP_OVERRUN");
+    check(core.acknowledge_fault((std::uint16_t)phantom::Fault::LoopOverrun)!=phantom::RecoveryResult::Ok,"ACK accepted while loop fault remains active");
     run_ticks(core,now,1);
-    check(core.state()==phantom::State::Discovery,"loop overrun did not recover once timing returned");
+    check(core.state()==phantom::State::Stopped,"loop overrun cleared without FAULT_ACK");
+    check(core.acknowledge_fault((std::uint16_t)phantom::Fault::Timeout)!=phantom::RecoveryResult::Ok,"loop fault accepted wrong FAULT_ACK");
+    check(core.acknowledge_fault((std::uint16_t)phantom::Fault::LoopOverrun)==phantom::RecoveryResult::Ok,"loop fault rejected valid FAULT_ACK");
+    run_ticks(core,now,1);
+    check(core.state()==phantom::State::Discovery&&!core.motion_allowed(),"fault recovery armed motion");
     check(core.snapshot().loop_health_flags!=0,"loop health flags were not recorded");
   }
   // ---- telemetry snapshot is controller-owned (H-01) -----------------------

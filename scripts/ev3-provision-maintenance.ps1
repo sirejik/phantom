@@ -26,7 +26,6 @@ $controlBytes=[IO.File]::ReadAllBytes($controlPath)
 try
 {
     $trimmed=$controlBytes
-    while($trimmed.Length-gt 0 -and @(9,10,13,32)-contains$trimmed[$trimmed.Length-1]){$trimmed=$trimmed[0..($trimmed.Length-2)]}
     $isHex=$trimmed.Length-eq 64 -and -not @($trimmed|Where-Object{-not(('0123456789abcdefABCDEF').ToCharArray()-contains[char]$_)}).Count
     if(!$isHex -and $trimmed.Length-lt 32){throw 'PROVISION_CORRUPT: CONTROL PSK does not satisfy minimum entropy length'}
 }
@@ -106,7 +105,7 @@ $payload=@(
     (Join-Path $repository 'provision/ev3/bootstrap'),(Join-Path $repository 'provision/ev3/wifi-autoconnect'),
     (Join-Path $repository 'provision/ev3/phantom-wifi-autoconnect.service'),
     (Join-Path $repository 'deploy/scripts/install-release'),(Join-Path $repository 'deploy/scripts/start-release'),
-    (Join-Path $repository 'deploy/scripts/run-device-integration-test'),(Join-Path $repository 'deploy/scripts/rollback-release')
+    (Join-Path $repository 'deploy/scripts/run-device-integration-test')
 )
 foreach($source in $payload){if(!(Test-Path -LiteralPath $source -PathType Leaf)){throw "PROVISION_CORRUPT: provisioning payload is missing: $source"}}
 $remoteDirectory='/tmp/phantom-maintenance-provision'
@@ -123,7 +122,7 @@ if($WifiSettingsFile)
     if($LASTEXITCODE-ne 0){throw 'PROVISION_CORRUPT: EV3 Wi-Fi profile transfer failed'}
     $wifiArgs=" '$WifiServiceId' 'wifi.settings'"
 }
-& $ssh -F $configPath $target -- "sh '$remoteDirectory/bootstrap' '$remoteDirectory' 'control.psk'$wifiArgs; rm -rf '$remoteDirectory'"
+& $ssh -F $configPath $target -- "sh '$remoteDirectory/bootstrap' '$remoteDirectory' 'control.psk'$wifiArgs; provision_status=`$?; rm -rf '$remoteDirectory'; exit `$provision_status"
 if($LASTEXITCODE-ne 0){throw 'PROVISION_CORRUPT: EV3 platform provisioning failed'}
 & $ssh -F $configPath $target -- "test -s /var/lib/phantom/secrets/control.psk && test -x /usr/local/libexec/phantom-maintenance/start-release"
 if($LASTEXITCODE-ne 0){throw 'PROVISION_CORRUPT: EV3 provisioning verification failed'}

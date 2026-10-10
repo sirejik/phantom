@@ -127,7 +127,6 @@ public final class PhantomCredentialStore {
     /** Accepts 32+ raw bytes or exactly 64 ASCII hex characters. */
     static byte[] decodeKeyMaterial(byte[] raw) {
         int end = raw.length;
-        while (end > 0 && (raw[end - 1] == '\n' || raw[end - 1] == '\r' || raw[end - 1] == ' ' || raw[end - 1] == '\t')) end--;
         if (end == 64 && isHex(raw, end)) {
             byte[] decoded = new byte[32];
             for (int i = 0; i < 32; i++) {

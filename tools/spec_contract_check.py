@@ -89,7 +89,7 @@ def main():
     required_semantics = (
         "protocol/wire_schema.yaml",
         "protocol/semantics.yaml",
-        "protocol/protocol.md",
+        "docs/protocol-wire-reference.md",
         "HELLO.capabilities_requested",
         "ERR_UNSUPPORTED",
         "session_id=0",

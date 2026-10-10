@@ -53,7 +53,7 @@ Quest должен:
 4. при изменении адреса закрывать старую сетевую сессию и создавать новую;
 5. не переносить `session_id` или `controller_boot_id` на новый обнаруженный сетевой адрес без повторного установления сессии.
 
-Quest discovery adapter использует platform `NsdManager`/DNS-SD и обязан учитывать platform lifecycle/permission contract: discovery останавливается при уничтожении соответствующего app lifecycle owner и запускается заново при возвращении; на старых Android/SDK-extension комбинациях, где foreground mDNS требует ручного `WifiManager.MulticastLock`, lock удерживается только bounded временем discovery и гарантированно освобождается. Local-network permission policy определяется [Требования к продукту §4.6](product-requirements.md#sec-3-2-6)/[Разработка и развёртывание §8](engineering.md#sec-8-8) и не подменяется сохранённым IP.
+Quest discovery adapter использует platform `NsdManager`/DNS-SD и обязан учитывать platform lifecycle/permission contract: discovery останавливается при уничтожении соответствующего app lifecycle owner и запускается заново при возвращении; на старых Android/SDK-extension комбинациях, где foreground mDNS требует ручного `WifiManager.MulticastLock`, lock удерживается только bounded временем discovery и гарантированно освобождается. Local-network permission policy определяется [Требования к продукту §4.6](product-requirements.md#sec-3-2-6)/[Разработка и развёртывание §5.5](engineering.md#sec-8-8) и не подменяется сохранённым IP.
 
 В инженерном `Diagnostic` допускается ручной ввод адреса для лабораторной диагностики, но он не является штатным пользовательским механизмом и не заменяет проверку `robot_id`/HMAC.
 
@@ -63,7 +63,7 @@ Quest discovery adapter использует platform `NsdManager`/DNS-SD и о�
 <a id="sec-4-7-1"></a>
 ### 2.1. Транспорт
 
-Используется UDP в доверенной локальной сети. **PHANTOM protocol v1 квалифицирует только IPv4 transport**: EV3 listener и DNS-SD publication обязаны предоставлять IPv4 endpoint, а Quest не переключается молча на IPv6. IPv6 может быть добавлен только после отдельной simulator/device/HIL qualification без изменения identity semantics. Поток движения реализует семантику «последняя валидная цель заменяет старую».
+Используется UDP в доверенной локальной сети. **PHANTOM protocol v1 квалифицирует только IPv4 transport**: EV3 listener и DNS-SD publication обязаны предоставлять IPv4 endpoint, а Quest не переключается молча на IPv6. IPv6 может быть добавлен только после отдельной simulator/device/MANUAL qualification без изменения identity semantics. Поток движения реализует семантику «последняя валидная цель заменяет старую».
 
 ```text
 порт EV3 по умолчанию: 30470
@@ -72,7 +72,7 @@ Quest discovery adapter использует platform `NsdManager`/DNS-SD и о�
 
 Точный byte order, scalar encoding, header/auth-tag widths, per-message payload lengths и
 protocol numeric fields задаются `protocol/wire_schema.yaml` и generated
-`protocol/protocol.md`; этот prose их вручную не дублирует.
+`docs/protocol-wire-reference.md`; этот prose их вручную не дублирует.
 
 `HELLO_ACK.reserved0` содержит только нули и проверяется получателем после HMAC.
 Документация не передаётся как compatibility identity; допуск определяется
@@ -93,7 +93,7 @@ HMAC-SHA-256(PSK, header || payload)
 ### 2.3. Общий заголовок
 
 Exact header layout/types/widths/reserved values задаются `protocol/wire_schema.yaml` и
-generated `protocol/protocol.md`. Здесь фиксируется только behavioral semantics полей:
+generated `docs/protocol-wire-reference.md`. Здесь фиксируется только behavioral semantics полей:
 
 | Поле | Смысл |
 |---|---|
@@ -109,7 +109,7 @@ generated `protocol/protocol.md`. Здесь фиксируется только
 
 `HELLO.capabilities_requested` в protocol v1 имеет canonical value `0`. Любое ненулевое значение, обнаруженное после успешной HMAC-проверки, приводит к authenticated `HELLO_ACK(result_code=ERR_UNSUPPORTED, session_id=0)`. Поле зарезервировано для versioned negotiation будущего protocol minor и не меняет layout v1.
 
-Перед type-specific payload parsing выполняются exact generated length checks из `protocol/wire_schema.yaml`/`protocol/protocol.md` согласно [§4](#sec-11-8). Total datagram не превышает security limit `1024` bytes из `NFR-SEC-03`; header/payload/auth-tag widths берутся только из current schema-generated contract.
+Перед type-specific payload parsing выполняются exact generated length checks из `protocol/wire_schema.yaml`/`docs/protocol-wire-reference.md` согласно [§4](#sec-11-8). Total datagram не превышает security limit `1024` bytes из `NFR-SEC-03`; header/payload/auth-tag widths берутся только из current schema-generated contract.
 
 Session lifecycle:
 
@@ -122,7 +122,7 @@ Session lifecycle:
 - `sequence` строго возрастает отдельно по направлению внутри session, начинается с `1` после handshake, wrap запрещён;
 - защита от L2/UDP replay-DoS не заявляется как криптографическая гарантия v1; trusted/isolated LAN остаётся обязательным допущением [Требования к продукту §4.6](product-requirements.md#sec-3-2-6).
 
-Нормативным single source of truth **структуры** wire format является `/protocol/wire_schema.yaml`. Он обязан задавать для **каждого** message type точный порядок полей, scalar type/width, enum numeric values, bit positions, fixed array lengths, reserved bytes и exact payload length; machine-readable межреализационная semantics принадлежит `/protocol/semantics.yaml`, human-readable mirror генерируется как `protocol/protocol.md`, а [§4](#sec-11-8) задаёт ownership/generation policy. Контекстные ranges/transition guards, зависящие от active `CommissioningBundle`, остаются в owning prose. Из sources генерируются structural/semantic/contract canonical artifacts, C++14/C# constants/size maps и golden vectors. Production codecs могут быть hand-written, но CI проверяет их общими vectors. Build manifests содержат `protocol_schema_hash`, `protocol_semantics_hash` и `protocol_contract_hash`; `HELLO_ACK` передаёт compatibility `protocol_contract_hash`. Whitespace/line endings authoring files не входят в identity.
+Нормативным single source of truth **структуры** wire format является `/protocol/wire_schema.yaml`. Он обязан задавать для **каждого** message type точный порядок полей, scalar type/width, enum numeric values, bit positions, fixed array lengths, reserved bytes и exact payload length; machine-readable межреализационная semantics принадлежит `/protocol/semantics.yaml`, human-readable mirror генерируется как `docs/protocol-wire-reference.md`, а [§4](#sec-11-8) задаёт ownership/generation policy. Контекстные ranges/transition guards, зависящие от active `CommissioningBundle`, остаются в owning prose. Из sources генерируются structural/semantic/contract canonical artifacts, C++14/C# constants/size maps и golden vectors. Production codecs могут быть hand-written, но CI проверяет их общими vectors. Build manifests содержат `protocol_schema_hash`, `protocol_semantics_hash` и `protocol_contract_hash`; `HELLO_ACK` передаёт compatibility `protocol_contract_hash`. Whitespace/line endings authoring files не входят в identity.
 
 <a id="sec-4-7-4"></a>
 ### 2.4. Типы сообщений
@@ -151,7 +151,7 @@ Session lifecycle:
 | `PING` | оба | RTT/доступность |
 | `PONG` | оба | ответ |
 
-Exact numeric `message_type` values принадлежат `protocol/wire_schema.yaml` и generated `protocol/protocol.md`; они намеренно не дублируются в hand-written spec.
+Exact numeric `message_type` values принадлежат `protocol/wire_schema.yaml` и generated `docs/protocol-wire-reference.md`; они намеренно не дублируются в hand-written spec.
 Операции, изменяющие persistent/session state или физическое состояние (`FAULT_ACK`, `RESET_STOPPED`, `SET_PAYLOAD_PROFILE`, `SET_PAYLOAD_STATE`, `COMMISSIONING_SAMPLE`, `CALIBRATION_JOG`, reference/calibration writes) сериализованы: Quest не отправляет вторую state-changing transaction, пока первая не завершена/не истёк её bounded retry policy. `transaction_id:u64` строго возрастает **в пределах одной session**.
 
 Transaction layer начинается только после успешных HMAC, session/boot, wire-sequence и exact type-length checks, когда `transaction_id` безопасно доступен. Для `id==last+1` controller вычисляет `canonical_request_hash = SHA-256(message_type_le_u16 || exact_payload_bytes)` **до semantic field/range/state checks**, затем выполняет operation validation. Любой сформированный operation-specific ACK (`OK` или детерминированный `ERR_FORMAT/ERR_RANGE/ERR_STATE/ERR_REFERENCE/ERR_FAULT/ERR_HASH_MISMATCH/...`) считается завершённой transaction: `{id,hash,response_message_type,ack_payload_bytes}` сохраняется и `last_transaction_id` продвигается. Исправленная операция поэтому использует **следующий** transaction id; повтор того же id с изменённым payload является conflict. Пакеты, отброшенные до transaction layer (bad HMAC/session/boot/wire sequence/exact length), transaction id не consume-ят. `ERR_TRANSACTION_STALE/CONFLICT/GAP` также не продвигают `last_transaction_id`.
@@ -192,7 +192,7 @@ sample_id
 
 Quest принимает `JOG_ACK`, ждёт полной остановки механики и только затем измеряет новый физический угол или раскрытие по QR. Exact retry `CALIBRATION_JOG` допустим только внутри той же session по общим transaction rules и возвращает сохранённый `JOG_ACK` result без второго движения. Если `JOG_ACK` не получен и session прекращена, Quest помечает шаг `OUTCOME_UNKNOWN` и **не replay-ит старый jog** после reconnect: требуется новый физический `LOCAL_COMMISSION_ARM`, новая commissioning session, подтверждённая stationary condition, новый `CALIBRATION_QUERY`/encoder snapshot и QR-наблюдение фактической позы; только затем рассчитывается следующий bounded jog от реально наблюдаемого состояния. `COMMISSIONING_SAMPLE` содержит согласованную пару `sample_id + encoder_count + physical_value/q_qr/jaw_opening + direction + QR quality` для журнала процедуры. Это сериализованная state-changing transaction: после durable принятия/пометки `sample_id` использованным EV3 возвращает `CONTROL_ACK(operation_type=COMMISSIONING_SAMPLE)`; exact retry того же `transaction_id+payload` в той же session обязан получить тот же ACK payload/result без повторной записи/повторного consume `sample_id`, но с новым response header sequence/timestamp/HMAC. Quest не использует sample как доказательство принятого commissioning evidence до успешного ACK. Если session потеряна после возможного принятия sample без полученного ACK, старый sample не автоматически replay-ится: новая commissioning session получает новый snapshot/sample evidence и продолжает процедуру от наблюдаемого состояния. Расчёт `DriveCalibration` выполняется на Quest/PC, а не в 50-Hz цикле EV3.
 
-После проверки на независимых контрольных положениях Quest передаёт `SET_DRIVE_CALIBRATION`. Полезная часть содержит `transaction_id`, хэш применимой `RobotGeometry`, новую редакцию/хэш калибровки, измеренные параметры и метрики проверки. Для Gripper передаются две ограниченные по размеру монотонные таблицы `(d_counts, opening_mm)` — для открытия и закрытия — плюс calibration-session closed anchor, signed safety-owned open travel `gripper_open_limit_delta_counts`, QR-измеренный safe-open endpoint и люфт. Wire-поле `gripper_open_limit_delta_counts` здесь является **validation echo** текущего authoritative `SafetyEnvelope`: транзакция обязана совпасть с ним byte-for-value и не может расширить/заменить safety bound; persistent `DriveCalibration[D]` не получает отдельный independently mutable hard-limit field. Число узлов таблицы фиксируется схемой протокола и выбирается минимальным, достаточным для прохождения ошибки [План проверки §14](test-plan.md#sec-9-14); произвольный неограниченный массив в пакет не допускается.
+После проверки на независимых контрольных положениях Quest передаёт `SET_DRIVE_CALIBRATION`. Полезная часть содержит `transaction_id`, хэш применимой `RobotGeometry`, новую редакцию/хэш калибровки, измеренные параметры и метрики проверки. Для Gripper передаются две ограниченные по размеру монотонные таблицы `(d_counts, opening_mm)` — для открытия и закрытия — плюс calibration-session closed anchor, signed safety-owned open travel `gripper_open_limit_delta_counts`, QR-измеренный safe-open endpoint и люфт. Wire-поле `gripper_open_limit_delta_counts` здесь является **validation echo** текущего authoritative `SafetyEnvelope`: транзакция обязана совпасть с ним byte-for-value и не может расширить/заменить safety bound; persistent `DriveCalibration[D]` не получает отдельный independently mutable hard-limit field. Число узлов таблицы фиксируется схемой протокола и выбирается минимальным, достаточным для прохождения ошибки [Метрики и анализ §4.6](metrics-and-logs.md#sec-9-14); произвольный неограниченный массив в пакет не допускается.
 
 `SET_DRIVE_CALIBRATION` сохраняет **только calibration subset active scope**. Fixed wire payload остаётся прежним: значения осей вне scope обязаны быть каноническими нулями и не валидируются как физическая калибровка. В gripper-only scope `0x08` учитываются поля D/curves/validation[D], а A/B/C игнорируются. `robot_geometry_hash` при этом относится к qualification bundle, содержащему как минимум версионированную gripper geometry (`JAW_* → contact` transforms); полная геометрия роборуки не требуется и такой bundle не разрешает `READY`.
 
@@ -204,7 +204,7 @@ EV3 принимает `SET_DRIVE_CALIBRATION` только при `MOTION_ENABL
 
 Любое принятое изменение `DriveCalibration` инвалидирует текущие `JointReference` и `GripperReference`: reference текущего запуска связан с конкретной calibration revision/hash и не переносится через её изменение. После ACK-only/reconciliation следующая reference/qualification выполняется только после нового discovery/`HELLO` уже с активной revision.
 
-`SET_JOINT_REFERENCE` содержит `transaction_id`, хэш `DriveCalibration`, `sample_id`, `q_qr[3]`, `jaw_opening_qr_mm` и соответствующий атомарный снимок энкодеров A/B/C/D. EV3 принимает привязку только для текущего запуска, exact current `sample_id`/`controller_boot_id`, совместимой конфигурации и полей, требуемых `safety_observation_mask`; отвечает `REFERENCE_ACK` с вычисленными `q_actual`, `grip_actual` и reference flags. Если `REFERENCE_ACK` потерян и session затем прекращена, Quest не предполагает успех по возможному side effect: после нового `HELLO` выполняются новый stationary `CALIBRATION_QUERY`, свежая QR-observation и новый `SET_JOINT_REFERENCE` с новым transaction id. Существующая controller-side reference может быть безопасно заменена свежей; stale UI/cache не является evidence. Этот recovery path обязателен для HIL regression.
+`SET_JOINT_REFERENCE` содержит `transaction_id`, хэш `DriveCalibration`, `sample_id`, `q_qr[3]`, `jaw_opening_qr_mm` и соответствующий атомарный снимок энкодеров A/B/C/D. EV3 принимает привязку только для текущего запуска, exact current `sample_id`/`controller_boot_id`, совместимой конфигурации и полей, требуемых `safety_observation_mask`; отвечает `REFERENCE_ACK` с вычисленными `q_actual`, `grip_actual` и reference flags. Если `REFERENCE_ACK` потерян и session затем прекращена, Quest не предполагает успех по возможному side effect: после нового `HELLO` выполняются новый stationary `CALIBRATION_QUERY`, свежая QR-observation и новый `SET_JOINT_REFERENCE` с новым transaction id. Существующая controller-side reference может быть безопасно заменена свежей; stale UI/cache не является evidence. Этот recovery path обязателен для MANUAL regression.
 
 Reference-domain определяется **`safety_observation_mask`**:
 
@@ -219,7 +219,7 @@ Motor-disabled safety-observed axis поэтому никогда не полу�
 
 `RESET_STOPPED` принимается только когда физический `LOCAL_STOP` уже released, **все физически обнаруженные моторы stationary**, нет unresolved maintenance-required fault и operation transaction новая. Успех снимает только local-stop latch, не очищает независимый fault latch, не вооружает движение и не восстанавливает session-local commissioning authority: после очистки всех blocking latch при живой CONTROL session следующий state выбирается между `HOLD`/`CONNECTED_UNREFERENCED` по reference, а после бывшей commissioning session — `DISCOVERY`.
 
-`SET_PAYLOAD_PROFILE` выбирает только установленный в active `CommissioningBundle` профиль **вместе с его `JointSafeSet`**. В `qualification_only=false` profile обязан быть покрыт active `QualificationEvidenceManifest`; в `qualification_only=true` допускается только candidate profile, разрешённый engineering scope [§2.5](#sec-4-7-5), и его использование само по себе не делает profile production-qualified. После boot active profile=`UNSELECTED` (reserved runtime sentinel, не допустимый ID установленного PayloadProfile), `active_joint_safe_set_hash=0`. Startup-вызов `SET_PAYLOAD_PROFILE` разрешён также в `ROBOT_CALIBRATION` **только после принятой полной JointReference/RobotLocalization**, при `MOTION_ENABLE=0`, stationary A/B/C/D и отсутствии latched fault; успешный ACK является первым payload gate перехода в `READY`. Во время эксплуатации смена профиля остаётся разрешённой только в `READY/HOLD` при тех же stationary условиях. `SET_PAYLOAD_STATE` содержит `transaction_id + profile_id + payload_state + payload_confirmation_nonce`; startup-подтверждение `EMPTY/LOADED` разрешено в `ROBOT_CALIBRATION` только **после** успешного выбора profile, при полной reference/localization, stationary A/B/C/D, `MOTION_ENABLE=0` и отсутствии latched fault. В эксплуатации операция разрешена только в `READY/HOLD`. Успешный startup ACK `SET_PAYLOAD_STATE` является вторым payload gate, и `ROBOT_CALIBRATION→READY` запрещён при `PayloadState=UNKNOWN`. В production CONTROL `payload_confirmation_nonce` генерируется Quest CSPRNG только после явного подтверждения оператора. В `COMMISSIONING/ACTUATOR_QUALIFICATION` HIL nonce генерируется авторизованным case runner после того, как исходный payload state задан и проверен fixture/case prerequisite **до запуска соответствующего motion segment**; дополнительное действие человека после старта AUTO-case не требуется и запрещено [План проверки §1.4](test-plan.md#sec-9-1-4). Nonce служит только audit/correlation evidence, не заменяет HMAC/session/state authorization, а exact retry той же transaction обязан повторять тот же nonce. До ACK нового профиля EV3 загружает/валидирует его safe-set вне 50-Hz loop и атомарно меняет active profile+safe-set; при отсутствии/несовпадении hash операция отклоняется `FAULT_PAYLOAD_PROFILE`.
+`SET_PAYLOAD_PROFILE` выбирает только установленный в active `CommissioningBundle` профиль **вместе с его `JointSafeSet`**. В `qualification_only=false` profile обязан быть покрыт active `QualificationEvidenceManifest`; в `qualification_only=true` допускается только candidate profile, разрешённый engineering scope [§2.5](#sec-4-7-5), и его использование само по себе не делает profile production-qualified. После boot active profile=`UNSELECTED` (reserved runtime sentinel, не допустимый ID установленного PayloadProfile), `active_joint_safe_set_hash=0`. Startup-вызов `SET_PAYLOAD_PROFILE` разрешён также в `ROBOT_CALIBRATION` **только после принятой полной JointReference/RobotLocalization**, при `MOTION_ENABLE=0`, stationary A/B/C/D и отсутствии latched fault; успешный ACK является первым payload gate перехода в `READY`. Во время эксплуатации смена профиля остаётся разрешённой только в `READY/HOLD` при тех же stationary условиях. `SET_PAYLOAD_STATE` содержит `transaction_id + profile_id + payload_state + payload_confirmation_nonce`; startup-подтверждение `EMPTY/LOADED` разрешено в `ROBOT_CALIBRATION` только **после** успешного выбора profile, при полной reference/localization, stationary A/B/C/D, `MOTION_ENABLE=0` и отсутствии latched fault. В эксплуатации операция разрешена только в `READY/HOLD`. Успешный startup ACK `SET_PAYLOAD_STATE` является вторым payload gate, и `ROBOT_CALIBRATION→READY` запрещён при `PayloadState=UNKNOWN`. В production CONTROL `payload_confirmation_nonce` генерируется Quest CSPRNG только после явного подтверждения оператора. В `COMMISSIONING/ACTUATOR_QUALIFICATION` MANUAL nonce генерируется авторизованным case runner после того, как исходный payload state задан и проверен fixture/case prerequisite **до запуска соответствующего motion segment**; дополнительное действие человека после старта AUTO-case не требуется и запрещено [План проверки §6.2](test-plan.md#sec-9-23). Nonce служит только audit/correlation evidence, не заменяет HMAC/session/state authorization, а exact retry той же transaction обязан повторять тот же nonce. До ACK нового профиля EV3 загружает/валидирует его safe-set вне 50-Hz loop и атомарно меняет active profile+safe-set; при отсутствии/несовпадении hash операция отклоняется `FAULT_PAYLOAD_PROFILE`.
 
 Смена профиля всегда устанавливает runtime `PayloadState=UNKNOWN` и очищает armed-latch. `UNSELECTED` нельзя передать через `SET_PAYLOAD_PROFILE`; это только локальный startup sentinel. После controller continuity loss ранее активный profile/safe-set не используется как authoritative без нового startup selection. `SET_PAYLOAD_STATE` от оператора принимает только `EMPTY` или `LOADED`; `UNKNOWN` устанавливается системой и не является операторской командой. `LOADED` отклоняется, если выбран профиль `EMPTY` или отсутствует совместимый installed PayloadProfile/JointSafeSet. Для подхода к ожидаемому предмету оператор выбирает non-empty profile, затем при stationary `READY/HOLD` явно подтверждает текущий пустой захват как `EMPTY`; с этого момента уже действуют консервативные limits/safe-set выбранного profile. После подтверждённого object/early contact [Спецификация EV3 §15.3](ev3-specification.md#sec-7-15-3) state снова становится `UNKNOWN` и A/B/C остаются в `HOLD` до явного `LOADED` либо release→`EMPTY`. После boot/controller continuity loss payload state также `UNKNOWN`; автоматический optimistic `EMPTY` запрещён.
 
@@ -227,7 +227,7 @@ Motor-disabled safety-observed axis поэтому никогда не полу�
 
 - gripper-only `actuator_scope_mask=0x08`: обе операции недоступны; этапы 4–5 квалифицируют D без payload profile/state;
 - narrow A/B/C qualification (`actuator_scope_mask` является строгим подмножеством `0x07` либо `0x0F`, но содержит A/B/C): после полной `JointReference A/B/C`, выбранного installed `EMPTY` profile+matching EMPTY `JointSafeSet`, stationary всех safety-observed/motor-authorized осей, `MOTION_ENABLE=0`, локальной commissioning authority и снятого qualification arm разрешается только `SET_PAYLOAD_PROFILE=EMPTY` и `SET_PAYLOAD_STATE=EMPTY`. `LOADED`, non-empty profile, pickup/contact-as-payload и release cases отклоняются `ERR_STATE`;
-- full `actuator_scope_mask=safety_observation_mask=0x0F` qualification-only: при валидных A/B/C/D references, stationary A/B/C/D, active commissioning role/local authority, `MOTION_ENABLE=0`, qualification armed-latch=false и отсутствии fault разрешается выбирать установленный квалифицируемый PayloadProfile и подтверждать `EMPTY/LOADED`. Это используется **только** для HIL payload/contact/release evidence до promotion production bundle.
+- full `actuator_scope_mask=safety_observation_mask=0x0F` qualification-only: при валидных A/B/C/D references, stationary A/B/C/D, active commissioning role/local authority, `MOTION_ENABLE=0`, qualification armed-latch=false и отсутствии fault разрешается выбирать установленный квалифицируемый PayloadProfile и подтверждать `EMPTY/LOADED`. Это используется **только** для MANUAL payload/contact/release evidence до promotion production bundle.
 
 Любой успешный engineering profile/state transition инвалидирует moving target, очищает `release_seen/armed-latch` и требует нового OFF/HOLD→rising edge перед следующим qualification motion. Если ACK payload operation потерян и session затем исчезла, новая session не наследует операторское подтверждение как authority: tooling заново сверяет telemetry/profile hashes и повторяет безопасную явную selection/confirmation transaction перед motion; старый transaction id не переносится.
 
@@ -235,7 +235,7 @@ Motor-disabled safety-observed axis поэтому никогда не полу�
 ### 2.6. `COMMAND`
 
 Exact `COMMAND` field order/types/reserved bytes и numeric bit positions задаются
-`protocol/wire_schema.yaml`/generated `protocol/protocol.md`.
+`protocol/wire_schema.yaml`/generated `docs/protocol-wire-reference.md`.
 
 Behavioral fields, используемые control semantics: `motion_flags`, `q_base_rad`,
 `q_shoulder_rad`, `q_elbow_rad`, `grip_intent`; reserved fields всегда проходят
@@ -292,22 +292,22 @@ CommissioningBundle/profile hash compatible
         это допускается только после полной RobotGeometry + DriveCalibration + JointReference A/B/C + применимого profile-specific JointSafeSet + pre-motion gates этапа 9
         narrow scope: active PayloadProfile/State обязаны быть EMPTY/EMPTY
         full 0x0F qualification-only: PayloadState in {EMPTY, LOADED}, LOADED только с совместимым non-empty profile/safe-set
-        сам движущийся HIL case является результатом qualification, а не её prerequisite
+        сам движущийся MANUAL case является результатом qualification, а не её prerequisite
 ```
 
 Таким образом `JointReference` не является глобальным prerequisite Motor D, что согласуется с инвариантами S6/S7. Любая несовместимость scope или попытка задействовать disabled axis отклоняется без motor write и журналируется.
 
 Порядок допуска A/B/C и постепенного расширения scope определён в
 [Этапах реализации §11](implementation-stages.md#sec-10-11), проверки — в
-[Плане проверки §15.7](test-plan.md#sec-9-15-7) и
-[Плане проверки §26](test-plan.md#sec-9-26).
+[Плане проверки §4.7.7](metrics-and-logs.md#sec-9-15-7) и
+[Плане проверки §7](test-plan.md#sec-9-26).
 
 <a id="sec-4-7-8"></a>
 ### 2.8. `TELEMETRY`
 
 `TELEMETRY` передаёт состояние EV3, фактическое положение, подтверждение принятой
 команды и данные watchdog. Состав и типы полей определены в
-[`protocol/protocol.md`](../protocol/protocol.md), генерируемом из wire schema.
+[`docs/protocol-wire-reference.md`](protocol-wire-reference.md), генерируемом из wire schema.
 Здесь определены правила интерпретации этих полей.
 
 В `qualification_only` profile значения `q_actual/q_speed` передаются реальными только для осей из `safety_observation_mask`; оси вне этой маски имеют canonical zero/`N_A`. Поэтому при partial A/B/C `ACTUATOR_QUALIFICATION` неподвижная ось без motor authority всё равно может иметь реальный `q_actual`, если она требуется coupled-safety. Quest знает обе маски из локального `CommissioningBundle`, совпадение которого доказано `commissioning_bundle_hash`; отдельные wire-поля масок не вводятся. `safety_observation_mask` не расширяет motor authority. Все motor writes по-прежнему hard-inhibited вне `actuator_scope_mask`.
@@ -320,7 +320,7 @@ CommissioningBundle/profile hash compatible
 
 Wire `state` по-прежнему остаётся `COMMISSIONING`, но active subphase должна быть наблюдаема: `TELEMETRY.status_flags.commissioning_actuator_qualification_active`. Бит устанавливается **только EV3** после успешного локального `ENTER` и всех qualification prerequisites и сбрасывается при reconnect/session loss, `LOCAL_STOP`, fault или выходе из phase. Quest может показывать собственный workflow-state, но разрешает qualification UI/moving command только когда видит authoritative `commissioning_actuator_qualification_active` flag в свежей telemetry; UI-state сам по себе actuator authority не создаёт.
 
-`status_flags` bit layout v1 задан `protocol/wire_schema.yaml` и generated `protocol/protocol.md` согласно [§4](#sec-11-8) и включает `joint_reference_valid`, `gripper_reference_valid`, `commissioning_bundle_valid`, `local_stop_active`, `safety_supervisor_alive`, `grasp_contact`, `battery_derated`, `payload_profile_valid`, `active_joint_safe_set_valid` и authoritative `commissioning_actuator_qualification_active`; остальные reserved bits остаются нулевыми.
+`status_flags` bit layout v1 задан `protocol/wire_schema.yaml` и generated `docs/protocol-wire-reference.md` согласно [§4](#sec-11-8) и включает `joint_reference_valid`, `gripper_reference_valid`, `commissioning_bundle_valid`, `local_stop_active`, `safety_supervisor_alive`, `grasp_contact`, `battery_derated`, `payload_profile_valid`, `active_joint_safe_set_valid` и authoritative `commissioning_actuator_qualification_active`; остальные reserved bits остаются нулевыми.
 
 `loop_health_flags` сообщает нормальное состояние или факт недавнего overrun без передачи полного массива диагностических timing-счётчиков.
 
@@ -330,11 +330,11 @@ Wire `state` по-прежнему остаётся `COMMISSIONING`, но active
 ## 3. Семантика состояний и ошибок
 
 Exact numeric values `TELEMETRY.state` и `TELEMETRY.fault_code` принадлежат
-`protocol/wire_schema.yaml` и generated `protocol/protocol.md`; здесь они намеренно не
+`protocol/wire_schema.yaml` и generated `docs/protocol-wire-reference.md`; здесь они намеренно не
 дублируются.
 
 Переходы состояний описаны в [Архитектура системы §5](system-architecture.md#sec-4-3);
-перечни wire symbols генерируются в [protocol.md](../protocol/protocol.md).
+перечни wire symbols генерируются в [protocol.md](protocol-wire-reference.md).
 
 Отдельного wire-state `FAULT` нет. Schema-defined no-fault value означает отсутствие latched
 fault; любой активный fault принудительно сочетается с `state=STOPPED` до recovery. UI может
@@ -359,7 +359,7 @@ Authoritative protocol identity sources:
 2. `protocol/semantics.yaml` — machine-readable cross-runtime behavioral contract;
 3. generated `wire_schema.structural.json`, `protocol_semantics.canonical.json` and
    `protocol_contract.canonical.json` — RFC 8785 JCS identity inputs;
-4. `protocol/protocol.md` — generated human-readable mirror;
+4. `docs/protocol-wire-reference.md` — generated human-readable mirror;
 5. generated C++/C# constants/size maps/compile-time definitions;
 6. `protocol/golden_vectors/v1.json` — cross-language wire fixtures.
 
@@ -380,7 +380,7 @@ A semantic protocol change must first update `protocol/semantics.yaml`, relevant
 tests/evidence and the owning normative prose. Documentation checks run separately from BUILD.
 
 
-Для `SET_DRIVE_CALIBRATION` дополнительно обязательно: `gripper_open_limit_delta_counts != 0 && != INT32_MIN`; его значение **в точности** совпадает с authoritative `SafetyEnvelope`; `D_open_counts=abs(value)` помещается в configured/HIL-qualified bound; все используемые `CurveNode.delta_encoder` находятся в `[0,D_open_counts]`, строго возрастают по `d_counts`, endpoint nodes покрывают `0` и `D_open_counts`, а `opening_mm` монотонен с допуском schema. Calibration-session `gripper_e_closed` не превращается в persistent runtime hard limit.
+Для `SET_DRIVE_CALIBRATION` дополнительно обязательно: `gripper_open_limit_delta_counts != 0 && != INT32_MIN`; его значение **в точности** совпадает с authoritative `SafetyEnvelope`; `D_open_counts=abs(value)` помещается в configured/MANUAL-qualified bound; все используемые `CurveNode.delta_encoder` находятся в `[0,D_open_counts]`, строго возрастают по `d_counts`, endpoint nodes покрывают `0` и `D_open_counts`, а `opening_mm` монотонен с допуском schema. Calibration-session `gripper_e_closed` не превращается в persistent runtime hard limit.
 
 Для всех `f32` приёмник обязан проверить `isfinite`; диапазоны определяются schema и active `CommissioningBundle`. `DIAGNOSTIC_TELEMETRY` не расширяет actuator authority. `payload_length` обязан **точно** совпадать с указанной длиной; variable-length payload v1 отсутствуют. Для gripper curves длина остаётся fixed 16+16 узлов, а реальные counts задают число используемых элементов — это исключает allocator/parser ambiguity.
 
@@ -407,4 +407,4 @@ CI обязан:
 3. выполнить cross-codec golden-vector decode/round-trip для каждого message type и отдельные semantic/negative vectors для каждого enum/error path;
 4. проверить corrupted length/reserved/NaN/Inf/endian/HMAC/fuzz cases;
 
-5. проверить machine-readable extractor-ом, что generated `protocol/protocol.md`, constants/size maps и golden vectors соответствуют текущему `wire_schema.yaml`; [§4](#sec-11-8) проверяет ownership/generation policy, а hand-written PHANTOM prose не содержит competing exact wire tables.
+5. проверить machine-readable extractor-ом, что generated `docs/protocol-wire-reference.md`, constants/size maps и golden vectors соответствуют текущему `wire_schema.yaml`; [§4](#sec-11-8) проверяет ownership/generation policy, а hand-written PHANTOM prose не содержит competing exact wire tables.

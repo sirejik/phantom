@@ -75,6 +75,11 @@ class SchemaValidatorTests(unittest.TestCase):
 
 
 class ContractTests(unittest.TestCase):
+    def test_loop_thresholds_cannot_exceed_safety_deadlines(self):
+        for field,value in (("loop_safe_hold_ms",61),("loop_fault_ms",101)):
+            obj=source("ev3-network-only");obj["safety"][field]=value
+            with self.assertRaisesRegex(ValueError,"safety deadlines"):
+                CONFIGGEN.validate("ev3-network-only",obj)
     def test_loop_thresholds_must_be_two_level(self):
         obj = source("ev3-network-only")
         obj["safety"]["loop_safe_hold_ms"] = obj["safety"]["loop_fault_ms"]

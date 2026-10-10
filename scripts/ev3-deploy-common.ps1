@@ -31,7 +31,7 @@ function Invoke-PhantomNative([string]$File,[string[]]$Arguments,[int]$TimeoutSe
     return [pscustomobject]@{ExitCode=$process.ExitCode;Stdout=$stdoutLines;Stderr=$stderrLines;Output=@($stdoutLines+$stderrLines)}
 }
 
-function Invoke-PhantomEv3Command([string]$RemoteCommand,[string]$StateRoot='',[ValidateRange(1,300)][int]$TimeoutSeconds=15)
+function Invoke-PhantomEv3Command([string]$RemoteCommand,[string]$StateRoot='',[ValidateRange(1,960)][int]$TimeoutSeconds=15)
 {
     $context=Get-PhantomEv3Context $StateRoot
     $ssh=(Get-Command ssh -ErrorAction Stop).Source
@@ -53,7 +53,7 @@ function Invoke-PhantomEv3Command([string]$RemoteCommand,[string]$StateRoot='',[
 function Invoke-PhantomEv3ReportedPhase(
     [string]$RemoteCommand,[string]$RemoteReport,[string]$LocalReport,
     [string]$ExpectedBuildId='',[string]$Phase='DEVICE',[string]$StateRoot='',
-    [ValidateRange(1,600)][int]$TimeoutSeconds=60)
+    [ValidateRange(1,960)][int]$TimeoutSeconds=60)
 {
     if($RemoteReport-notmatch'^/[A-Za-z0-9._/-]+$'){throw "Unsafe remote report path: $RemoteReport"}
     $local=[IO.Path]::GetFullPath($LocalReport)

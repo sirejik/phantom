@@ -92,6 +92,7 @@ def validate(name,obj):
         if ports!=["outA","outB","outC","outD"] or obj["local_stop"]["sensor_port"]!="in4" or obj["gripper_home"]["sensor_port"]!="in3": raise ValueError("EV3 port contract")
         # Two-level loop policy: the SAFE_HOLD threshold must fire strictly before the fault threshold.
         if not safety["loop_safe_hold_ms"] < safety["loop_fault_ms"]: raise ValueError("loop_safe_hold_ms must be below loop_fault_ms")
+        if safety["loop_safe_hold_ms"] > 60 or safety["loop_fault_ms"] > 100: raise ValueError("loop thresholds exceed safety deadlines")
         if safety["controller_heartbeat_timeout_ms"]*safety["controller_heartbeat_rate_hz"] < 1000: raise ValueError("heartbeat timeout is shorter than one heartbeat period")
         if obj.get("build_profile")=="Release" and (obj.get("qualification_only",False) or obj.get("actuator_scope_mask")!=15 or obj.get("safety_observation_mask")!=15): raise ValueError("Release scope contract")
         if obj.get("build_profile")=="Diagnostic" and (obj.get("qualification_only") is not True or obj.get("actuator_scope_mask")!=0 or obj.get("safety_observation_mask")!=0): raise ValueError("Diagnostic network-only qualification contract")

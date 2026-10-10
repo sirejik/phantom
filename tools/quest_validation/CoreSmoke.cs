@@ -23,5 +23,8 @@ internal static class CoreSmoke
   var unqualified=new HumanToRobotMapper(new MappingProfile{RobotNominalReachM=.40,HumanVectorMinM=.05}).Map(new Vec3(.5,0,0),.65);
   Check(unqualified.Status==MappingStatus.ProfileUnqualified,"unmeasured mapping profile produced a target");
   var inactive=new BodyProviderProbe{ApiPresent=true,ComponentPresent=true,UpperBodyConfigured=true,RightShoulderInJointSet=true};Check(BodyProviderClassifier.Classify(inactive).SoftwareCompatible,"inactive HMD classified incompatible");inactive.ExplicitMultimodalConflict=true;Check(!BodyProviderClassifier.Classify(inactive).SoftwareCompatible,"explicit provider conflict accepted");var synthetic=QuestSyntheticQualification.Run();Check(synthetic.All(x=>x.passed),"synthetic Quest qualification");
-  Console.WriteLine("PASS: IK/FK, pure mapping, HMAC wire v1, calibration, re-arm, provider classification, Quest synthetic suite");return 0;}
+  foreach(var edge in new byte[]{9,10,13,32}){var raw=Key();raw[0]=edge;raw[31]=edge;Check(AndroidPrivateControlCredentialStore.DecodeKeyMaterial(raw).SequenceEqual(raw),"binary credential whitespace changed");}
+  Check(AndroidPrivateControlCredentialStore.DecodeKeyMaterial(new byte[]{32})==null,"short credential accepted");
+  var hex=System.Text.Encoding.ASCII.GetBytes(string.Concat(Key().Select(x=>x.ToString("x2"))));Check(AndroidPrivateControlCredentialStore.DecodeKeyMaterial(hex).SequenceEqual(Key()),"hex credential decode");
+  Console.WriteLine("PASS: IK/FK, pure mapping, HMAC wire v1, calibration, re-arm, provider classification, credentials, Quest synthetic suite");return 0;}
 }

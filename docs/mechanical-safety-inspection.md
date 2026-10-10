@@ -1,6 +1,8 @@
-# Pre-motion mechanical safety inspection (§9.1.6)
+# Pre-motion mechanical safety inspection
 
-Build ID: ______  Mechanical revision/hash: ______  Inspector/date: ______
+Preparation for [manual tests](test-plan.md#sec-9-1-6), not a report form.
+Inspect the actual assembly before powered movement; if any condition fails,
+keep motion disabled and correct the problem.
 
 - [ ] Shoulder and Elbow axes are coaxial.
 - [ ] Full passive travel is free of binding.
@@ -13,4 +15,5 @@ Build ID: ______  Mechanical revision/hash: ______  Inspector/date: ______
 - [ ] Independent POWER_CUT removes motor energy.
 - [ ] Counterweight/passive power-loss behaviour is acceptable.
 
-Result: **NOT EXECUTED** until every item is physically checked.
+Every applicable item must be physically checked; this checklist does not
+assert that an inspection has already been performed.
