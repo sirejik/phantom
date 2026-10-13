@@ -3,7 +3,7 @@
 
 Three encodings used to exist for the same 120/64-byte structures: the Python
 worker, the C++ boundary and the C++ test builder. They now all derive from
-config/shared/protocol/ipc-schema.json. This module proves the Python side matches the shared
+schemas/shared/protocol/ipc-schema.json. This module proves the Python side matches the shared
 golden vectors and the generated C++ header; ev3/tests/ipc_vector_tests.cpp
 proves the same for C++, so an offset change cannot pass unnoticed on either
 side.
@@ -22,7 +22,7 @@ sys.path.insert(0, str(ROOT / "protocol" / "generated"))
 import ipc_layout  # noqa: E402
 
 VECTORS = json.loads((ROOT / "protocol" / "golden_vectors" / "ipc_v1.json").read_text(encoding="utf-8"))
-SCHEMA = json.loads((ROOT / "config/shared/protocol/ipc-schema.json").read_text(encoding="utf-8"))
+SCHEMA = json.loads((ROOT / "schemas/shared/protocol/ipc-schema.json").read_text(encoding="utf-8"))
 CPP_HEADER = (ROOT / "protocol" / "generated" / "ipc_constants.hpp").read_text(encoding="utf-8")
 
 STRUCTS = {

@@ -9,11 +9,11 @@ EXCLUDED_DIRS = {"Library", "Temp", "obj", "__pycache__", "docs", ".git"}
 DOCUMENT_SUFFIXES = {".md", ".markdown", ".rst", ".adoc"}
 EV3_SOURCE_INPUTS = (
     "ev3/CMakeLists.txt", "ev3/include", "ev3/src", "ev3/safety",
-    "protocol", "config/shared/protocol", "tooling/resources/ev3", "ev3/toolchains/armel.cmake",
+    "protocol", "schemas/shared/protocol", "config/shared/protocol", "tooling/resources/ev3", "ev3/toolchains/armel.cmake", "ev3/docker",
 )
 QUEST_SOURCE_INPUTS = (
     "PhantomQuest/Assets/Phantom", "PhantomQuest/Assets/Plugins",
-    "PhantomQuest/Packages", "PhantomQuest/ProjectSettings", "config/quest/build.json",
+    "PhantomQuest/Packages", "PhantomQuest/ProjectSettings", "config/quest/project.json",
 )
 
 

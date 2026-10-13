@@ -7,6 +7,8 @@
 #include <stdexcept>
 
 #include "phantom/maintenance.hpp"
+#include "phantom/network_wire.hpp"
+#include "phantom/robot_data.hpp"
 
 using namespace phantom;
 namespace {
@@ -29,6 +31,9 @@ struct TemporaryDirectory {
   ~TemporaryDirectory() {
     unlink((std::string(path) + "/report.json").c_str());
     unlink((std::string(path) + "/link").c_str());
+    unlink((std::string(path) + "/config.generated.json").c_str());
+    unlink((std::string(path) + "/build-manifest.json").c_str());
+    unlink((std::string(path) + "/commissioning-bundle.generated.json").c_str());
     rmdir(path);
   }
 };
@@ -86,6 +91,23 @@ int main() {
             "symlink failed");
     rejects([&] { maintenance_files(temporary.path); });
     rejects([&] { maintenance_validate_bundle(temporary.path); });
+    TemporaryDirectory package;
+    const std::string candidate=package.path;
+    const std::string config="{\"build_profile\":\"Diagnostic\",\"qualification_only\":true,\"actuator_scope_mask\":0,\"safety_observation_mask\":0}";
+    maintenance_write(candidate+"/config.generated.json",config);
+    const std::string descriptor=network_only_descriptor_json();
+    NetworkCrypto crypto;
+    const auto digest=crypto.hash(reinterpret_cast<const unsigned char*>(descriptor.data()),descriptor.size());
+    const auto manifest="{\"schema_version\":5,\"build_identity_schema\":\"PHANTOM-BUILD-V4\",\"component\":\"EV3\",\"build_profile\":\"Diagnostic\",\"config_hash\":\""+
+        maintenance_digest(candidate+"/config.generated.json")+"\",\"commissioning_bundle_hash\":\""+hex(digest.data(),digest.size())+"\"}";
+    maintenance_write(candidate+"/build-manifest.json",manifest);
+    maintenance_validate_bundle(candidate);
+    require(access((candidate+"/commissioning-bundle.generated.json").c_str(),F_OK)!=0,
+            "software validation created robot data");
+    maintenance_write(candidate+"/commissioning-bundle.generated.json","{}");
+    rejects([&]{maintenance_validate_bundle(candidate);});
+    require(maintenance_json(candidate+"/commissioning-bundle.generated.json").is_object(),
+            "package rejection deleted robot data");
     std::cout << "maintenance regression tests PASS\n";
     return 0;
   } catch (const std::exception& error) {

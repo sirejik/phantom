@@ -1,0 +1,4 @@
+# Build context contains the recipe only, never project sources or credentials.
+*
+!Dockerfile
+!.dockerignore

@@ -1,0 +1,25 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://phantom.local/schema/device-identity-v1",
+  "description": "Observed EV3 platform identity, produced by provisioning/qualification outside source control.",
+  "type": "object",
+  "required": [
+    "schema_version",
+    "ev3dev_image",
+    "ev3dev_image_sha256"
+  ],
+  "additionalProperties": false,
+  "properties": {
+    "schema_version": {
+      "const": 1
+    },
+    "ev3dev_image": {
+      "type": "string",
+      "minLength": 1
+    },
+    "ev3dev_image_sha256": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{64}$"
+    }
+  }
+}

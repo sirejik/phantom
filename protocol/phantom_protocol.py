@@ -3,7 +3,7 @@ import hashlib, hmac, json, math, pathlib, struct
 import jcs
 
 ROOT=pathlib.Path(__file__).resolve().parent
-SCHEMA=json.loads((ROOT.parent/"config/shared/protocol/wire-schema.json").read_text(encoding="utf-8"))
+SCHEMA=json.loads((ROOT.parent/"schemas/shared/protocol/wire-schema.json").read_text(encoding="utf-8"))
 SEMANTICS=json.loads((ROOT.parent/"config/shared/protocol/semantics.json").read_text(encoding="utf-8"))
 MESSAGES={m["type"]:m for m in SCHEMA["messages"]}; NAMES={m["name"]:m for m in SCHEMA["messages"]}
 HEADER=struct.Struct("<4sHHHHI16s16sQQ")

@@ -1,4 +1,5 @@
 #include "phantom/runtime_profile.hpp"
+#include "phantom/robot_data.hpp"
 #include <cstdio>
 #include <fstream>
 #include <iostream>
@@ -26,8 +27,8 @@ std::string write_temp(const std::string& suffix,const std::string& contents){
 
 int main(){
   const std::string root=PHANTOM_REPO_ROOT;
-  const std::string config_source=read_file(root+"/config/ev3/generated/diagnostic.json");
-  const std::string bundle_source=read_file(root+"/config/shared/generated/commissioning-bundle-diagnostic.json");
+  const std::string config_source=read_file(root+"/build/config/ev3/diagnostic.json");
+  const std::string bundle_source=phantom::network_only_descriptor_json();
   check(!config_source.empty()&&!bundle_source.empty(),"generated configuration fixtures are readable");
 
   const std::string config_path=write_temp("config",config_source);
@@ -55,14 +56,30 @@ int main(){
   check(!profile.commissioning_valid,"qualification-only bundle must not grant commissioning admission");
   check(!profile.external_power_cut_tested,"unqualified POWER_CUT must not be reported as tested");
 
-  // The Release runtime configuration must also satisfy the loader contract.
-  const std::string release_config=write_temp("release-config",read_file(root+"/config/ev3/generated/release.json"));
-  const std::string release_bundle=write_temp("release-bundle",read_file(root+"/config/shared/generated/commissioning-bundle-release.json"));
+  // A missing physical bundle never blocks Diagnostic networking or creates
+  // a fake calibration file. Release remains fail-closed until commissioning.
+  const auto absent=write_temp("absent", ""); ::unlink(absent.c_str());
+  phantom::RuntimeProfile fresh;
+  check(phantom::load_runtime_profile(config_path,absent,fresh,error),"first start without robot data must allow only networking");
+  check(fresh.network_only()&&!fresh.commissioning_valid&&!fresh.measured_limits_complete,"bootstrap cannot grant motion");
+  check(::access(absent.c_str(),F_OK)!=0,"bootstrap must not persist invented robot data");
+  const std::string release_config=write_temp("release-config",read_file(root+"/build/config/ev3/release.json"));
   phantom::RuntimeProfile release;
-  check(phantom::load_runtime_profile(release_config,release_bundle,release,error),("Release profile must load: "+error).c_str());
-  check(!release.diagnostic&&!release.qualification_only,"Release profile identity");
-  check(release.actuator_scope_mask==15&&release.safety_observation_mask==15,"Release scope");
-  check(release.session_stale_ms==5000,"Release session_stale_ms is declared");
+  check(!phantom::load_runtime_profile(release_config,absent,release,error),"Release cannot load without saved robot data");
+  const auto corrupt=write_temp("corrupt", "not json");
+  check(!phantom::load_runtime_profile(config_path,corrupt,fresh,error),"corrupt saved data cannot become bootstrap");
+  const auto original=read_file(corrupt);
+  check(original=="not json","loader must preserve saved data on failure");
+  ::unlink(corrupt.c_str());
+  const auto linked=write_temp("linked", ""); ::unlink(linked.c_str());
+  check(::symlink(bundle_path.c_str(),linked.c_str())==0,"create data symlink fixture");
+  check(!phantom::load_runtime_profile(config_path,linked,fresh,error),"symlink data must fail closed");
+  ::unlink(linked.c_str());
+
+  const auto forged=write_temp("forged", "{\"schema_version\":1,\"qualification_only\":false,\"actuator_scope_mask\":15,\"safety_observation_mask\":15,\"qualification_status\":\"QUALIFIED\",\"safety_envelope\":{\"external_power_cut_tested\":true}}");
+  if(phantom::load_runtime_profile(release_config,forged,release,error))
+    check(!release.commissioning_valid&&!release.measured_limits_complete,"qualification label cannot bypass missing physical consumers");
+  ::unlink(forged.c_str());
 
   // Fail-closed cases.
   auto expect_rejection=[&](const std::string& mutated_config,const char* message){
@@ -93,7 +110,7 @@ int main(){
   expect_rejection("not json","malformed configuration must be rejected");
 
   ::unlink(config_path.c_str());::unlink(bundle_path.c_str());
-  ::unlink(release_config.c_str());::unlink(release_bundle.c_str());
+  ::unlink(release_config.c_str());
   if(failures)return 1;
   std::cout<<"EV3 runtime configuration tests PASS\n";return 0;
 }

@@ -9,14 +9,45 @@ from .settings import timeout as command_timeout
 
 def manifest():
     shared = load(ROOT / 'config/tooling/environment.json')
-    quest = load(ROOT / 'config/quest/toolchain.json')
+    quest = load(ROOT / 'config/quest/project.json')['build']['environment']
     if set(shared) != {'wsl'} or set(quest) != {'unity', 'android', 'dotnet'}:
         raise ValueError('Environment settings must belong to their declared component')
+    wsl_settings = shared['wsl']
+    if (set(wsl_settings) != {'override_environment_variable', 'distribution'} or
+            any(not isinstance(value, str) or not value for value in wsl_settings.values())):
+        raise ValueError('WSL settings must contain an override variable and distribution')
     return {**shared, **quest}
 
 
-def toolchain_path():
-    return ROOT / 'config/ev3/toolchain.json'
+def compiler_target(facts):
+    """Read the observed compiler triple exported by CMake, never a config label."""
+    lines = facts.split(' | ') if isinstance(facts, str) else facts
+    targets = [line.removeprefix('compiler_target=') for line in lines
+               if line.startswith('compiler_target=')]
+    if len(targets) != 1 or not re.fullmatch(r'[A-Za-z0-9_+.]+(?:-[A-Za-z0-9_+.]+)+', targets[0]):
+        raise ToolError('Missing or malformed observed compiler target')
+    return targets[0]
+
+
+def cross_recipe():
+    """The single Dockerfile owns the pinned base and package versions."""
+    import hashlib
+    path = ROOT / 'ev3/docker/Dockerfile'
+    raw = path.read_bytes()
+    bases = re.findall(r'^FROM\s+(\S+)\s*$', raw.decode('utf-8'), re.MULTILINE)
+    if len(bases) != 1 or not re.fullmatch(r'[A-Za-z0-9._:/-]+@sha256:[0-9a-f]{64}', bases[0]):
+        raise ToolError('EV3 Dockerfile must have one digest-pinned FROM')
+    return path, bases[0], hashlib.sha256(raw).hexdigest()
+
+
+def toolchain_hash(image_id):
+    from configgen import canonical
+    import hashlib
+    if not re.fullmatch(r'sha256:[0-9a-f]{64}', image_id):
+        raise ToolError('EV3 prepared image identity must be immutable')
+    _, _, recipe_hash = cross_recipe()
+    return hashlib.sha256(canonical({'dockerfile_sha256': recipe_hash,
+                                     'prepared_image_id': image_id})).hexdigest()
 
 
 def quest_package():
@@ -29,7 +60,7 @@ def quest_package():
 
 
 def quest_build_settings():
-    value = load(ROOT / 'config/quest/build.json')
+    value = load(ROOT / 'config/quest/project.json')['build']['packaging']
     if set(value) != {'meta_app_id', 'signing_key_alias'} or not re.fullmatch(r'[0-9]+', value['meta_app_id']):
         raise ValueError('Invalid Quest build settings')
     if not re.fullmatch(r'[A-Za-z0-9_.-]+', value['signing_key_alias']):
@@ -46,14 +77,14 @@ def unity_root():
     for candidate in candidates:
         if candidate and (Path(candidate) / 'Editor/Data').is_dir():
             return Path(candidate)
-    raise ToolError(f'Unity {version} not found; set PHANTOM_UNITY_ROOT')
+    raise ToolError(f"Unity {version} not found; set {settings['override_environment_variable']}")
 
 
 def executable(name):
     declared = manifest()
     overrides = {'adb': declared['android']['override_environment_variable'],
                  'dotnet': declared['dotnet']['override_environment_variable'],
-                 'apksigner': 'PHANTOM_APKSIGNER'}
+                 'apksigner': declared['android']['apksigner_override_environment_variable']}
     explicit = os.environ.get(overrides.get(name, ''))
     if explicit:
         if not Path(explicit).is_file():
@@ -104,12 +135,22 @@ def linux_path(path):
     return run(['wsl.exe', '-d', distro, '--', 'wslpath', '-a', str(path).replace('\\', '/')]).stdout.strip()
 
 
-def cross_image():
-    lock = load(toolchain_path())
-    if not re.fullmatch(r'sha256:[0-9a-f]{64}', lock['cross_image_digest']):
-        raise ToolError('EV3 image must be pinned by SHA-256')
-    image = lock['cross_image'] + '@' + lock['cross_image_digest']
+def cross_image(prepare=True, timeout=None):
+    import tempfile
+    path, _, recipe_hash = cross_recipe()
+    tag = 'phantom-ev3-cross:' + recipe_hash
     if run(['docker', 'info', '--format', '{{.OSType}}']).stdout.strip() != 'linux':
         raise ToolError('Docker Linux engine required')
+    if prepare:
+        # A tiny context prevents sending project sources, keys or local data.
+        with tempfile.TemporaryDirectory(prefix='phantom-cross-image-') as directory:
+            identity_file = Path(directory) / 'image.id'
+            run(['docker', 'build', '--iidfile', identity_file, '--tag', tag,
+                 '--file', path, path.parent], timeout=timeout or command_timeout('build'), echo=True)
+            image = identity_file.read_text(encoding='ascii').strip()
+    else:
+        image = run(['docker', 'image', 'inspect', tag, '--format', '{{.Id}}']).stdout.strip()
+    if not re.fullmatch(r'sha256:[0-9a-f]{64}', image):
+        raise ToolError('Docker returned no immutable prepared image ID')
     run(['docker', 'image', 'inspect', image])
-    return lock, image
+    return image

@@ -36,23 +36,48 @@
 Python не устанавливается на EV3: проверки и обработка JSON там выполняют C++ binaries.
 Systemd units и короткие POSIX обёртки системных операций являются устанавливаемыми ресурсами.
 Тесты продукта остаются в `ev3/tests` и `PhantomQuest`, на C++ и C#.
+Исходные настройки хранятся в `config/`, схемы форматов — в `schemas/`.
+Компоновщик и генератор протокола читают схемы из единственного нового расположения.
 
 <a id="sec-tooling-environment"></a>
 ## 2. Окружение
 
-На компьютере нужен Python 3.12 или новее. Зависимости CLI — стандартная библиотека.
-Требование к Python и таймауты команд задаются в `config/tooling/settings.json`,
+На компьютере нужен Python базовой версии из [`.python-version`](../.python-version)
+или новее; сейчас это 3.12. Этот файл задаёт среду разработки: CLI проверяет по нему
+интерпретатор, а CI использует его для установки Python. Зависимости CLI — стандартная библиотека.
+Таймауты команд задаются в `config/tooling/settings.json`,
 окружение WSL — в `config/tooling/environment.json`. Поиск Unity, Android SDK и .NET
-принадлежит `config/quest/toolchain.json`; образ и компилятор ARM — `config/ev3/toolchain.json`.
-Meta App ID и alias подписи заданы в `config/quest/build.json`; Android package ID
+принадлежит `config/quest/project.json`; ARM-среда и проверки ожидаемого компилятора — `ev3/docker/Dockerfile`.
+Имя override-переменной `apksigner` задаётся в Quest Android environment.
+Host-таймауты ADB/SSH, передачи пакетов, bootstrap и запуска Quest, SSH
+connection/keyscan и интервалы опроса/наблюдения Quest принадлежат
+`config/tooling/settings.json`. Значения проверяются до выполнения команд;
+сетевой таймаут keyscan должен быть меньше таймаута его процесса. Изменение
+SSH ConnectTimeout меняет локальный SSH config и для существующей пары требует
+явного `--repair` по правилам защиты pair state.
+Meta App ID и alias подписи заданы в `config/quest/project.json`; Android package ID
 читается непосредственно из штатного Unity ProjectSettings.
 Структура настроек и сборка профилей описаны в [engineering §8.1](engineering.md#sec-engineering-contracts-configuration).
 Имя `python` в примерах должно указывать на этот интерпретатор. Если системная версия
 старее, вместо `python` укажите полный путь к подходящему `python.exe`.
 Настройки поиска инструментов находятся в `config/tooling/environment.json`; версии Unity и .NET
-читаются из конфигураций проектов, ARM image — из `config/ev3/toolchain.json`.
+читаются из конфигураций проектов, ARM image — из `ev3/docker/Dockerfile`.
 Команда `doctor` показывает найденные зависимости и завершается ошибкой при их отсутствии.
-CLI не заменяет версии, не активирует лицензию Unity и не скачивает образ Docker скрыто.
+CLI не заменяет закреплённые версии и не активирует лицензию Unity.
+ARM BUILD явно подготавливает среду по `ev3/docker/Dockerfile`; Docker при
+необходимости получает закреплённую базу и архивные dev-пакеты. `doctor` только
+проверяет наличие подготовленного образа и не выполняет Docker build.
+
+Параметры текущего режима (`qualification_only`, обе scope masks и Quest
+`required_user_inputs`) компоновщик выводит из `--profile`; они не задаются
+в `project.json`. Пустых профильных JSON-файлов нет. Полученные runtime configs
+сохраняют эти поля для проверки согласованности и допуска на устройстве.
+
+Хэш toolchain EV3 вычисляется из канонического объединения SHA-256
+`ev3/docker/Dockerfile` и фактического prepared image ID. Версия и SHA-256
+компилятора проверяются самим Dockerfile после установки зависимостей;
+фактические compiler facts сохраняются в манифесте сборки. EV3 `project.json`
+содержит только runtime-настройки и не входит в toolchain hash.
 
 <a id="sec-tooling-commands"></a>
 ## 3. Команды
@@ -60,7 +85,7 @@ CLI не заменяет версии, не активирует лицензи
 | Команда | Результат | Где работает |
 |---|---|---|
 | `check` | Синтаксис host-кода, схемы, документация, секреты и компиляция Android bridge; `--target` выбирает область | Компьютер / CI |
-| `generate` | Обновление производных протокола, конфигурации или оглавлений; `--target all/protocol/config/docs` | Компьютер / CI |
+| `generate` | Обновление производных протокола или оглавлений; `--target all/protocol/docs` | Компьютер / CI |
 | `docs` | Поиск раздела: `--document docs/<file>.md --locate <section>` | Компьютер |
 | `doctor` | Проверка доступности инструментов | Компьютер |
 | `self-test` | Регрессии самого CLI, генераторов и анализаторов; устройства подменены | Компьютер / CI |
@@ -83,6 +108,17 @@ CLI не заменяет версии, не активирует лицензи
 `python tooling check` запускается до сборки. `--target docs/schemas/security/android`
 выбирает проверку. `generate` изменяет только производные файлы; `check` их не исправляет.
 Оглавления обновляются через `python tooling generate --target docs`.
+`generate --target protocol` также создаёт C++/C# bindings нулевого session
+описателя из `schemas/ev3/network-only-session.schema.json`. Этот формат имеет
+собственный hash и не меняет wire/IPC layout или protocol contract hash.
+Конфигурации проверяются в памяти через `check --target schemas`. Полные файлы
+создаются автоматически командами `build` и `test` в `build/config/`, без отдельного
+вызова генератора. В `config/` хранятся настройки разработки и семантика протокола,
+в `schemas/` — машинные схемы. Постоянные измерения
+робота и привязки запуска не создаются BUILD и не входят в пакет. TEST отдельно
+создаёт синтетический сетевой описатель в `build/config/test-fixtures/`.
+Установка ПО сохраняет `/var/lib/phantom/robot/`; схемы и жизненные циклы —
+[engineering §8.1](engineering.md#sec-engineering-contracts-configuration).
 
 <a id="sec-tooling-test"></a>
 ## 5. Тесты продукта
@@ -255,11 +291,14 @@ SDK или временные характеристики из-за логир�
 <a id="sec-engineering-contracts-ev3-package"></a>
 ### 11.3. Пакет EV3
 
-Кросс-сборка использует репозиторий образа и точный digest из toolchain lock;
+Кросс-сборка использует среду из `ev3/docker/Dockerfile`. Единственный `FROM`
+задаёт базовый образ по digest, ARM dev-пакеты имеют закреплённые версии.
+CLI сначала выполняет Docker build с context `ev3/docker/`, затем запускает
+полученный immutable image ID. Тег используется только для cache/поиска;
 изменяемые Docker-теги не являются входом BUILD/CI/Release.
 Платформа — `ARMv5TEJ / armel / gnueabi`; обязательные флаги:
-`-march=armv5te -mfloat-abi=soft`. Версии, digest и SHA-256 компилятора берутся из
-[toolchain lock](../config/ev3/toolchain.json); требования CMake — из
+`-march=armv5te -mfloat-abi=soft`. База и dev-зависимости берутся из [Dockerfile](../ev3/docker/Dockerfile); версия и SHA-256 компилятора — из
+[toolchain lock](../config/ev3/project.json); требования CMake — из
 [проекта EV3](../ev3/CMakeLists.txt).
 
 Для релиза также фиксируются образ, установленный на EV3, его SHA-256, снимок пакетов,
@@ -308,7 +347,10 @@ source_tree_hash / worktree_dirty
 build_profile
 protocol_version
 compiler/toolchain
-cross_image_digest
+compiler_target: observed compiler -dumpmachine output
+cross_image: immutable prepared image ID
+cross_image_base: digest-pinned FROM
+cross_image_recipe_sha256
 protocol_schema_hash
 protocol_semantics_hash
 protocol_contract_hash
@@ -401,7 +443,7 @@ com.oculus.permission.USE_ANCHOR_API
 
 Разрешения LAN выбираются по `targetSdk` и API платформы; интеграционные тесты
 проверяют их на установленном приложении. Для target API 37+ используется
-`ACCESS_LOCAL_NETWORK`, поскольку PHANTOM сам обнаруживает настроенный `robot_id`
+`ACCESS_LOCAL_NETWORK`, поскольку PHANTOM сам обнаруживает фиксированный `robot_id`
 и открывает UDP. Доступ NSD через системный выбор службы требует отдельного пересмотра UX/безопасности.
 Для прежних сочетаний API проверяется необходимость foreground multicast lock;
 он освобождается по lifecycle. Отказ или отзыв разрешения не заменяется жёстко заданным IP.

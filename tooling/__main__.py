@@ -1,11 +1,10 @@
 """Public entry point: python tooling <command>."""
 import sys
 import os
-import json
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
-minimum = tuple(json.loads((ROOT / 'config/tooling/settings.json').read_text(encoding='utf-8'))['python_minimum'])
+minimum = tuple(int(part) for part in (ROOT / '.python-version').read_text(encoding='ascii').strip().split('.'))
 if sys.version_info[:2] < minimum:
     sys.exit('PHANTOM tooling requires Python ' + '.'.join(map(str, minimum)) + ' or newer.')
 os.environ['PYTHONIOENCODING'] = 'utf-8'

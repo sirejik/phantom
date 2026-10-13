@@ -5,6 +5,7 @@ import shlex
 import xml.etree.ElementTree as ET
 from tooling.common import environment
 from tooling.common.process import ROOT, ToolError, run
+from configgen import prepare
 
 
 def unity_report(path):
@@ -19,6 +20,7 @@ def unity_report(path):
 
 
 def execute(args):
+    prepare(for_tests=True)
     timeout = args.timeout or command_timeout('test')
     if args.target == 'ev3':
         if args.suite == 'unity':

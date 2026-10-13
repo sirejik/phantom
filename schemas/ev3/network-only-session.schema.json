@@ -1,0 +1,31 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://phantom.local/schema/network-only-session-v1",
+  "description": "Transient network-only descriptor created at startup; contains no calibration and grants no actuator authority.",
+  "type": "object",
+  "required": [
+    "schema_version",
+    "qualification_only",
+    "qualification_evidence_manifest_hash",
+    "actuator_scope_mask",
+    "safety_observation_mask"
+  ],
+  "additionalProperties": false,
+  "properties": {
+    "schema_version": {
+      "const": 1
+    },
+    "qualification_only": {
+      "const": true
+    },
+    "qualification_evidence_manifest_hash": {
+      "const": "0000000000000000000000000000000000000000000000000000000000000000"
+    },
+    "actuator_scope_mask": {
+      "const": 0
+    },
+    "safety_observation_mask": {
+      "const": 0
+    }
+  }
+}

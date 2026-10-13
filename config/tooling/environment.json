@@ -1,11 +1,6 @@
 {
   "wsl": {
     "override_environment_variable": "PHANTOM_WSL_DISTRO",
-    "distribution": "Ubuntu",
-    "required_packages": [
-      "cmake",
-      "ninja-build",
-      "g++"
-    ]
+    "distribution": "Ubuntu"
   }
 }

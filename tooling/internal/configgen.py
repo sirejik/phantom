@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 """Validate authoring configs and emit canonical, self-hashed runtime artifacts."""
-import argparse,hashlib,json,pathlib,re,sys
+import argparse,hashlib,json,math,pathlib,re,sys
+from tooling.common.identity import robot_id
 ROOT=pathlib.Path(__file__).resolve().parents[2]
 sys.path.insert(0,str(ROOT/"protocol"))
 import jcs  # noqa: E402  single RFC 8785 canonicalizer, shared with the ev3dev runtime
@@ -10,11 +11,8 @@ import jcs  # noqa: E402  single RFC 8785 canonicalizer, shared with the ev3dev 
 KNOWN_KEYWORDS={"$schema","$id","$ref","$defs","title","description","type","const","enum",
                 "required","properties","additionalProperties","items","minLength","maxLength",
                 "pattern","minimum","maximum","minItems","maxItems"}
-STAGE_ORDER=("BUILD","HIL","READY")
 
-VARIANTS = (("commissioning_bundle", "commissioning_bundle"),
-            ("commissioning_bundle-network-only", "commissioning_bundle"),
-            ("ev3", "ev3"), ("ev3-network-only", "ev3"),
+VARIANTS = (("ev3", "ev3"), ("ev3-network-only", "ev3"),
             ("quest", "quest"), ("quest-network-only", "quest"))
 
 
@@ -34,38 +32,81 @@ def overlay(base, changes, path="$", reject_redundant=True):
     return result
 
 
-def profile_source(folder, profile):
-    base = load(ROOT / folder / "base.json")
-    profiles = {name: load(ROOT / folder / "profiles" / (name + ".json"))
+def profile_source(folder, profile, base_file="project.json"):
+    base = load(ROOT / folder / base_file)
+    profiles = {name: (load(ROOT / folder / (name + ".json"))
+                       if (ROOT / folder / (name + ".json")).exists() else {})
                 for name in ("release", "diagnostic")}
     if any(not isinstance(value, dict) for value in profiles.values()):
         raise ValueError(folder + ": profiles must be objects")
+    if folder in ("config/ev3", "config/quest"):
+        allowed = {"runtime"}
+        for value in profiles.values():
+            if set(value) - allowed:
+                raise ValueError(folder + ": profile may override only consumed development runtime settings")
     def reject_common(left, right, path):
         for key in left.keys() & right.keys():
             if isinstance(left[key], dict) and isinstance(right[key], dict):
                 reject_common(left[key], right[key], path + "." + key)
             elif left[key] == right[key]:
-                raise ValueError(path + "." + key + ": repeated in both profiles; move to base")
+                raise ValueError(path + "." + key + ": repeated in both profiles; move to project")
     reject_common(profiles["release"], profiles["diagnostic"], folder)
     return overlay(base, profiles[profile])
 
 
+def project_source(component, profile):
+    value = profile_source("config/" + component, profile)
+    expected = {"ev3": {"runtime"},
+                "quest": {"build", "runtime"}}[component]
+    if set(value) != expected:
+        raise ValueError(component + ": unexpected/missing project sections")
+    if not all(isinstance(item, dict) for item in value.values()):
+        raise ValueError(component + ": project sections must be objects")
+    validate_project_settings(component, value)
+    return value
+
+
+def exact_keys(value, keys, label):
+    if not isinstance(value, dict) or set(value) != set(keys):
+        raise ValueError(label + ": unknown or missing settings")
+
+
+def validate_project_settings(component, value):
+    """Reject settings for which the host tool has no consumer."""
+    if component == "ev3":
+        return  # EV3 build environment belongs to ev3/docker/Dockerfile.
+    else:
+        build = value["build"]
+        exact_keys(build, ("environment", "packaging"), "quest.build")
+        env = build["environment"]
+        exact_keys(env, ("unity", "android", "dotnet"), "quest.build.environment")
+        for name, keys in (("unity", ("override_environment_variable", "search_paths")),
+                           ("android", ("override_environment_variable", "adb_relative_paths", "adb_search_paths", "apksigner_override_environment_variable")),
+                           ("dotnet", ("override_environment_variable", "user_install_relative_path"))):
+            exact_keys(env[name], keys, "quest.build.environment." + name)
+            for key, item in env[name].items():
+                if key.endswith("paths"):
+                    if not isinstance(item, list) or any(not isinstance(path, str) or not path for path in item):
+                        raise ValueError(name + "." + key + " must be a list of paths")
+                elif not isinstance(item, str) or not item:
+                    raise ValueError(name + "." + key + " must be a nonempty string")
+        exact_keys(build["packaging"], ("meta_app_id", "signing_key_alias"), "quest.build.packaging")
+        for key, pattern in (("meta_app_id", r"[0-9]+"), ("signing_key_alias", r"[A-Za-z0-9_.-]+")):
+            if not isinstance(build["packaging"][key], str) or not re.fullmatch(pattern, build["packaging"][key]):
+                raise ValueError("Invalid Quest " + key)
+
+
 def schema_path(name):
-    return ROOT / {"ev3": "config/ev3/runtime.schema.json",
-                   "quest": "config/quest/runtime.schema.json",
-                   "commissioning_bundle": "config/shared/commissioning-bundle.schema.json",
-                   "measured_parameters": "config/shared/measured-parameters.schema.json"}[name]
+    return ROOT / {"ev3": "schemas/ev3/runtime.schema.json",
+                   "quest": "schemas/quest/runtime.schema.json",
+                   "commissioning_bundle": "schemas/ev3/commissioning.schema.json"}[name]
 
 
 def generated_path(name):
     profile = "diagnostic" if name.endswith("-network-only") else "release"
     component = name.removesuffix("-network-only")
     if component in ("ev3", "quest"):
-        return ROOT / "config" / component / "generated" / (profile + ".json")
-    if component == "commissioning_bundle":
-        return ROOT / "config/shared/generated" / ("commissioning-bundle-" + profile + ".json")
-    if name == "measured_parameters":
-        return ROOT / "config/shared/generated/measured-parameters.json"
+        return ROOT / "build/config" / component / (profile + ".json")
     raise ValueError("unknown config artifact: " + name)
 
 
@@ -77,18 +118,34 @@ def inject(obj, values, label):
     obj.update(values)
 
 
+def bootstrap_descriptor():
+    """Session-local zero-authority identity; no measured robot data is fabricated."""
+    schema = load(ROOT / "schemas/ev3/network-only-session.schema.json")
+    return {key: spec["const"] for key, spec in schema["properties"].items()}
+
+
+
+def bootstrap_hash():
+    return hashlib.sha256(canonical(bootstrap_descriptor())).hexdigest()
+
+
 def source_objects():
     pair = load(ROOT / "config/shared/pair.json")
-    wire = load(ROOT / "config/shared/protocol/wire-schema.json")
+    exact_keys(pair, ("network",), "shared.pair")
+    wire = load(ROOT / "schemas/shared/protocol/wire-schema.json")
     results = {}
     for profile, suffix in (("release", ""), ("diagnostic", "-network-only")):
-        qualification = profile_source("config/shared/qualification", profile)
-        bundle = profile_source("config/shared/commissioning-bundle", profile)
-        inject(bundle, qualification, "bundle")
-        results["commissioning_bundle" + suffix] = bundle
+        ev3 = project_source("ev3", profile)["runtime"]
+        # Current Diagnostic supports network-only qualification. Future scoped
+        # hardware modes need a separate explicit contract, not profile overrides.
+        scope_keys = ("qualification_only", "actuator_scope_mask", "safety_observation_mask")
+        scope = ({key: bootstrap_descriptor()[key] for key in scope_keys}
+                 if profile == "diagnostic" else
+                 dict(qualification_only=False, actuator_scope_mask=15, safety_observation_mask=15))
+        inject(ev3, scope, "ev3.runtime")
         for component in ("ev3", "quest"):
-            obj = profile_source("config/" + component + "/runtime", profile)
-            inject(obj, {"robot_id": pair["robot_id"], "build_profile": profile.title()}, component)
+            obj = ev3 if component == "ev3" else project_source(component, profile)["runtime"]
+            inject(obj, {"robot_id": robot_id(ROOT), "build_profile": profile.title()}, component)
             network = dict(pair["network"])
             port = network.pop("port_udp")
             key = network.pop("control_key_id")
@@ -96,19 +153,17 @@ def source_objects():
             if component == "ev3":
                 network.update(max_packet_bytes=wire["max_datagram_bytes"],
                                max_payload_bytes=wire["max_datagram_bytes"] - wire["header_bytes"] - wire["hmac_bytes"])
-                inject(obj, dict(qualification), component)
             else:
                 network.update(control_key_id=key, protocol_version=wire["protocol_version"])
-                inject(obj["qualification"], dict(qualification), component)
-                inject(obj, {"commissioning_bundle": {"expected_hash": hashlib.sha256(canonical(bundle)).hexdigest()}}, component)
+                qualification = obj.setdefault("qualification", {})
+                inject(qualification, {**scope, "required_user_inputs":
+                       "NONE" if profile == "diagnostic" else "FULL_ARM"}, component)
             inject(obj["network"], network, component + ".network")
             results[component + suffix] = obj
     return results
 
 
 def load_source(name):
-    if name == "measured_parameters":
-        return load(ROOT / "config/shared/measured-parameters.json")
     return source_objects()[name]
 
 def canonical(value): return jcs.canonicalize(value)
@@ -122,11 +177,28 @@ def _reject_duplicates(pairs):
 
 def load(path):
     """Parse strict JSON. Duplicate mapping keys are a hard error, never last-key-wins."""
-    return json.loads(path.read_text(encoding="utf-8"),object_pairs_hook=_reject_duplicates)
+    def invalid_number(value):
+        raise ValueError("non-finite JSON number: " + value)
+    return json.loads(path.read_text(encoding="utf-8"), object_pairs_hook=_reject_duplicates,
+                      parse_constant=invalid_number)
 
 def require(obj,keys,label):
     missing=[k for k in keys if k not in obj]
     if missing: raise ValueError("%s missing %s"%(label,missing))
+
+def check_schema(schema):
+    """Check all owned formats, including formats not materialized by BUILD."""
+    if not isinstance(schema, dict):
+        raise ValueError("schema must be an object")
+    unknown = set(schema) - KNOWN_KEYWORDS
+    if unknown:
+        raise ValueError("unsupported schema keywords " + str(sorted(unknown)))
+    for key in ("properties", "$defs"):
+        for child in schema.get(key, {}).values():
+            check_schema(child)
+    if "items" in schema:
+        check_schema(schema["items"])
+
 
 def validate_schema(value,schema,path="$",root_schema=None):
     """Validate the dependency-free JSON-Schema subset used by the owned runtime schemas.
@@ -144,8 +216,9 @@ def validate_schema(value,schema,path="$",root_schema=None):
         target=root_schema
         for part in ref[2:].split("/"): target=target[part.replace("~1","/").replace("~0","~")]
         return validate_schema(value,target,path,root_schema)
-    if "const" in schema and value!=schema["const"]: raise ValueError(path+": const mismatch")
-    if "enum" in schema and value not in schema["enum"]: raise ValueError(path+": enum mismatch")
+    # JSON equality distinguishes booleans from numbers; Python's True == 1 does not.
+    if "const" in schema and canonical(value)!=canonical(schema["const"]): raise ValueError(path+": const mismatch")
+    if "enum" in schema and not any(canonical(value)==canonical(item) for item in schema["enum"]): raise ValueError(path+": enum mismatch")
     types=schema.get("type")
     if types:
         if not isinstance(types,list):types=[types]
@@ -174,18 +247,23 @@ def validate_schema(value,schema,path="$",root_schema=None):
         if "maxLength" in schema and len(value)>schema["maxLength"]:raise ValueError(path+": maxLength")
         if "pattern" in schema and not re.search(schema["pattern"],value):raise ValueError(path+": pattern")
     if isinstance(value,(int,float)) and not isinstance(value,bool):
+        if isinstance(value,float) and not math.isfinite(value): raise ValueError(path+": non-finite number")
         if "minimum" in schema and value<schema["minimum"]:raise ValueError(path+": minimum")
         if "maximum" in schema and value>schema["maximum"]:raise ValueError(path+": maximum")
 
 def validate(name,obj):
-    require(obj,["schema_version"],name)
-    if obj["schema_version"]!=1: raise ValueError(name+" schema_version")
+    if name.startswith("commissioning_bundle"):
+        require(obj,["schema_version"],name)
+        if obj["schema_version"] != 1: raise ValueError(name+" schema_version")
     if name.startswith("commissioning_bundle"): require(obj,["revision","bundle_id","qualification_status","qualification_only","qualification_evidence_manifest_hash","actuator_scope_mask","safety_observation_mask","robot_geometry","drive_calibration","collision_model","joint_safe_sets","payload_profiles","safety_envelope"],name)
     else: require(obj,["robot_id","build_profile"],name)
     if "actuator_scope_mask" in obj and obj["actuator_scope_mask"] & ~obj["safety_observation_mask"]: raise ValueError(name+" actuator scope is not safety-observed")
     if name.startswith("ev3"):
         network,safety=obj["network"],obj["safety"]
-        if network["max_packet_bytes"]!=1024 or network["max_payload_bytes"]!=928: raise ValueError("wire bounds")
+        wire = load(ROOT / "schemas/shared/protocol/wire-schema.json")
+        if (network["max_packet_bytes"] != wire["max_datagram_bytes"] or
+                network["max_payload_bytes"] != wire["max_datagram_bytes"] - wire["header_bytes"] - wire["hmac_bytes"]):
+            raise ValueError("wire bounds")
         if (network.get("discovery_service_type"),network.get("discovery_domain"),network.get("ip_family"))!=("_phantom-ev3._udp","local.","IPV4"): raise ValueError("DNS-SD contract")
         ports=[obj["axes"][x]["motor_port"] for x in ("base","shoulder","elbow","gripper")]
         if ports!=["outA","outB","outC","outD"] or obj["local_stop"]["sensor_port"]!="in4" or obj["gripper_home"]["sensor_port"]!="in3": raise ValueError("EV3 port contract")
@@ -196,7 +274,6 @@ def validate(name,obj):
         if obj.get("build_profile")=="Release" and (obj.get("qualification_only",False) or obj.get("actuator_scope_mask")!=15 or obj.get("safety_observation_mask")!=15): raise ValueError("Release scope contract")
         if obj.get("build_profile")=="Diagnostic" and (obj.get("qualification_only") is not True or obj.get("actuator_scope_mask")!=0 or obj.get("safety_observation_mask")!=0): raise ValueError("Diagnostic network-only qualification contract")
     if name.startswith("quest"):
-        if obj["space"].get("require_current_room"): raise ValueError("room mesh cannot gate core path")
         qualification=obj["qualification"]
         if qualification["actuator_scope_mask"] & ~qualification["safety_observation_mask"]: raise ValueError("Quest actuator scope is not safety-observed")
         if (obj["network"].get("discovery_service_type"),obj["network"].get("discovery_domain"),obj["network"].get("ip_family"))!=("_phantom-ev3._udp","local.","IPV4"): raise ValueError("Quest DNS-SD contract")
@@ -214,35 +291,36 @@ def measured_paths(name,value,path=""):
         for index,child in enumerate(value):found.extend(measured_paths(name,child,path+"/"+str(index)))
     return found
 
-def check_measured_registry(source_objects,measured):
-    """Enforce the MEASURED lifecycle instead of freezing every value at null.
+def qualification_blockers(bundle):
+    """Validate actual per-robot data at admission, never during software BUILD."""
+    validate_schema(bundle, load(schema_path("commissioning_bundle")))
+    validate("commissioning_bundle", bundle)
+    blocked = measured_paths("commissioning_bundle", bundle)
+    if bundle["qualification_status"] != "QUALIFIED":
+        blocked.append("commissioning_bundle.json#/qualification_status")
+    if bundle["qualification_evidence_manifest_hash"] == "0" * 64:
+        blocked.append("commissioning_bundle.json#/qualification_evidence_manifest_hash")
+    for key in ("external_power_cut_present", "external_power_cut_tested"):
+        if bundle["safety_envelope"][key] is not True:
+            blocked.append("commissioning_bundle.json#/safety_envelope/" + key)
+    for section in ("drive_calibration", "collision_model", "joint_safe_sets", "payload_profiles"):
+        if bundle[section]["status"] != "QUALIFIED":
+            blocked.append("commissioning_bundle.json#/" + section + "/status")
+    for axis, curve in bundle["drive_calibration"]["axes"].items():
+        if not curve:
+            blocked.append("commissioning_bundle.json#/drive_calibration/axes/" + axis)
+    for section, key in (("collision_model", "primitives"), ("joint_safe_sets", "profiles"),
+                         ("payload_profiles", "profiles")):
+        if not bundle[section][key]:
+            blocked.append("commissioning_bundle.json#/" + section + "/" + key)
+    mounts = bundle["robot_geometry"]["marker_mounts"]
+    if not isinstance(mounts, (dict, list)) or len(mounts) != 10:
+        blocked.append("commissioning_bundle.json#/robot_geometry/marker_mounts")
+    return sorted(set(blocked))
 
-    A registered parameter may hold a real measurement together with its
-    evidence.  What is forbidden is a half-resolved entry, an unregistered
-    placeholder, and an unresolved parameter whose `required_before` gate is the
-    build itself.
-    """
-    placeholders=set()
-    for name,obj in source_objects.items():
-        if "network-only" not in name:placeholders.update(measured_paths(name,obj))
-    registered=set(measured["parameters"])
-    if placeholders!=registered:raise ValueError("MEASURED registry mismatch missing=%s stale=%s"%(sorted(placeholders-registered),sorted(registered-placeholders)))
-    blocked={stage:[] for stage in STAGE_ORDER}
-    for key,metadata in sorted(measured["parameters"].items()):
-        require(metadata,["owner","measurement_procedure","required_before","units","validity_range","value","evidence"],key)
-        if metadata["required_before"] not in STAGE_ORDER:raise ValueError(key+" required_before")
-        resolved=metadata["value"] is not None
-        if resolved != (metadata["evidence"] is not None):
-            raise ValueError(key+" must carry value and evidence together")
-        if not resolved: blocked[metadata["required_before"]].append(key)
-    if blocked["BUILD"]:
-        raise ValueError("unresolved MEASURED parameters already required at BUILD: %s"%blocked["BUILD"])
-    gates={stage:("RESOLVED" if not blocked[stage] else "BLOCKED_UNQUALIFIED_MEASURED_VALUES") for stage in STAGE_ORDER}
-    return gates,blocked
 
-
-def main():
-    parser=argparse.ArgumentParser();parser.add_argument("--check",action="store_true");args=parser.parse_args()
+def compile_configs():
+    """Validate all candidates in memory before publishing any build files."""
     protocol_hash=(ROOT/"protocol"/"generated"/"schema.sha256").read_text().split()[0]
     protocol_semantics_hash=(ROOT/"protocol"/"generated"/"semantics.sha256").read_text().split()[0]
     protocol_contract_hash=(ROOT/"protocol"/"generated"/"contract.sha256").read_text().split()[0]
@@ -252,35 +330,60 @@ def main():
         obj=objects[name];validate_schema(obj,load(schema_path(schema_name)));validate(name,obj)
         artifact=canonical(obj);results[name]=hashlib.sha256(artifact).hexdigest()
         outputs[generated_path(name)]=artifact+b"\n"
-    if objects["quest"]["commissioning_bundle"]["expected_hash"]!=results["commissioning_bundle"]:raise ValueError("Quest Release expected bundle hash mismatch")
-    if objects["quest-network-only"]["commissioning_bundle"]["expected_hash"]!=results["commissioning_bundle-network-only"]:raise ValueError("Quest network-only expected bundle hash mismatch")
-    for suffix in ("","-network-only"):
-        bundle=objects["commissioning_bundle"+suffix]
-        ev3=objects["ev3"+suffix]
-        quest=objects["quest"+suffix]["qualification"]
-        expected=(bundle["qualification_only"],bundle["qualification_evidence_manifest_hash"],bundle["actuator_scope_mask"],bundle["safety_observation_mask"])
-        if (ev3["qualification_only"],ev3["qualification_evidence_manifest_hash"],ev3["actuator_scope_mask"],ev3["safety_observation_mask"])!=expected:raise ValueError("EV3/bundle qualification mismatch"+suffix)
-        if (quest["qualification_only"],quest["qualification_evidence_manifest_hash"],quest["actuator_scope_mask"],quest["safety_observation_mask"])!=expected:raise ValueError("Quest/bundle qualification mismatch"+suffix)
-        # The EV3 command-freshness budget and the Quest telemetry budget must be
-        # compatible: a Quest that still calls telemetry fresh after EV3 already
-        # dropped the command would show a stale robot as healthy.
-        if objects["quest"+suffix]["network"]["telemetry_max_age_ms"]>ev3["network"]["session_stale_ms"]:raise ValueError("Quest telemetry budget exceeds EV3 session staleness"+suffix)
-    measured=load_source("measured_parameters");validate_schema(measured,load(schema_path("measured_parameters")))
-    gates,blocked=check_measured_registry(objects,measured)
-    artifact=canonical(measured);results["measured_parameters"]=hashlib.sha256(artifact).hexdigest()
-    outputs[generated_path("measured_parameters")]=artifact+b"\n"
-    manifest={"schema_version":2,"protocol_schema_hash":protocol_hash,
-              "protocol_semantics_hash":protocol_semantics_hash,"protocol_contract_hash":protocol_contract_hash,
-              "ipc_schema_hash":ipc_hash,"artifact_hashes":results,
-              "measured_gates":gates,"ready_gate":gates["READY"]}
-    outputs[ROOT / "config/shared/generated/manifest.json"]=canonical(manifest)+b"\n"
-    # Validate the complete candidate before publishing any files.
-    for path,data in outputs.items():
-        if args.check:
-            if not path.exists() or path.read_bytes()!=data:
-                raise SystemExit("generated config stale: "+str(path))
-        else:
-            path.parent.mkdir(parents=True,exist_ok=True)
-            path.write_bytes(data)
-    print("config schema/contracts ok; READY gate=%s (%d unresolved MEASURED)"%(manifest["ready_gate"],sum(len(v) for v in blocked.values())))
+    for suffix in ("", "-network-only"):
+        ev3 = objects["ev3" + suffix]
+        quest = objects["quest" + suffix]["qualification"]
+        for field in ("qualification_only", "actuator_scope_mask", "safety_observation_mask"):
+            if ev3[field] != quest[field]:
+                raise ValueError("development scope mismatch" + suffix)
+        if objects["quest" + suffix]["network"]["telemetry_max_age_ms"] > ev3["network"]["session_stale_ms"]:
+            raise ValueError("Quest telemetry budget exceeds EV3 session staleness" + suffix)
+    validate_schema(bootstrap_descriptor(), load(ROOT / "schemas/ev3/network-only-session.schema.json"))
+    # All robot-owned formats remain checkable without a real robot or its data.
+    for path in (ROOT / "schemas").rglob("*.schema.json"):
+        check_schema(load(path))
+    manifest = {"schema_version": 4, "protocol_schema_hash": protocol_hash,
+                "protocol_semantics_hash": protocol_semantics_hash,
+                "protocol_contract_hash": protocol_contract_hash,
+                "ipc_schema_hash": ipc_hash, "artifact_hashes": results,
+                "bootstrap_descriptor_hash": bootstrap_hash(),
+                "runtime_admission": "ROBOT_DATA_REQUIRED_FOR_MOTION"}
+    outputs[ROOT / "build/config/manifest.json"]=canonical(manifest)+b"\n"
+    return outputs, manifest
+
+
+def prepare(for_tests=False):
+    outputs, manifest = compile_configs()
+    if for_tests:
+        outputs[ROOT / "build/config/test-fixtures/network-only-session.json"] = canonical(bootstrap_descriptor()) + b"\n"
+    for path, data in outputs.items():
+        path.parent.mkdir(parents=True, exist_ok=True)
+        if path.is_file() and path.read_bytes() == data:
+            continue
+        import os, tempfile
+        # A concurrently running test must not observe a truncated JSON file.
+        with tempfile.NamedTemporaryFile(dir=path.parent, delete=False) as stream:
+            temporary = pathlib.Path(stream.name)
+            stream.write(data)
+        try:
+            try:
+                os.replace(temporary, path)
+            except PermissionError:
+                # Windows may keep a file open in a fixture/IDE while another
+                # command has already published the identical candidate.
+                # Never ignore an error when the existing bytes differ.
+                if not path.is_file() or path.read_bytes() != data:
+                    raise
+        finally:
+            temporary.unlink(missing_ok=True)
+    return manifest
+
+
+def main():
+    parser=argparse.ArgumentParser();parser.add_argument("--check",action="store_true");args=parser.parse_args()
+    if args.check:
+        _, manifest = compile_configs()
+    else:
+        manifest = prepare()
+    print("development config/schema contracts ok; motion admission uses external robot data")
 if __name__=="__main__":main()

@@ -1,0 +1,43 @@
+{
+  "runtime": {
+    "axes": {
+      "base": {
+        "motor_port": "outA"
+      },
+      "elbow": {
+        "motor_port": "outC"
+      },
+      "gripper": {
+        "motor_port": "outD"
+      },
+      "shoulder": {
+        "motor_port": "outB"
+      }
+    },
+    "gripper_home": {
+      "sensor_port": "in3"
+    },
+    "local_stop": {
+      "sensor_port": "in4"
+    },
+    "logging": {
+      "flight_recorder_rate_hz": 50,
+      "flight_recorder_seconds": 10,
+      "release_max_mb": 250,
+      "release_retention_days": 7
+    },
+    "network": {
+      "command_timeout_ms": 120,
+      "hello_retry_window_ms": 2000,
+      "session_stale_ms": 5000,
+      "rx_burst_packets": 20,
+      "rx_rate_limit_pps": 100
+    },
+    "safety": {
+      "controller_heartbeat_rate_hz": 20,
+      "controller_heartbeat_timeout_ms": 100,
+      "loop_fault_ms": 100,
+      "loop_safe_hold_ms": 60
+    }
+  }
+}

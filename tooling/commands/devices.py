@@ -1,4 +1,4 @@
-from tooling.common.settings import timeout as command_timeout
+from tooling.common.settings import settings, timeout as command_timeout
 import copy
 import json
 from pathlib import Path
@@ -18,7 +18,8 @@ from tooling.commands.checks import internal
 MAINTENANCE = '/usr/local/libexec/phantom-maintenance'
 
 
-def ssh(pair, command, timeout=30, check=True):
+def ssh(pair, command, timeout=None, check=True):
+    timeout = command_timeout('ssh') if timeout is None else timeout
     return run(['ssh', '-F', pair.config, '-o', 'BatchMode=yes', '--',
                 pair.state['ev3_hostname'], command], timeout=timeout, check=check)
 
@@ -126,7 +127,7 @@ def install(args):
                 raise ToolError('Invalid CONTROL credential')
             adb(serial, 'shell', 'mkdir', '-p', remote)
             target = remote + '/' + pair.state['control_key_id'] + '.psk'
-            adb(serial, 'push', '--sync', str(pair.secret), target, timeout=30)
+            adb(serial, 'push', '--sync', str(pair.secret), target, timeout=command_timeout('device_transfer'))
             if adb(serial, 'shell', 'test', '-f', target) != '':
                 raise ToolError('Credential staging failed')
             pair.state['quest_credential_staged'] = True
@@ -147,8 +148,8 @@ def install(args):
             target = args.bootstrap_user + '@' + pair.state['ev3_hostname']
             options = ['-o', 'StrictHostKeyChecking=yes', '-o', 'UserKnownHostsFile=' + str(pair.known_hosts), '-o', 'ConnectTimeout=8']
             helper = ROOT / 'tooling/resources/ev3/install-deployment-key'
-            run(['scp', '-O', *options, Path(str(pair.key) + '.pub'), helper, target + ':/tmp/'], timeout=30)
-            run(['ssh', '-t', *options, target, 'sudo sh /tmp/install-deployment-key /tmp/id_ed25519.pub'], timeout=60)
+            run(['scp', '-O', *options, Path(str(pair.key) + '.pub'), helper, target + ':/tmp/'], timeout=command_timeout('device_transfer'))
+            run(['ssh', '-t', *options, target, 'sudo sh /tmp/install-deployment-key /tmp/id_ed25519.pub'], timeout=command_timeout('deployment_key_install'))
             ssh(pair, 'true')
         stopped = ssh(pair, 'if systemctl is-active --quiet phantom-controller.service || systemctl is-active --quiet phantom-safety.service || systemctl is-active --quiet phantom-network.service; then echo ACTIVE; else echo STOPPED; fi').stdout.strip()
         if stopped != 'STOPPED':
@@ -180,12 +181,12 @@ def install(args):
                     wifi = ' ' + shlex.quote(args.wifi_service) + ' wifi.settings'
                 elif args.wifi_service:
                     raise ToolError('--wifi-service requires --wifi-settings')
-                run(['scp', '-O', '-F', pair.config, *stage.iterdir(), 'ev3dev.local:' + remote + '/'], timeout=45)
-                ssh(pair, f'sh {remote}/bootstrap {remote} control.psk{wifi}', timeout=60)
+                run(['scp', '-O', '-F', pair.config, *stage.iterdir(), 'ev3dev.local:' + remote + '/'], timeout=command_timeout('bootstrap_transfer'))
+                ssh(pair, f'sh {remote}/bootstrap {remote} control.psk{wifi}', timeout=command_timeout('bootstrap'))
         finally:
-            ssh(pair, 'rm -rf -- ' + remote, timeout=15, check=False)
+            ssh(pair, 'rm -rf -- ' + remote, timeout=command_timeout('remote_cleanup'), check=False)
         remote_artifact = '/var/lib/phantom/staging/phantom-' + manifest['build_id'] + '.tar.gz'
-        run(['scp', '-O', '-F', pair.config, artifact, 'ev3dev.local:' + remote_artifact], timeout=args.timeout or 120)
+        run(['scp', '-O', '-F', pair.config, artifact, 'ev3dev.local:' + remote_artifact], timeout=args.timeout or command_timeout('ev3_install'))
         if ssh(pair, 'sha256sum ' + remote_artifact).stdout.split()[0] != digest:
             raise ToolError('Transferred package hash mismatch')
         timeout = args.timeout or 60
@@ -212,18 +213,18 @@ def launch_wait(serial, package, remote, timeout):
         raise ToolError('Quest launch failed')
     until = time.monotonic() + timeout
     while time.monotonic() < until:
-        pid = adb(serial, 'shell', f'pidof {shlex.quote(package)} 2>/dev/null || true', timeout=3)
-        report = adb(serial, 'shell', f'test ! -f {shlex.quote(remote)} || cat {shlex.quote(remote)}', timeout=3)
+        pid = adb(serial, 'shell', f'pidof {shlex.quote(package)} 2>/dev/null || true', timeout=command_timeout('quest_start_probe'))
+        report = adb(serial, 'shell', f'test ! -f {shlex.quote(remote)} || cat {shlex.quote(remote)}', timeout=command_timeout('quest_start_probe'))
         if pid and report:
             return pid, json.loads(report)
-        time.sleep(0.25)
+        time.sleep(settings()['polling']['quest_start_interval_ms'] / 1000)
     raise ToolError('Quest startup report timeout')
 
 
 def start_quest(args, serial, output):
     try:
         remote = f'/sdcard/Android/data/{args.package}/files/phantom-status/startup.json'
-        pid, status = launch_wait(serial, args.package, remote, args.timeout or 30)
+        pid, status = launch_wait(serial, args.package, remote, args.timeout or command_timeout('quest_start'))
         if (not isinstance(status, dict) or status.get('schema_version') != 1 or not re.fullmatch('[0-9a-f]{64}', status.get('build_id', '')) or
                 (args.build_id and status['build_id'] != args.build_id) or
                 status.get('runtime_status') != 'ready' or status.get('control_credential') != 'ready'):
@@ -252,8 +253,8 @@ def integration_quest(args, serial, output):
     try:
         for label in ('first', 'relaunch'):
             adb(serial, 'logcat', '-c')
-            pid, report = launch_wait(serial, args.package, remote, args.timeout or 35)
-            time.sleep(2)
+            pid, report = launch_wait(serial, args.package, remote, args.timeout or command_timeout('quest_integration_launch'))
+            time.sleep(settings()['polling']['quest_integration_stability_ms'] / 1000)
             current = adb(serial, 'shell', f'pidof {shlex.quote(args.package)} 2>/dev/null || true')
             crashes = adb(serial, 'logcat', '-d')
             if (not isinstance(report, dict) or report.get('schema_version') != 2 or report.get('status') != 'PASS' or
@@ -290,7 +291,7 @@ def persistence(args):
     try:
         for artifact, manifest, repair in ((args.apk_a, a, True), (args.apk_b, b, False)):
             selection = copy.copy(args)
-            for name in ('host_fingerprint', 'quest_serial', 'robot_id', 'control_key_id', 'wifi_settings', 'wifi_service'):
+            for name in ('host_fingerprint', 'quest_serial', 'control_key_id', 'wifi_settings', 'wifi_service'):
                 setattr(selection, name, None)
             selection.rotate_ssh_key = selection.rotate_control_secret = selection.repin_host = False
             selection.repair = repair

@@ -37,7 +37,7 @@ def execute(args):
                 failures.append(str(error))
                 print(name + ': unavailable')
         try:
-            _, image = environment.cross_image()
+            image = environment.cross_image(prepare=False)
             print('EV3 image: ' + image)
         except (ToolError, OSError) as error:
             failures.append(str(error))
@@ -50,7 +50,7 @@ def execute(args):
             raise ToolError('; '.join(failures))
         return
     if args.command == 'generate':
-        for target, module in (('protocol', 'protocolgen'), ('config', 'configgen'), ('docs', 'docindex')):
+        for target, module in (('protocol', 'protocolgen'), ('docs', 'docindex')):
             if args.target in ('all', target):
                 internal(module)
         return
@@ -62,10 +62,7 @@ def execute(args):
         environment.manifest()
         environment.quest_package()
         environment.quest_build_settings()
-        lock = load(environment.toolchain_path())
-        import re
-        if not re.fullmatch(r'sha256:[0-9a-f]{64}', lock['cross_image_digest']):
-            raise ToolError('EV3 cross image must be pinned by SHA-256')
+        environment.cross_recipe()
         internal('protocolgen', '--check')
         internal('configgen', '--check')
     if args.target in ('all', 'docs'):

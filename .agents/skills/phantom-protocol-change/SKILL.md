@@ -10,9 +10,9 @@ description: "Изменять wire/IPC схемы, семантику, коде
 
 | Изменение | Начать с |
 |---|---|
-| Wire layout, enum, bits, widths | `config/shared/protocol/wire-schema.json` |
+| Wire layout, enum, bits, widths | `schemas/shared/protocol/wire-schema.json` |
 | Межреализационная семантика | `config/shared/protocol/semantics.json` |
-| EV3-local IPC | `config/shared/protocol/ipc-schema.json` |
+| EV3-local IPC | `schemas/shared/protocol/ipc-schema.json` |
 | Контекстные state/profile/bundle ограничения | Спецификация протокола или компонента |
 | Ошибка codec при неизменном контракте | Production codec и регрессионные vectors/tests |
 

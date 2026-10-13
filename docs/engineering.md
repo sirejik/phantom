@@ -53,14 +53,14 @@
 ### 1.1. Среда разработчика
 
 Пути определяет [PHANTOM CLI](tooling.md) по
-[настройках Quest](../config/quest/toolchain.json). Обычно настройка путей не требуется.
+[настройках Quest](../config/quest/project.json). Обычно настройка путей не требуется.
 
 | Инструмент | Для чего | Как выбирается |
 |---|---|---|
 | Unity Editor | Сборка Quest и тесты C# | Версия из `PhantomQuest/ProjectSettings/ProjectVersion.txt`, установленная через Unity Hub |
 | `adb` | Установка, запуск и проверки Quest | Android SDK из Unity, затем `PATH` |
 | WSL | Сборка и тесты C++ на компьютере | `Ubuntu` с `cmake`, `ninja-build`, `g++` |
-| Docker | Кросс-сборка EV3 | Образ по digest из `config/ev3/toolchain.json` |
+| Docker | Кросс-сборка EV3 | База по digest и ARM dev-пакеты из `ev3/docker/Dockerfile`; подготовленный image ID фиксирует CLI |
 
 При нестандартной установке используются `PHANTOM_UNITY_ROOT`, `PHANTOM_ADB`,
 `PHANTOM_WSL_DISTRO`. Они задают расположение, а не другие версии.
@@ -71,9 +71,9 @@
 | Область | Технологии | Источники версий |
 |---|---|---|
 | Quest 3 | Android/Meta Horizon OS, Unity/C#, IL2CPP, Java; OpenXR, Meta XR Core/MRUK >=v83, Meta XR Movement | [Unity](../PhantomQuest/ProjectSettings/ProjectVersion.txt), [пакеты](../PhantomQuest/Packages/manifest.json), [закреплённые зависимости](../PhantomQuest/Packages/packages-lock.json) |
-| EV3 | ev3dev Debian Stretch, ARMv5TEJ/armel/gnueabi/soft-float, C++14, systemd 232 | [CMake](../ev3/CMakeLists.txt), [компилятор и образ](../config/ev3/toolchain.json) |
+| EV3 | ev3dev Debian Stretch, ARMv5TEJ/armel/gnueabi/soft-float, C++14, systemd 232 | [CMake](../ev3/CMakeLists.txt), [Dockerfile](../ev3/docker/Dockerfile) |
 | Компьютер разработчика | Windows/PowerShell, Python для инструментов, WSL/Linux, Docker, Unity Editor, Android SDK/adb | [Инструменты](../config/tooling/environment.json) |
-| Обмен данными | UDP Quest↔EV3, локальный Unix datagram IPC, генерируемые кодеки и конфигурации | [Протокол](../config/shared/protocol/wire-schema.json), [IPC](../config/shared/protocol/ipc-schema.json), [конфигурации](../config/) |
+| Обмен данными | UDP Quest↔EV3, локальный Unix datagram IPC, генерируемые кодеки и конфигурации | [Протокол](../schemas/shared/protocol/wire-schema.json), [IPC](../schemas/shared/protocol/ipc-schema.json), [конфигурации](../config/) |
 
 Все прикладные службы EV3, включая сетевой обмен и обнаружение, разрабатываются на C++14.
 Сеть, discovery и файловый ввод-вывод остаются отдельными от моторного цикла процессами.
@@ -97,10 +97,10 @@ Unity должна поддерживать используемые Multimodal 
 | [PhantomQuest](../PhantomQuest/) | Приложение Quest: Unity/C# и Android-адаптеры |
 | [ev3](../ev3/) | Прикладные службы EV3 и тесты |
 | [protocol](../protocol/) | Канонизатор, генерируемые кодеки и эталонные данные протокола/IPC |
-| [config](../config/) | Исходные и сгенерированные конфигурации, схемы |
+| [config](../config/) | Исходные настройки разработки и семантика протокола |
+| [schemas](../schemas/) | Машинные схемы конфигураций, данных робота и wire/IPC |
 | [tooling](../tooling/) | Единый CLI, общие модули, устанавливаемые ресурсы и регрессии инструмента |
 | [ev3/toolchains](../ev3/toolchains/) | Штатный CMake toolchain-файл ARM-компилятора |
-| [mechanical](../mechanical/) | Модель и состав деталей |
 | `build/**` | Готовые пакеты и промежуточные файлы сборки |
 | `results/**` | Локальные результаты инструментов |
 
@@ -239,7 +239,7 @@ Quest и EV3 имеют отдельные идентификаторы. SHA-256
 
 На компьютере кросс-компилируются C++14-службы для EV3 и создаётся пакет с бинарниками,
 конфигурацией и systemd units. На EV3 компиляция не выполняется.
-Образ и компилятор выбираются по [закреплённым версиям](../config/ev3/toolchain.json).
+Базовый образ и ARM dev-пакеты закреплены в [Dockerfile](../ev3/docker/Dockerfile); ожидаемые compiler facts — в [настройках EV3](../config/ev3/project.json).
 Команда отладочной сборки: `python tooling build --target ev3 --profile diagnostic`.
 Точный состав — [контракт пакета EV3](tooling.md#sec-engineering-contracts-ev3-package).
 
@@ -247,14 +247,30 @@ Quest и EV3 имеют отдельные идентификаторы. SHA-256
 |---|---|
 | [ev3/CMakeLists.txt](../ev3/CMakeLists.txt) | Состав C++ проекта, зависимости, C++14 и CTest. Используется для ARM-сборки и тестов на компьютере. |
 | [ev3/toolchains/armel.cmake](../ev3/toolchains/armel.cmake) | Компилятор и параметры ARM/soft-float. Применяется только при кросс-сборке. |
-| [config/ev3/toolchain.json](../config/ev3/toolchain.json) | Единственный источник Docker image/digest, идентификатора платформы и ожидаемых версии/хэша компилятора. |
+| [ev3/docker/Dockerfile](../ev3/docker/Dockerfile) | Единственный источник имени/digest базового образа и версий ARM dev-пакетов OpenSSL/Avahi. |
+| [config/ev3/project.json](../config/ev3/project.json) | Ожидаемые версия/SHA-256 компилятора; runtime-настройки разработки. |
 
-Поиск инструментов Quest задаётся в `config/quest/toolchain.json`, общая среда WSL —
+Поиск инструментов Quest задаётся в `config/quest/project.json`, общая среда WSL —
 в `config/tooling/environment.json`. Версии Unity и .NET читаются из обязательных
 файлов Unity ProjectVersion и .NET global.json.
-Локальная сборка и CI используют одну команду CLI и закреплённый Docker image.
+Локальная сборка и CI используют одну команду CLI. Перед ARM-компиляцией CLI
+собирает `ev3/docker/Dockerfile` с минимальным build context и Docker cache;
+база и прямые ARM dev-зависимости закреплены в самом рецепте. Stretch-пакеты
+получаются из Debian archive, подписи проверяются; отключается только проверка
+срока действия архивного Release. Компилятор не обновляется.
+Кросс-сборка запускается по неизменяемому image ID, а не по изменяемому тегу.
+SHA-256 Dockerfile и фактический image ID входят в toolchain hash;
+Docker context также входит в EV3 source hash. Манифест фиксирует image ID,
+исходный FROM и SHA-256 рецепта. Изменение среды создаёт новую build identity.
+Зависимости на EV3 проверяются provisioning отдельно от среды кросс-сборки.
 Имя фактически выбранного компилятора экспортирует CMake, версия и SHA-256
-измеряются при сборке и сравниваются с lock-файлом.
+измеряются при сборке и сохраняются в манифесте. Ожидаемые версия и хеш
+компилятора заданы только в Dockerfile и проверяются при создании образа после
+установки зависимостей; несовпадение прерывает Docker build. Compiler triple получается
+командой выбранного компилятора `-dumpmachine` и экспортируется CMake как
+`compiler_target`; редактируемого `build.toolchain.target` нет. Этот факт в
+манифесте сверяется с экспортированными compiler facts, а действительная
+архитектура/ABI проверяется по ELF. CPU/soft-float флаги принадлежат toolchain CMake.
 CMake остаётся версии закреплённого образа; presets в этой версии не поддерживаются.
 
 <a id="sec-8-8"></a>
@@ -381,30 +397,91 @@ Quest и EV3 должны использовать согласованный п
 <a id="sec-engineering-contracts-configuration"></a>
 ### 8.1. Каноническая конфигурация
 
-| Каталог | Содержание |
+Конфигурация разделяется по жизненному циклу. В репозитории хранятся только
+настройки разработки, схемы форматов и синтетические тестовые данные. Результаты
+измерений конкретного робота не являются исходниками и не входят в BUILD.
+Значения настроек находятся в `config/`, машинные схемы — в соседней `schemas/`.
+В обеих директориях сохраняется разделение по компонентам. Wire/IPC-схемы
+принадлежат `schemas/shared/protocol/`; источник семантики протокола остаётся
+`config/shared/protocol/semantics.json`.
+
+| Тип | Источник и хранение | Жизненный цикл |
+|---|---|---|
+| Настройки разработки | `config/ev3/project.json`, `config/quest/project.json`, общие настройки `config/shared/` и CLI `config/tooling/` | Редактируются при разработке; компонуются в `build/config/` |
+| Постоянные данные робота | Только схема `schemas/ev3/commissioning.schema.json` в Git; authoritative результат инженерных процессов — `/var/lib/phantom/robot/commissioning.json` на EV3, совместимая копия/неизменяемый артефакт вне исходников | Создаются после сборки/калибровки и обновляются после изменения механики или повторной квалификации |
+| Идентичность установленной платформы | Только схема `schemas/ev3/device-identity.schema.json`; результат provisioning/qualification хранится вне исходников | Наблюдается для конкретного устройства; обновляется при смене образа |
+| Привязка текущего запуска | Схема `schemas/ev3/startup-reference.schema.json`; состояние `JointReference`/`GripperReference` в памяти EV3 | Заново устанавливается при каждом controller boot; не восстанавливается из старого файла |
+| Локализация Quest | Схема `schemas/quest/startup-localization.schema.json`; состояние в памяти Quest | Заново определяется при запуске и инвалидируется при утрате непрерывности reference space |
+| Сетевой режим без приводов | Схема `schemas/ev3/network-only-session.schema.json`; описатель создаётся в памяти | Не содержит геометрии, калибровок или измеренных ограничений; обе маски нулевые |
+
+В EV3 и Quest `project.json` содержит общую основу. Компоновщик выводит
+`qualification_only`, `actuator_scope_mask`, `safety_observation_mask` и Quest
+`required_user_inputs` из выбранного профиля: текущий Diagnostic — только сеть
+(`true`, `0`, `0`, `NONE`), Release — штатный профиль (`false`, `15`, `15`, `FULL_ARM`).
+Эти поля сохраняются в полных generated configs и проверяются загрузчиками;
+задавать или переопределять их в исходных настройках запрещено. Пустые профильные
+JSON-файлы не хранятся. Если появятся реальные настраиваемые отличия, необязательные
+`diagnostic.json`/`release.json` могут содержать только их.
+Будущие аппаратные режимы Diagnostic требуют отдельного реализованного контракта;
+выбор Diagnostic сейчас не разрешает испытания приводов. Authoritative флаг и маски
+в данных конкретного робота сохраняются и не выводятся автоматически из BUILD.
+Компоновщик рекурсивно объединяет объекты; массив заменяется целиком.
+Повторение значения основы в профиле и повторение одинакового отличия в обоих
+профилях считаются ошибками. `check --target schemas` проверяет исходники в памяти;
+`build` и `test` создают только проверенные настройки разработки. Синтетический
+сетевой описатель для software tests создаётся отдельно в `build/config/test-fixtures/`
+и не поставляется как калибровка робота.
+
+| Источник | Потребитель |
 |---|---|
-| `config/ev3/` | Runtime-основа, отличия профилей, runtime-схема и закреплённый ARM toolchain |
-| `config/quest/` | Runtime-основа, отличия профилей, runtime-схема и поиск Unity/Android/.NET |
-| `config/shared/` | Данные пары, допуск приводов, bundle, измеряемые параметры и JSON-источники wire/IPC |
-| `config/tooling/` | Требование к Python, общая среда WSL и таймауты CLI |
-| `config/{ev3,quest,shared}/generated/` | Полные канонические конфиги и manifest; создаются только генератором |
+| EV3 `ev3/docker/Dockerfile` и `ev3/toolchains/armel.cmake` | Compiler facts/ABI, подготовка Docker environment и идентичность сборки |
+| EV3 `runtime` | Службы, фиксированная разводка, сетевые baseline bounds, safety timings, журналы и верхняя граница scope профиля |
+| Quest `build` и `runtime` | Поиск инструментов, упаковка, сетевой клиент и ожидаемый scope профиля |
+| Shared `pair.json` | Публичный key ID и параметры discovery; реальные credentials, SSH/ADB identity и provisioning state остаются вне исходников |
+| Shared `protocol/` | Генерация C++/C# wire/IPC-контрактов |
+| Tooling `settings.json`, `environment.json` | CLI, deadlines и WSL |
+| Данные конкретного робота | Runtime admission и будущие физические алгоритмы; не источник build/config hashes |
 
-В каталогах `runtime`, `qualification` и `commissioning-bundle` файл `base.json`
-содержит общую основу, а `profiles/release.json` и `profiles/diagnostic.json` — только
-различия. Генератор рекурсивно объединяет объекты; массив заменяется целиком,
-`null` остаётся значением. Повторение значения основы в профиле считается ошибкой.
-Полный конфиг проходит схему и проверки согласованности перед записью файлов.
+Робот в проекте единственный. Его фиксированный protocol ID `phantom01` задан
+как `const` в EV3 runtime schema и автоматически включается в runtime configs
+обоих компонентов. Он не является исходной настройкой и не переопределяется
+через CLI. Поля wire/telemetry/DNS-SD сохраняются для проверки ожидаемого сервиса.
 
-Общие данные пары (robot ID, DNS-SD, UDP port) и условия допуска задаются один раз
-в `shared`. Размеры пакета и версия протокола берутся из wire-схемы. Ожидаемый хэш
-bundle для Quest вычисляется автоматически. Компонент и профиль не могут переопределять
-эти поля. Логические ID измеряемых параметров сохраняются независимо от расположения источников.
+`commissioning`, `device`, незаполненная геометрия, статусы измерений и
+qualification evidence не задаются в `project.json` или профилях. Для измеренных
+значений нет второго реестра. Настройки разработчика задают policy/верхнюю границу;
+результаты калибровки задают подтверждённые характеристики конкретной механики.
+Сеть, профиль или новый пакет не расширяют authoritative actuator scope робота.
 
-Настройки и схемы, которыми управляет PHANTOM, используют JSON. Обязательные файлы
-CMake, Unity ProjectSettings/Packages, .NET global.json, systemd и GitHub workflow
-сохраняют штатные форматы и расположение. Карты документации в `docs` и тестовые vectors
-остаются у своих владельцев. Credentials и настройки конкретной пары устройств хранятся
-вне репозитория. Сгенерированные копии допустимы; редактируемый источник каждого значения один.
+Компиляция и software tests Release не требуют файла калибровки конкретного экземпляра. Готовность
+продуктового релиза и разрешение движения по-прежнему требуют применимых
+platform/SBOM/risk inputs, квалифицированного bundle и всех safety prerequisites.
+Текущий `build --profile release` выполняет packaging/publication и остаётся
+заблокированным до реализации проверки внешнего qualification evidence; software
+компиляция проверяется `test --profile release`. Отсутствие данных не разрешает `READY`. Неполные, повреждённые или несовместимые
+данные не подменяются номинальными коэффициентами.
+
+Пакеты ПО не содержат и не перезаписывают постоянные данные робота. INSTALL,
+rollback ПО и очистка `/run` сохраняют `/var/lib/phantom/robot/`.
+Принятие новых данных инженерной процедурой выполняется с проверкой схемы,
+совместимости, evidence и atomic temp+fsync+rename; прежняя подтверждённая ревизия
+сохраняется при ошибке. Алгоритмы формирования физических данных и полная
+motion admission относятся к соответствующим этапам реализации; наличие схем
+само по себе их не реализует.
+
+В существующем Stage-3 Diagnostic сеть использует созданный в памяти канонический
+нулевой описатель. Его хэш вычисляется независимо одинаково EV3 и Quest и сверяется
+через `HELLO_ACK`; реальные robot data не используются и не изменяются. Поле
+`commissioning_bundle_hash` манифеста BUILD Diagnostic обозначает этот bootstrap
+контракт, а в BUILD Release содержит нулевой sentinel отсутствия привязки к роботу.
+Для продуктового runtime активный bundle hash определяется установленными
+данными робота и доказывается до движения; его нельзя брать из BUILD-манифеста.
+
+Обновление схемы или алгоритма может сделать сохранённые данные несовместимыми:
+это ошибка допуска с необходимостью повторной калибровки/миграции, а не разрешение
+автоматически заменить их. Синтетические fixtures не подтверждают hardware PASS.
+Настройки и схемы PHANTOM используют JSON; CMake, Unity, systemd и workflow
+сохраняют штатные форматы. Credentials не входят в конфиги, схемы или журналы.
 
 Конфигурация разделяет данные, определяющие поведение, и сведения об их происхождении:
 
@@ -482,7 +559,7 @@ Quest и EV3 вычисляют хэш кандидата из одинаков�
 <a id="sec-engineering-contracts-qualification-bundles"></a>
 #### 8.1.1. Ревизии конфигурации для квалификации и Release
 
-Для `build_profile=Release` authoring schema обязана отклонять `qualification_only=true`, `actuator_scope_mask != 0x0F` и `safety_observation_mask != 0x0F`. Нулевой `qualification_evidence_manifest_hash` разрешён в source/generated config только как явно заблокированный `UNQUALIFIED_RELEASE_CANDIDATE`: runtime остаётся fail-closed и такой config нельзя установить/опубликовать как production release. Release **packaging/publication gate**, в отличие от schema/generator и compile-only build, обязательно отклоняет нулевой/отсутствующий evidence hash либо manifest, чей component-set hash не совпадает с production bundle, и проверяет PASS всех обязательных evidence refs. Простая ручная смена `qualification_only:true→false` не создаёт допустимый release и должна fail packaging/release validation. На этапах 3–5 ранний Diagnostic mechanical/safety bundle разрешает только пары масок `0x00/0x00` (network-only) и `0x08/0x08` (Gripper). Соответствующий Quest profile отдельно использует `required_user_inputs=NONE` для Stage 3 и phase-specific QR commissioning либо `GRIPPER_ONLY` для user-driven Stage 5. На этапах 6–7 Diagnostic `COMMISSIONING/CALIBRATION` может использовать versioned scope всех фактически подключённых осей текущего стенда, если их motor/mechanics/safety prerequisites [Спецификация Quest §16.1](quest-specification.md#sec-5-16-1) выполнены; отдельный `CALIBRATION_JOG.axis` выбирает единственную движущуюся ось, а штатный `COMMAND` для A/B/C при этом запрещён. Scoped A/B/C `ACTUATOR_QUALIFICATION` допускается только с полными `RobotGeometry`, `DriveCalibration`, `JointReference A/B/C`, `EMPTY` profile-specific `JointSafeSet`, `safety_observation_mask & 0x07 == 0x07`, `actuator_scope_mask & ~safety_observation_mask == 0` и пройденными **pre-motion** prerequisites [План проверки](test-plan.md#sec-9) (exhaustive safe-set proof, mechanical/fixture inspection, `LOCAL_STOP`/`POWER_CUT`, интеграционные тесты с нулевым выходом приводов и применимые P0 gates). Сам движущийся incremental MANUAL case не может быть prerequisite самому себе: он последовательно создаёт qualification evidence по [Метрики и анализ §4.7.7](metrics-and-logs.md#sec-9-15-7)/[Метрики и анализ §4.9](metrics-and-logs.md#sec-9-17)–[Метрики и анализ §4.10](metrics-and-logs.md#sec-9-19) и [Этапы реализации §11](implementation-stages.md#sec-10-11). Маска motor authority может быть уже (`C`, `B+C` и т.п.), но безопасность всегда вычисляется по реальным observed A/B/C.
+Для `build_profile=Release` authoring schema обязана отклонять `qualification_only=true`, `actuator_scope_mask != 0x0F` и `safety_observation_mask != 0x0F`. Evidence не входит в source/generated настройки разработки. Нулевой или отсутствующий `qualification_evidence_manifest_hash` в постоянных данных робота означает неподтверждённый candidate: runtime остаётся fail-closed; такой набор нельзя активировать как production данные. Software compilation не подтверждает квалификацию конкретного робота. Release **packaging/publication gate**, в отличие от schema/generator и compile-only build, обязательно отклоняет нулевой/отсутствующий evidence hash либо manifest, чей component-set hash не совпадает с production bundle, и проверяет PASS всех обязательных evidence refs. Простая ручная смена `qualification_only:true→false` не создаёт допустимый release и должна fail packaging/release validation. На этапах 3–5 ранний Diagnostic mechanical/safety bundle разрешает только пары масок `0x00/0x00` (network-only) и `0x08/0x08` (Gripper). Соответствующий Quest profile отдельно использует `required_user_inputs=NONE` для Stage 3 и phase-specific QR commissioning либо `GRIPPER_ONLY` для user-driven Stage 5. На этапах 6–7 Diagnostic `COMMISSIONING/CALIBRATION` может использовать versioned scope всех фактически подключённых осей текущего стенда, если их motor/mechanics/safety prerequisites [Спецификация Quest §16.1](quest-specification.md#sec-5-16-1) выполнены; отдельный `CALIBRATION_JOG.axis` выбирает единственную движущуюся ось, а штатный `COMMAND` для A/B/C при этом запрещён. Scoped A/B/C `ACTUATOR_QUALIFICATION` допускается только с полными `RobotGeometry`, `DriveCalibration`, `JointReference A/B/C`, `EMPTY` profile-specific `JointSafeSet`, `safety_observation_mask & 0x07 == 0x07`, `actuator_scope_mask & ~safety_observation_mask == 0` и пройденными **pre-motion** prerequisites [План проверки](test-plan.md#sec-9) (exhaustive safe-set proof, mechanical/fixture inspection, `LOCAL_STOP`/`POWER_CUT`, интеграционные тесты с нулевым выходом приводов и применимые P0 gates). Сам движущийся incremental MANUAL case не может быть prerequisite самому себе: он последовательно создаёт qualification evidence по [Метрики и анализ §4.7.7](metrics-and-logs.md#sec-9-15-7)/[Метрики и анализ §4.9](metrics-and-logs.md#sec-9-17)–[Метрики и анализ §4.10](metrics-and-logs.md#sec-9-19) и [Этапы реализации §11](implementation-stages.md#sec-10-11). Маска motor authority может быть уже (`C`, `B+C` и т.п.), но безопасность всегда вычисляется по реальным observed A/B/C.
 
 Для incremental A/B/C MANUAL узкая authority **не является runtime override** production bundle. Все narrow authority cases (`C`, `B+C`, затем A+B+C narrow/full-authority bring-up до payload qualification) выполняются только с **пустым Gripper без внешнего payload** и используют installed `EMPTY` PayloadProfile + matching `EMPTY` JointSafeSet. После reference tooling явно устанавливает engineering `SET_PAYLOAD_PROFILE=EMPTY` и `SET_PAYLOAD_STATE=EMPTY` при stationary motors и снятом qualification arm; это не product state, а доказуемый input safety gate. `LOADED`, non-empty profile, pickup/release и object-contact-as-payload в narrow qualification запрещены. Loaded-payload cases допускаются только в отдельном full `0x0F/0x0F qualification_only=true` bundle с полными A/B/C/D references и специальными engineering payload gates [Спецификация протокола §2.5](protocol-specification.md#sec-4-7-5). Engineering tooling создаёт каждую immutable derived revision из принятого production-candidate semantic component set: narrow bundles ссылаются на те же geometry/DriveCalibration/collision/SafetyEnvelope hashes и EMPTY profile/safe-set; full qualification bundle может переключать только уже установленные candidate payload profiles/safe-sets, не меняя их bytes. Каждая revision имеет собственный `commissioning_bundle_hash`, проходит двухсторонний deployment/hash check и при активации инвалидирует session/JointReference/GripperReference. После qualification production bundle создаётся/promote-ится отдельной revision; MANUAL никогда не переписывает masks in-place.
 

@@ -1,6 +1,6 @@
 import io,pathlib,struct,tarfile,tempfile,unittest
 
-from artifact_check import compiler_matches, ev3_package_name, verify_ev3_archive, verify_ev3_elf
+from artifact_check import ev3_package_name, verify_ev3_archive, verify_ev3_elf
 
 
 class CompilerFactTests(unittest.TestCase):
@@ -12,14 +12,23 @@ class CompilerFactTests(unittest.TestCase):
             for offset,value in ((4,2),(5,2),(18,62),(37,4)):
                 bad=bytearray(header);bad[offset]=value;path.write_bytes(bad)
                 with self.assertRaises(ValueError):verify_ev3_elf(path)
-    def test_debian_version_parentheses_match_compact_lock(self):
-        facts="arm-linux-gnueabi-g++ (Debian 6.3.0-18) 6.3.0 20170516 | abc  /usr/bin/arm-linux-gnueabi-g++"
-        self.assertTrue(compiler_matches("arm-linux-gnueabi-g++ 6.3.0-18",facts))
 
-    def test_wrong_executable_or_package_revision_rejected(self):
-        facts="arm-linux-gnueabi-g++ (Debian 6.3.0-17) 6.3.0 20170516"
-        self.assertFalse(compiler_matches("arm-linux-gnueabi-g++ 6.3.0-18",facts))
-        self.assertFalse(compiler_matches("arm-linux-gnueabihf-g++ 6.3.0-17",facts))
+
+class ObservedCompilerTargetTests(unittest.TestCase):
+    def test_target_comes_from_exported_compiler_facts(self):
+        from tooling.common.environment import compiler_target
+        facts = ['compiler version', 'binary hash /compiler', 'compiler_target=arm-linux-gnueabi']
+        self.assertEqual(compiler_target(facts), 'arm-linux-gnueabi')
+        self.assertEqual(compiler_target(' | '.join(facts)), 'arm-linux-gnueabi')
+        self.assertEqual(compiler_target(['compiler_target=x86_64-linux-gnu']), 'x86_64-linux-gnu')
+
+    def test_missing_ambiguous_and_malformed_targets_fail_closed(self):
+        from tooling.common.environment import compiler_target
+        from tooling.common.process import ToolError
+        for facts in ([], ['compiler_target='], ['compiler_target=arbitrary label'],
+                      ['compiler_target=arm-linux-gnueabi', 'compiler_target=x86_64-linux-gnu']):
+            with self.assertRaises(ToolError):
+                compiler_target(facts)
 
 
 class PackageNameTests(unittest.TestCase):
