@@ -4,8 +4,8 @@ namespace Phantom.Networking.Generated
     public static class WireV1
     {
         public const string ProtocolSchemaSha256 = "bbb1e01b5254bd81496d1be20e071a696bef5f79b1e580e60326d027fb79466c";
-        public const string ProtocolSemanticsSha256 = "81d1650a73be6b018ebb381c4c560e04a2e7006adc388a42d3723bbdff52cca8";
-        public const string ProtocolContractSha256 = "35eb02acbd6f3162abdf545eb60ec53cd7906b0ee51c44dd14de49ca33b89815";
+        public const string ProtocolSemanticsSha256 = "9b76f7b3b921c2a6c3905ae7f7b0c645a1268d36f185e3615c3c434e8ea51e0d";
+        public const string ProtocolContractSha256 = "4a9beffb2c52fd0c0c49d73c12d1acddf163522b648d9bf537b4bd3d81cc0524";
         public const int HeaderBytes=64, HmacBytes=32, MaxDatagramBytes=1024;
         public enum MessageType : ushort
         {

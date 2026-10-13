@@ -1,5 +1,6 @@
 #include "phantom/runtime_profile.hpp"
 #include "phantom/json_reader.hpp"
+#include "phantom/robot_data.hpp"
 #include <cerrno>
 #include <cstdio>
 #include <cstring>
@@ -52,9 +53,16 @@ bool load_runtime_profile(const std::string& config_path, const std::string& bun
                           RuntimeProfile& profile, std::string& error) {
   JsonValue config, bundle;
   if (!load_document(config_path, config, error, "runtime config")) return false;
-  if (!load_document(bundle_path, bundle, error, "commissioning bundle")) return false;
+  std::string selected_profile, bundle_bytes;
+  if (!json_string(config, "build_profile", selected_profile)) {
+    error = "development runtime config profile is missing"; return false;
+  }
+  const bool bootstrap = selected_profile == "Diagnostic";
+  // Stage-3 network-only ignores saved physical calibration without modifying it.
+  const auto data_path = bootstrap && bundle_path == kRobotDataPath ? std::string() : bundle_path;
+  if (!load_robot_data(data_path, bootstrap, bundle, bundle_bytes, error)) return false;
 
-  std::string build_profile, ready_gate, motor_output_default;
+  std::string build_profile;
   bool config_qualification = false, bundle_qualification = false;
   std::uint64_t config_scope = 0, config_observe = 0, bundle_scope = 0, bundle_observe = 0;
   if (!json_string(config, "build_profile", build_profile) ||
@@ -107,12 +115,6 @@ bool load_runtime_profile(const std::string& config_path, const std::string& bun
   }
   profile.listen_port_udp = static_cast<std::uint16_t>(listen_port);
 
-  if (!json_string(config, "safety/motor_output_default", motor_output_default) ||
-      motor_output_default != "BRAKE_ZERO") {
-    error = "safety.motor_output_default must be BRAKE_ZERO";
-    return false;
-  }
-  if (!json_string(config, "safety/ready_gate", ready_gate)) { error = "safety.ready_gate is missing"; return false; }
   if (profile.loop_safe_hold_ms >= profile.loop_fault_ms) {
     error = "loop_safe_hold_ms must fire strictly before loop_fault_ms";
     return false;
@@ -122,12 +124,9 @@ bool load_runtime_profile(const std::string& config_path, const std::string& bun
     return false;
   }
 
-  bool measured_limits_complete = false;
-  if (!json_bool(config, "safety/measured_limits_complete", measured_limits_complete)) {
-    error = "safety.measured_limits_complete is missing";
-    return false;
-  }
-  profile.measured_limits_complete = measured_limits_complete;
+  // This is observed robot-data admission, never a development setting.
+  // Full motion data consumers are future work: no label can bypass that gate.
+  profile.measured_limits_complete = false;
 
   // Commissioning admission comes only from the authoritative bundle. A
   // qualification-only bundle never grants it, which keeps READY unreachable
@@ -137,7 +136,8 @@ bool load_runtime_profile(const std::string& config_path, const std::string& bun
   const JsonValue* power_cut = bundle.path("safety_envelope/external_power_cut_tested");
   if (power_cut && power_cut->kind == JsonValue::Kind::Bool) external_power_cut_tested = power_cut->boolean;
   if (json_string(bundle, "qualification_status", qualification_status)) {
-    profile.commissioning_valid = qualification_status == "QUALIFIED" && !bundle_qualification;
+    profile.commissioning_valid = qualification_status == "QUALIFIED" && !bundle_qualification
+        && profile.measured_limits_complete;
   }
   profile.external_power_cut_tested = external_power_cut_tested;
   error.clear();

@@ -4,20 +4,13 @@ import argparse,hashlib,json,pathlib,re,struct,subprocess,sys,tarfile,zipfile
 from build_identity import identity
 from source_hash import QUEST_SOURCE_INPUTS
 from tooling.common.environment import quest_package
+from configgen import compile_configs, generated_path
 ROOT=pathlib.Path(__file__).resolve().parents[2]
 def load(path):return json.loads(path.read_text(encoding="utf-8-sig"))
 def sha(path):return hashlib.sha256(path.read_bytes()).hexdigest()
 def source_hash(*paths):return subprocess.check_output([sys.executable,str(ROOT/"tooling/internal/source_hash.py"),*paths],text=True).strip()
 def require(condition,message):
     if not condition:raise ValueError(message)
-def compiler_matches(expected,facts):
-    """Match the locked executable and Debian package revision independently.
-
-    GCC prints the distribution revision in parentheses, so the lock's compact
-    ``executable revision`` form is intentionally not a literal substring.
-    """
-    parts=expected.split()
-    return len(parts)>=2 and facts.split()[0]==parts[0] and parts[-1] in facts
 def ev3_package_name(build_id):
     return f"phantom-{build_id}.tar.gz"
 def verify_checksum_manifest(directory):
@@ -115,13 +108,15 @@ def main():
     protocol_schema=(ROOT/"protocol/generated/schema.sha256").read_text().split()[0]
     protocol_semantics=(ROOT/"protocol/generated/semantics.sha256").read_text().split()[0]
     protocol_contract=(ROOT/"protocol/generated/contract.sha256").read_text().split()[0]
-    expected_config={"quest":{"release":sha(ROOT/"config/quest/generated/release.json"),
-                              "diagnostic":sha(ROOT/"config/quest/generated/diagnostic.json")},
-                     "ev3":{"release":sha(ROOT/"config/ev3/generated/release.json"),
-                            "diagnostic":sha(ROOT/"config/ev3/generated/diagnostic.json")}}
-    config_manifest=load(ROOT/"config/shared/generated/manifest.json")
-    expected_bundle={"release":config_manifest["artifact_hashes"]["commissioning_bundle"],
-                     "diagnostic":config_manifest["artifact_hashes"]["commissioning_bundle-network-only"]}
+    outputs, config_manifest = compile_configs()
+    expected_config = {
+        component: {profile: hashlib.sha256(outputs[generated_path(
+            component + ("-network-only" if profile == "diagnostic" else ""))]).hexdigest()
+                    for profile in ("release", "diagnostic")}
+        for component in ("ev3", "quest")}
+    require(profile != "release", "Release publication requires external qualification evidence")
+    expected_bundle = {"release": "0" * 64,
+                       "diagnostic": config_manifest["bootstrap_descriptor_hash"]}
     if quest:
         package_manifest=load(ROOT/"PhantomQuest/Packages/manifest.json")
         package_lock=load(ROOT/"PhantomQuest/Packages/packages-lock.json")
@@ -177,9 +172,8 @@ def main():
         for permission in ("android.permission.INTERNET","com.oculus.permission.HAND_TRACKING","com.oculus.permission.BODY_TRACKING","com.oculus.permission.USE_SCENE","com.oculus.permission.USE_ANCHOR_API"):
             require(permission.encode("utf-16le") in android_manifest,"Quest APK permission missing: "+permission)
     else:
-        lock_path=ROOT/"config/ev3/toolchain.json"
-        lock=load(lock_path)
-        require(re.fullmatch(r"sha256:[0-9a-f]{64}",lock["cross_image_digest"]) is not None,"cross image digest not pinned")
+        from tooling.common.environment import toolchain_hash, cross_recipe, compiler_target
+        _, base_image, recipe_hash = cross_recipe()
         expected_source=source_hash("--component","EV3")
         directory=pathlib.Path(args.ev3_directory).resolve() if args.ev3_directory else ROOT/f"build/ev3-armel/{profile}"
         manifest=load(directory/"build-manifest.json")
@@ -189,15 +183,19 @@ def main():
         require(manifest["config_hash"]==expected_config["ev3"][profile],"EV3 config hash mismatch")
         require(manifest.get("commissioning_bundle_hash")==expected_bundle[profile],"EV3 bundle hash mismatch")
         require(manifest["source_tree_hash"]==expected_source,"EV3 artifact was not built from current sources")
-        require(manifest.get("toolchain_or_package_lock_hash")==sha(lock_path),"EV3 identity lock hash mismatch")
+        require(manifest.get("toolchain_or_package_lock_hash")==toolchain_hash(manifest["cross_image"]),"EV3 identity lock hash mismatch")
         expected_build_id,_=identity("EV3",manifest["build_profile"],expected_source,protocol_contract,expected_config["ev3"][profile],manifest["toolchain_or_package_lock_hash"])
         require(manifest.get("build_id")==expected_build_id,"EV3 build_id mismatch")
         require(manifest.get("qualification_eligible") is True,"EV3 qualification eligibility/profile mismatch")
+        require(not (directory / "commissioning-bundle.generated.json").exists(),
+                "software package must not contain per-robot calibration data")
         verify_checksum_manifest(directory)
-        require(manifest["cross_image"]==lock["cross_image"]+"@"+lock["cross_image_digest"],"armel image mismatch")
-        require(manifest["target"]==lock["target"],"EV3 target mismatch")
-        require(compiler_matches(lock["cross_toolchain"],manifest["toolchain_facts"]),"armel compiler version mismatch")
-        require(lock["cross_toolchain_binary_sha256"] in manifest["toolchain_facts"],"armel compiler hash mismatch")
+        require(re.fullmatch(r"sha256:[0-9a-f]{64}", manifest.get("cross_image", "")) is not None,
+                "prepared image ID must be immutable")
+        require(manifest.get("cross_image_base") == base_image, "base image mismatch")
+        require(manifest.get("cross_image_recipe_sha256") == recipe_hash, "Dockerfile recipe mismatch")
+        require(manifest.get("compiler_target") == compiler_target(manifest["toolchain_facts"]),
+                "observed compiler target mismatch")
         require(manifest["controller_sha256"]==sha(directory/"bin/phantom-controller"),"controller hash mismatch")
         require(manifest["safety_sha256"]==sha(directory/"bin/phantom-safety"),"safety hash mismatch")
         for name in ("phantom-controller","phantom-safety","phantom-network","phantom-mdns","phantom-maintenance","phantom-device-integration-test"):verify_ev3_elf(directory/"bin"/name)

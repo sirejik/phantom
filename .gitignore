@@ -70,3 +70,7 @@ sysinfo.txt
 # Operating-system files
 .DS_Store
 Thumbs.db
+
+# Per-robot persistent data and ephemeral startup state; schemas belong in schemas/.
+/robot-data/
+/run-state/

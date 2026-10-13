@@ -1,0 +1,44 @@
+{
+  "build": {
+    "environment": {
+      "unity": {
+        "override_environment_variable": "PHANTOM_UNITY_ROOT",
+        "search_paths": [
+          "C:\\Program Files\\Unity\\Hub\\Editor\\{version}",
+          "C:\\Program Files (x86)\\Unity\\Hub\\Editor\\{version}",
+          "D:\\Unity\\Hub\\Editor\\{version}"
+        ]
+      },
+      "android": {
+        "override_environment_variable": "PHANTOM_ADB",
+        "adb_relative_paths": [
+          "PlaybackEngines/AndroidPlayer/SDK/platform-tools/adb.exe"
+        ],
+        "adb_search_paths": [
+          "C:\\Android\\platform-tools\\adb.exe"
+        ],
+        "apksigner_override_environment_variable": "PHANTOM_APKSIGNER"
+      },
+      "dotnet": {
+        "override_environment_variable": "PHANTOM_DOTNET",
+        "user_install_relative_path": ".dotnet/dotnet.exe"
+      }
+    },
+    "packaging": {
+      "meta_app_id": "1405011949353501",
+      "signing_key_alias": "phantom-quest-release"
+    }
+  },
+  "runtime": {
+    "network": {
+      "commissioning_key_id": null,
+      "hello_max_attempts": 5,
+      "hello_retry_ms": 250,
+      "max_missed_pongs": 3,
+      "ping_interval_ms": 500,
+      "ping_timeout_ms": 750,
+      "reconnect_delay_ms": 250,
+      "telemetry_max_age_ms": 100
+    }
+  }
+}

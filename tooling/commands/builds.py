@@ -103,20 +103,22 @@ def execute(args):
 
 def build(args):
     internal('protocolgen', '--check')
-    internal('configgen', '--check')
+    internal('configgen')
     profile = args.profile.title()
     protocol = hashes()
     config = generated_path(args.target + ('-network-only' if profile == 'Diagnostic' else ''))
     config_hash = sha(config)
-    bundle = 'commissioning_bundle' + ('-network-only' if profile == 'Diagnostic' else '')
-    bundle_hash = load(ROOT / 'config/shared/generated/manifest.json')['artifact_hashes'][bundle]
+    bundle_hash = (load(ROOT / 'build/config/manifest.json')['bootstrap_descriptor_hash']
+                   if profile == 'Diagnostic' else '0' * 64)
     commit = run(['git', 'rev-parse', 'HEAD']).stdout.strip()
     dirty = bool(run(['git', 'status', '--porcelain']).stdout.strip())
-    if profile == 'Release' and load(generated_path(bundle)).get(
-            'qualification_evidence_manifest_hash', '0' * 64) == '0' * 64:
-        raise ToolError('Release blocked: qualification evidence is absent')
+    if profile == 'Release':
+        # Software compilation is independent of robot measurements. Publication
+        # still requires real external evidence; that workflow is not implemented.
+        raise ToolError('Release publication requires external qualification evidence; '
+                        'use test --profile release for software compilation and tests')
     if args.target == 'ev3':
-        lock, image = environment.cross_image()
+        image = environment.cross_image(timeout=args.timeout or command_timeout('build'))
         folder = contained(args.output or ROOT / 'build/ev3-armel', ROOT / 'build') / args.profile
         folder.mkdir(parents=True, exist_ok=True)
         with tempfile.TemporaryDirectory(prefix='phantom-arm-', dir=ROOT / 'build') as name:
@@ -125,20 +127,21 @@ def build(args):
             facts = (stage / 'toolchain-facts.txt').read_text().splitlines()
             (stage / 'toolchain-facts.txt').unlink()
             shutil.copy2(config, stage / 'config.generated.json')
-            shutil.copy2(generated_path(bundle),
-                         stage / 'commissioning-bundle.generated.json')
             for resource in ('systemd', 'tmpfiles'):
                 shutil.copytree(ROOT / f'tooling/resources/ev3/{resource}', stage / resource)
             source = source_hash(ROOT, EV3_SOURCE_INPUTS)
-            lock_hash = sha(environment.toolchain_path())
+            lock_hash = environment.toolchain_hash(image)
             build_id = identity('EV3', profile, source, protocol['contract'], config_hash, lock_hash)[0]
+            _, base_image, recipe_hash = environment.cross_recipe()
             manifest = dict(schema_version=5, build_identity_schema='PHANTOM-BUILD-V4',
                             component='EV3', build_id=build_id, build_profile=profile, git_commit=commit,
-                            source_tree_hash=source, worktree_dirty=dirty, target=lock['target'],
+                            source_tree_hash=source, worktree_dirty=dirty,
+                            compiler_target=environment.compiler_target(facts),
                             protocol_version=1, protocol_schema_hash=protocol['schema'],
                             protocol_semantics_hash=protocol['semantics'], protocol_contract_hash=protocol['contract'],
                             config_hash=config_hash, commissioning_bundle_hash=bundle_hash,
-                            qualification_eligible=True, cross_image=image, toolchain_facts=' | '.join(facts),
+                            qualification_eligible=True, cross_image=image, cross_image_base=base_image,
+                            cross_image_recipe_sha256=recipe_hash, toolchain_facts=' | '.join(facts),
                             toolchain_or_package_lock_hash=lock_hash, source_date_epoch_or_reproducible_epoch=0,
                             controller_sha256=sha(stage / 'bin/phantom-controller'),
                             safety_sha256=sha(stage / 'bin/phantom-safety'))

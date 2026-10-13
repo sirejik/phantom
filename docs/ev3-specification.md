@@ -160,7 +160,7 @@ UDP listener и готовности IPC, mDNS — после успешной D
 
 Для этапа 3 структура `ControllerRequestV1`, `ControllerReplyV1` и
 `ControllerTelemetrySnapshotV1`, типы сообщений, размеры и порядок полей принадлежат
-[IPC schema](../config/shared/protocol/ipc-schema.json); constants/codecs и golden vectors генерируются
+[IPC schema](../schemas/shared/protocol/ipc-schema.json); constants/codecs и golden vectors генерируются
 из неё. Этот раздел определяет только контекстные проверки и условия допуска.
 
 Controller обрабатывает не более 16 queued IPC datagrams за один 50-Hz tick и принимает
@@ -181,7 +181,7 @@ handshake по [Спецификации протокола §2.3](protocol-spec
 **IPC транзакций этапа 4 и следующих этапов.** Описанные ниже
 `NetworkTransactionEnvelopeV1` и `ControllerProtocolReplyV1` являются контрактом
 будущего transaction layer; в Stage-3 IPC schema их ещё нет. Перед реализацией
-этого слоя структуры добавляются в `config/shared/protocol/ipc-schema.json`, генерируются codecs
+этого слоя структуры добавляются в `schemas/shared/protocol/ipc-schema.json`, генерируются codecs
 и общие golden/negative vectors. Отсутствующую структуру нельзя вводить только в prose
 или hand-written runtime.
 
@@ -193,7 +193,7 @@ Controller отвечает `ControllerProtocolReplyV1{ipc_version,controller_bo
 
 Обратный `ControllerTelemetrySnapshotV1` передаёт network worker только bounded snapshot состояния controller/battery/reference/gripper/incident; network worker сериализует wire `TELEMETRY` вне 50-Hz loop. Snapshot запрашивается отдельным `TELEMETRY_QUERY` по тому же boundary и с теми же credential/freshness проверками. **Отсутствие свежего snapshot запрещает отправку telemetry и запрещает отвечать на `HELLO`**: worker никогда не подставляет собственное представление о состоянии, поэтому неподтверждаемый controller выглядит на Quest как `TelemetryStale`, а не как исправный робот. Battery, `local_stop_active` и `safety_supervisor_alive` приходят только из snapshot; чтение motor/power sysfs из network process запрещено. Потеря обратного IPC может сделать telemetry stale, но не изменяет actuator state.
 
-Точная структура всех IPC-сообщений принадлежит `config/shared/protocol/ipc-schema.json`; из неё
+Точная структура всех IPC-сообщений принадлежит `schemas/shared/protocol/ipc-schema.json`; из неё
 генерируются `protocol/generated/ipc_constants.hpp`, `protocol/generated/ipc_layout.py` и
 общие `protocol/golden_vectors/ipc_v1.json`, которыми обе реализации доказывают одинаковое
 понимание offsets/размеров. Рукописные копии layout запрещены. IPC schema/version,
@@ -1143,14 +1143,14 @@ Persistent `DriveCalibration` загружается только при сов�
 
 Формируется около `20 Hz` из authoritative controller snapshot ([§2.2](#sec-7-2-2)).
 Семантика полей и подтверждения команд определена в [Спецификация протокола §2.8](protocol-specification.md#sec-4-7-8); точный состав пакета —
-в `config/shared/protocol/wire-schema.json` и generated `docs/protocol-wire-reference.md`.
+в `schemas/shared/protocol/wire-schema.json` и generated `docs/protocol-wire-reference.md`.
 
 <a id="sec-7-19-2"></a>
 ### 19.2. `DIAGNOSTIC_TELEMETRY`
 
 Diagnostic может передавать raw encoder/speed, `q_ref`, duty/stress, loop timing,
 счётчики parser/HMAC/drop и глубину bounded queues. Точный состав действующего
-`DIAGNOSTIC_TELEMETRY` принадлежит [wire schema](../config/shared/protocol/wire-schema.json)
+`DIAGNOSTIC_TELEMETRY` принадлежит [wire schema](../schemas/shared/protocol/wire-schema.json)
 и [генерируемому справочнику](protocol-wire-reference.md); отдельного layout здесь нет.
 `q_target`, contact position, calibration residuals и sample ids могут сохраняться
 локальным logger, но не объявляются wire-полями без изменения схемы.
@@ -1207,13 +1207,15 @@ emergency event по [§2.5](metrics-and-logs.md#sec-metrics-safety-events).
 <a id="sec-7-21"></a>
 ## 21. Конфигурация EV3
 
-Конфигурация EV3 состоит из двух машинно-читаемых артефактов. Их структура
+EV3 разделяет настройки разработки, постоянные данные робота и привязку запуска. Их структура
 принадлежит схемам, а этот раздел задаёт проверки runtime:
 
 | артефакт | canonical schema | canonical source | что в нём живёт |
 |---|---|---|---|
-| EV3 runtime config | `config/ev3/runtime.schema.json` | `config/ev3/runtime/base.json` + `config/ev3/runtime/profiles/` + общие данные `config/shared/` | identity, scope masks, port assignment, network/session bounds, safety timings, logging retention |
-| `CommissioningBundle` | `config/shared/commissioning-bundle.schema.json` | `config/shared/commissioning-bundle/base.json` + `config/shared/commissioning-bundle/profiles/` + `config/shared/qualification/` | `RobotGeometry`, `DriveCalibration`, collision model, `JointSafeSet`, payload profiles, `SafetyEnvelope` |
+| EV3 runtime config | `schemas/ev3/runtime.schema.json` | `project.json.runtime` в `config/ev3/`, выбранный профиль BUILD, данные пары и протокола; профильные файлы нужны только для реальных настраиваемых отличий | identity, scope masks, port assignment, network/session bounds, safety timings, logging retention |
+| `CommissioningBundle` | `schemas/ev3/commissioning.schema.json` | Результаты инженерных процессов вне репозитория; `/var/lib/phantom/robot/commissioning.json` | Постоянные измерения, калибровки, ограничения и qualification evidence |
+| Привязка запуска | `schemas/ev3/startup-reference.schema.json` | Атомарные текущие encoder samples и QR-измерения при старте | Временные `JointReference` и `GripperReference`, связанные с controller boot и bundle hash |
+| Network-only session | `schemas/ev3/network-only-session.schema.json` | Автоматически в памяти | Нулевой scope, без данных калибровки и без допуска к движению |
 
 Schema владеет **структурой**: именами, вложенностью, типами, диапазонами и обязательностью
 полей. Prose уточняет их **смысл** и межполевые условия безопасности в рамках FR/NFR.
@@ -1223,15 +1225,27 @@ schema, generated artifacts и проверки согласованно исп�
 
 Генерация, канонизация, хэши и установка конфигурации определены
 [контрактом конфигурации](engineering.md#sec-engineering-contracts-configuration).
+В `build/config/` автоматически создаются только настройки разработки. Данные робота
+не входят в пакет ПО и не перезаписываются установкой. Типы моторов,
+максимальная flexion и число одновременных сессий остаются требованиями компонента,
+а не неиспользуемыми переключателями runtime. Настраиваемый debounce Gripper относится
+к будущему этапу загрузки датчика и должен появиться вместе с его потребителем и тестами.
 До допуска движения runtime проверяет установленные canonical bytes, совпадение
 хэшей и межкомпонентную совместимость. Хэш `QualificationEvidenceManifest` входит
 в semantic admission gate; provenance metadata и derived self-hash — вне semantic bytes.
+
+Отсутствующий файл постоянных данных разрешает только явно выбранный network-only
+Diagnostic: описатель создаётся в памяти, без записи вымышленных измерений.
+Повреждённый файл, неверный тип или недоступный путь не трактуются как отсутствие
+калибровки. Release при отсутствии файла отказывает в загрузке; наличие label
+`QUALIFIED` не заменяет полную проверку данных. Сохранённые encoder intercept и
+привязки предыдущего controller boot не используются.
 
 <a id="sec-7-21-1"></a>
 ### 21.1. Поля, которые обязан загружать runtime
 
 Каждая служба загружает необходимые ей значения из валидированной конфигурации
-и **не подставляет компилируемые значения по умолчанию**:
+и **не подставляет компилируемые значения настроек по умолчанию**:
 отсутствующее, нетипизированное или выходящее за диапазон поле — ошибка запуска, а не повод
 взять зашитое значение.
 
@@ -1240,19 +1254,22 @@ schema, generated artifacts и проверки согласованно исп�
 | `network.listen_port_udp` | UDP command port | 1024..65535 |
 | `network.command_timeout_ms` | свежесть принятого `COMMAND`; истечение → inhibit по [§9](#sec-7-9) | motion-профиль соблюдает `NFR-PERF-06` |
 | `network.session_stale_ms` | инвалидация CONTROL owner и controller-side IPC session watchdog | 200..300000 |
-| `network.rx_rate_limit_pps`, `network.rx_burst_packets` | MANUAL-derived token bucket парсера | `MEASURED`; до измерения network-only использует зафиксированный baseline |
+| `network.rx_rate_limit_pps`, `network.rx_burst_packets` | Baseline token bucket парсера, заданный при разработке | Физическая квалификация проверяет применимость; измеренный override появится со своим потребителем в данных робота |
 | `network.hello_retry_window_ms` | окно идемпотентного повторного `HELLO` | должно покрывать `hello_retry_ms × hello_max_attempts` Quest |
 | `safety.controller_heartbeat_rate_hz` | минимальная частота heartbeat обоих процессов | ≥ 20 Hz |
 | `safety.controller_heartbeat_timeout_ms` | потеря supervisor → latched `STOPPED` + `FAULT_CONTROLLER_PROCESS` | должен покрывать хотя бы один heartbeat-период |
 | `safety.loop_safe_hold_ms` | порог transient inhibit по [§7.4](#sec-7-7-4) | ≤60 ms и строго меньше `loop_fault_ms` для motion-профиля |
 | `safety.loop_fault_ms` | порог latched `STOPPED + FAULT_LOOP_OVERRUN` | ≤100 ms и строго больше `loop_safe_hold_ms` для motion-профиля |
-| `safety.motor_output_default` | безопасное состояние выхода | только `BRAKE_ZERO` |
-| `safety.measured_limits_complete` | часть `READY` admission | `false` пока `MEASURED` не заполнены |
+| `measured_limits_complete` (внутренний результат допуска, не поле runtime config) | полнота загрузки измеренных ограничений | Не задаётся разработчиком; текущий Stage-3 loader оставляет `false`, полный загрузчик относится к следующим этапам |
 | `logging.flight_recorder_seconds`, `logging.flight_recorder_rate_hz` | глубина RAM ring buffer ([§20.2](#sec-7-20-2)) | произведение задаёт число записей; частота не выше фактических ticks |
 | `logging.release_retention_days`, `logging.release_max_mb` | retention инцидентов и журналов ([Метрики и журналы §2.1](metrics-and-logs.md#sec-8-13)) | применяется при старте |
 
+Безопасная остановка задаётся кодом controller/backend: нулевой выход и торможение
+не являются редактируемым runtime-параметром. Runtime config не содержит номера
+версии: он валидируется по единственной актуальной `schemas/ev3/runtime.schema.json`.
+
 Commissioning admission (`commissioning_valid`, `external_power_cut_tested`) приходит **только
-из authoritative bundle**, а не из runtime config: `qualification_only` bundle никогда её не
+из сохранённых данных authoritative bundle**, а не из runtime config: `qualification_only` bundle никогда её не
 выдаёт, поэтому `READY` структурно недостижим до установки квалифицированного bundle.
 
 <a id="sec-7-21-2"></a>

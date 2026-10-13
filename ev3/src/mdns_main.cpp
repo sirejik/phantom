@@ -11,7 +11,8 @@ namespace {
 volatile std::sig_atomic_t stopping=0;
 void stop(int){stopping=1;}
 // Stable opaque C ABI from avahi-client/client.h, publish.h and
-// avahi-common/simple-watch.h. The pinned cross image has no dev package.
+// avahi-common/simple-watch.h. Cross headers are supplied by ev3/docker/Dockerfile;
+// runtime symbols remain loaded explicitly for fail-closed dependency checks.
 // Publication uses Avahi over D-Bus; there is no custom mDNS implementation.
 struct AvahiClient;struct AvahiEntryGroup;struct AvahiSimplePoll;struct AvahiPoll;
 constexpr int ClientRunning=2,ClientFailure=100,GroupEstablished=2,
@@ -83,7 +84,7 @@ private:
 };
 }
 int main(int argc,char**argv){
-  std::map<std::string,std::string> args{{"--config","/opt/phantom/current/config.generated.json"},{"--bundle","/opt/phantom/current/commissioning-bundle.generated.json"},{"--manifest","/opt/phantom/current/build-manifest.json"},{"--boot-id","/run/phantom/controller/boot-id"}};
+  std::map<std::string,std::string> args{{"--config","/opt/phantom/current/config.generated.json"},{"--bundle",""},{"--manifest","/opt/phantom/current/build-manifest.json"},{"--boot-id","/run/phantom/controller/boot-id"}};
   try{
     for(int i=1;i<argc;i+=2){if(!args.count(argv[i])||i+1>=argc)throw std::runtime_error("invalid mDNS argument");args[argv[i]]=argv[i+1];}
     phantom::NetworkCrypto crypto;const auto c=phantom::load_network_config(crypto,args["--config"],args["--bundle"],args["--manifest"]);

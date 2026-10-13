@@ -1,5 +1,6 @@
 #include "phantom/network_server.hpp"
 #include "phantom/json_reader.hpp"
+#include "phantom/robot_data.hpp"
 #include "phantom/byte_codec.hpp"
 #include <algorithm>
 #include <cstring>
@@ -11,20 +12,24 @@ JsonValue read_json(const std::string& path){JsonValue value;std::string error;i
 std::string string_field(const JsonValue& root,const std::string& key){std::string result;if(!json_string(root,key,result))throw std::runtime_error("required network field missing: "+key);return result;}
 unsigned integer_field(const JsonValue& root,const std::string& key,unsigned min,unsigned max){std::uint64_t result=0;if(!json_uint(root,key,min,max,result))throw std::runtime_error("invalid network bound: "+key);return result;}
 bool qualified_network_only(const JsonValue& root){bool value=false;std::uint64_t scope=1,observation=1;
-  return json_bool(root,"qualification_only",value)&&value&&json_uint(root,"actuator_scope_mask",0,0,scope)&&json_uint(root,"safety_observation_mask",0,0,observation)&&string_field(root,"qualification_evidence_manifest_hash")==std::string(64,'0');}
+  return json_bool(root,"qualification_only",value)&&value&&json_uint(root,"actuator_scope_mask",0,0,scope)&&json_uint(root,"safety_observation_mask",0,0,observation);}
 void id32(Buffer& payload,std::size_t offset,const std::string& value){
   if(value.empty()||value.size()>=32||!std::all_of(value.begin(),value.end(),[](unsigned char c){return (c>='A'&&c<='Z')||(c>='a'&&c<='z')||(c>='0'&&c<='9')||c=='.'||c=='_'||c=='-';}))throw std::runtime_error("invalid robot/profile id");
   std::copy(value.begin(),value.end(),payload.begin()+offset);
 }
 }
 NetworkConfig load_network_config(const NetworkCrypto& crypto,const std::string& config_path,const std::string& bundle_path,const std::string& manifest_path){
-  const auto config=read_json(config_path),bundle=read_json(bundle_path),manifest=read_json(manifest_path);
+  const auto config=read_json(config_path),manifest=read_json(manifest_path);
+  JsonValue bundle; std::string canonical,error;
+  if(!load_robot_data(bundle_path,true,bundle,canonical,error))throw std::runtime_error(error);
+  // The current network process accepts only the canonical zero-authority
+  // descriptor. A saved physical bundle is never downgraded or overwritten.
+  if(canonical!=network_only_descriptor_json())throw std::runtime_error("network-only session descriptor mismatch");
   if(string_field(config,"build_profile")!="Diagnostic"||!qualified_network_only(config)||!qualified_network_only(bundle))throw std::runtime_error("Stage-3 network-only profile required");
   if(string_field(config,"network/discovery_service_type")!="_phantom-ev3._udp"||string_field(config,"network/discovery_domain")!="local."||string_field(config,"network/ip_family")!="IPV4")throw std::runtime_error("DNS-SD/IP family mismatch");
   NetworkConfig result;result.robot_id=string_field(config,"robot_id");Buffer test_id(32);id32(test_id,0,result.robot_id);
   result.build_id=string_field(manifest,"build_id");Digest check{};if(!parse_hex(result.build_id,check.data(),check.size()))throw std::runtime_error("invalid build_id");
   if(!parse_hex(string_field(manifest,"protocol_contract_hash"),result.contract_hash.data(),result.contract_hash.size())||string_field(manifest,"protocol_contract_hash")!=wire::kProtocolContractSha256)throw std::runtime_error("protocol contract mismatch");
-  auto canonical=read_bounded_file(bundle_path);if(!canonical.empty()&&canonical.back()=='\n')canonical.pop_back();
   result.bundle_hash=crypto.hash(reinterpret_cast<const unsigned char*>(canonical.data()),canonical.size());
   if(hex(result.bundle_hash.data(),result.bundle_hash.size())!=string_field(manifest,"commissioning_bundle_hash"))throw std::runtime_error("bundle/manifest hash mismatch");
   result.port=integer_field(config,"network/listen_port_udp",1,65535);result.rate=integer_field(config,"network/rx_rate_limit_pps",1,10000);

@@ -48,10 +48,10 @@ class DocumentationTests(unittest.TestCase):
 
     def test_prose_declared_measured_fields_exist_in_canonical_config(self):
         sources = configgen.source_objects()
-        spec_contract_check.check_prose_measured_contract(sources)
+        spec_contract_check.check_prose_config_contract(sources)
         sources = copy.deepcopy(sources)
-        del sources["quest"]["human_mapping"]["max_mapping_scale"]
-        self.assertRaises(ValueError, spec_contract_check.check_prose_measured_contract, sources)
+        del sources["quest"]["network"]["telemetry_max_age_ms"]
+        self.assertRaises(ValueError, spec_contract_check.check_prose_config_contract, sources)
 
     def test_product_requirement_criterion_links(self):
         text = ('| <a id="criterion-c-01"></a>`C-01` | Direction | Observable outcome |\n'

@@ -7,6 +7,8 @@ import secrets
 from .files import load, write_json
 from .process import ROOT, ToolError, run
 from .environment import executable
+from .identity import robot_id
+from .settings import settings, timeout as command_timeout
 
 
 def private(path):
@@ -66,7 +68,7 @@ class Pair:
             raise ToolError('Rotation or repin requires --repair')
         if self.record.is_file():
             self.read()
-            for option, field in (('quest_serial', 'quest_adb_serial'), ('robot_id', 'robot_id'),
+            for option, field in (('quest_serial', 'quest_adb_serial'),
                                   ('control_key_id', 'control_key_id')):
                 value = getattr(args, option)
                 if value and value != self.state[field]:
@@ -93,7 +95,7 @@ class Pair:
                 check_quest(serial)
             self.state = dict(provision_schema_version=1, provision_status='complete',
                               ev3_hostname='ev3dev.local', ev3_host_key_fingerprint=args.host_fingerprint,
-                              quest_adb_serial=serial, robot_id=args.robot_id or load(ROOT / 'config/shared/pair.json')['robot_id'],
+                              quest_adb_serial=serial, robot_id=robot_id(),
                               control_key_id=args.control_key_id or load(ROOT / 'config/shared/pair.json')['network']['control_key_id'],
                               quest_credential_staged=False)
         # Validate inputs before generating or replacing private material.
@@ -126,7 +128,8 @@ class Pair:
     def pin(self, repin=False, repair=False):
         fingerprint = self.state['ev3_host_key_fingerprint']
         lines = self.known_hosts.read_text().splitlines() if self.known_hosts.is_file() and not repin else run(
-            ['ssh-keyscan', '-T', '8', '-t', 'ed25519', self.state['ev3_hostname']], timeout=12).stdout.splitlines()
+            ['ssh-keyscan', '-T', str(settings()['ssh']['keyscan_timeout_seconds']), '-t', 'ed25519',
+             self.state['ev3_hostname']], timeout=command_timeout('ssh_keyscan')).stdout.splitlines()
         matched = []
         for line in lines:
             fields = line.split()
@@ -142,7 +145,7 @@ class Pair:
         # Quote paths for OpenSSH config; this is configuration, not shell text.
         quote = lambda p: '"' + str(p).replace('\\', '/') + '"'
         config = ('Host ev3dev.local\n User root\n IdentityFile ' + quote(self.key) +
-                               '\n IdentitiesOnly yes\n BatchMode yes\n ConnectTimeout 8\n'
+                               f"\n IdentitiesOnly yes\n BatchMode yes\n ConnectTimeout {settings()['ssh']['connect_timeout_seconds']}\n"
                                ' StrictHostKeyChecking yes\n UserKnownHostsFile ' + quote(self.known_hosts) + '\n')
         if self.config.is_file() and self.config.read_text(encoding='utf-8') != config and not repair:
             raise ToolError('SSH configuration differs; explicit --repair is required')
@@ -151,7 +154,8 @@ class Pair:
         private(self.config)
 
 
-def adb(serial, *args, timeout=15):
+def adb(serial, *args, timeout=None):
+    timeout = command_timeout('adb') if timeout is None else timeout
     return run([executable('adb'), '-s', serial, *args], timeout=timeout).stdout.strip()
 
 

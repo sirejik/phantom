@@ -1,0 +1,155 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://phantom.local/schema/startup-reference-v1",
+  "description": "Transient authoritative EV3 startup references. Never restored after controller reboot; nullable domains are outside safety_observation_mask. This schema does not implement the future reference procedures.",
+  "type": "object",
+  "required": [
+    "schema_version",
+    "controller_boot_id",
+    "commissioning_bundle_hash",
+    "safety_observation_mask",
+    "captured_monotonic_us",
+    "joint_references",
+    "gripper_reference"
+  ],
+  "additionalProperties": false,
+  "properties": {
+    "schema_version": {
+      "const": 1
+    },
+    "controller_boot_id": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{32}$"
+    },
+    "commissioning_bundle_hash": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{64}$"
+    },
+    "safety_observation_mask": {
+      "type": "integer",
+      "minimum": 0,
+      "maximum": 15
+    },
+    "captured_monotonic_us": {
+      "type": "integer",
+      "minimum": 0
+    },
+    "joint_references": {
+      "type": "object",
+      "required": [
+        "A",
+        "B",
+        "C"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "A": {
+          "type": [
+            "object",
+            "null"
+          ],
+          "required": [
+            "reference_encoder_count",
+            "reference_physical_angle_rad",
+            "sample_id"
+          ],
+          "additionalProperties": false,
+          "properties": {
+            "reference_encoder_count": {
+              "type": "integer"
+            },
+            "reference_physical_angle_rad": {
+              "type": "number"
+            },
+            "sample_id": {
+              "type": "integer",
+              "minimum": 1
+            }
+          }
+        },
+        "B": {
+          "type": [
+            "object",
+            "null"
+          ],
+          "required": [
+            "reference_encoder_count",
+            "reference_physical_angle_rad",
+            "sample_id"
+          ],
+          "additionalProperties": false,
+          "properties": {
+            "reference_encoder_count": {
+              "type": "integer"
+            },
+            "reference_physical_angle_rad": {
+              "type": "number"
+            },
+            "sample_id": {
+              "type": "integer",
+              "minimum": 1
+            }
+          }
+        },
+        "C": {
+          "type": [
+            "object",
+            "null"
+          ],
+          "required": [
+            "reference_encoder_count",
+            "reference_physical_angle_rad",
+            "sample_id"
+          ],
+          "additionalProperties": false,
+          "properties": {
+            "reference_encoder_count": {
+              "type": "integer"
+            },
+            "reference_physical_angle_rad": {
+              "type": "number"
+            },
+            "sample_id": {
+              "type": "integer",
+              "minimum": 1
+            }
+          }
+        }
+      }
+    },
+    "gripper_reference": {
+      "type": [
+        "object",
+        "null"
+      ],
+      "required": [
+        "reference_encoder_count",
+        "opening0_mm",
+        "d0_opening_counts",
+        "d0_closing_counts",
+        "branch"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "reference_encoder_count": {
+          "type": "integer"
+        },
+        "opening0_mm": {
+          "type": "number",
+          "minimum": 0
+        },
+        "d0_opening_counts": {
+          "type": "number",
+          "minimum": 0
+        },
+        "d0_closing_counts": {
+          "type": "number",
+          "minimum": 0
+        },
+        "branch": {
+          "const": "UNKNOWN"
+        }
+      }
+    }
+  }
+}

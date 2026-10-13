@@ -102,7 +102,7 @@ int main(int argc,char**argv){
   }
 
   phantom::RuntimeProfile profile;std::string profile_error;
-  if(!phantom::load_runtime_profile("/opt/phantom/current/config.generated.json","/opt/phantom/current/commissioning-bundle.generated.json",profile,profile_error)){std::cerr<<"runtime profile: "<<profile_error<<"\n";return 5;}
+  if(!phantom::load_runtime_profile("/opt/phantom/current/config.generated.json","/var/lib/phantom/robot/commissioning.json",profile,profile_error)){std::cerr<<"runtime profile: "<<profile_error<<"\n";return 5;}
 
   phantom::RuntimeConfig config;
   config.command_timeout_ms=profile.command_timeout_ms;

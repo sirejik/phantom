@@ -609,7 +609,7 @@ grip_intent = humanGrip
 ## 12. Геометрическая модель PHANTOM
 
 Quest загружает `RobotGeometry` из совместимого `CommissioningBundle`.
-Структура принадлежит [bundle schema](../config/shared/commissioning-bundle.schema.json);
+Структура принадлежит [bundle schema](../schemas/ev3/commissioning.schema.json);
 параметры будущих этапов перечислены в [§19.2](#sec-5-19-2).
 
 | Группа | Что определяет |
@@ -1391,8 +1391,8 @@ Quest также снимает `MOTION_ENABLE` при применимой те
 <a id="sec-5-19"></a>
 ## 19. Конфигурация Quest
 
-Структура конфигурации Quest принадлежит `config/quest/runtime.schema.json`; canonical
-sources — `config/quest/runtime/base.json` и отличия в `config/quest/runtime/profiles/`.
+Структура конфигурации Quest принадлежит `schemas/quest/runtime.schema.json`; canonical
+sources — `config/quest/project.json` и отличия в `config/quest/`.
 Общие поля добавляются из `config/shared/` по [правилам конфигурации](engineering.md#sec-engineering-contracts-configuration).
 Этот раздел описывает **смысл** полей и межполевые правила, а не
 повторяет их структуру. Структурные значения задаются schema; поведение и условия
@@ -1400,20 +1400,39 @@ sources — `config/quest/runtime/base.json` и отличия в `config/quest/
 schema является дефектом: до допуска движения согласованно исправляются владелец
 контракта, schema и проверки по [Правилам спецификации §4](specification-governance.md#sec-specification-governance-4).
 
+Измеренная геометрия, калибровки и qualification evidence не входят в исходники
+Quest или APK. Постоянные данные получает инженерная процедура; локальная копия
+должна совпадать с authoritative EV3 bundle перед движением. При каждом запуске
+`RobotLocalization` определяется заново по QR и хранится в памяти по схеме
+`schemas/quest/startup-localization.schema.json`. Это результат измерения, не
+редактируемый project config и не сохранённый spatial transform прошлого запуска.
+Stage-3 network-only не выполняет физическую калибровку/локализацию.
+
 <a id="sec-5-19-1"></a>
 ### 19.1. Смысл текущих полей
 
 | блок | назначение |
 |---|---|
-| `qualification` | **ожидаемый локальный profile**, а не источник authority: `qualification_only`, обе маски, `required_user_inputs` и `qualification_evidence_manifest_hash`. Authoritative значения находятся в установленном `CommissioningBundle` EV3 |
-| `human_mapping` | `arm_reach_min_technical_m`, `arm_reach_max_technical_m`, `max_mapping_scale` — technical sanity bounds и квалифицированный потолок линейного масштаба ([Справочник §2.1](reference.md#sec-11-1-1), `FR-MAP-08`). Все три `MEASURED` и зарегистрированы в `config/shared/measured-parameters.json` |
-| `space` | обязательные XR capability gates; `require_current_room` никогда не может гейтить core actuator path (S37) |
-| `hand_tracking` | Wrist joint, максимальный возраст позы и `MEASURED` dropout grace |
-| `body_tracking` | `Body_RightShoulder` provider, joint set, максимальный возраст позы, `TrackingQualificationProfile` id и требование совпадения runtime-профиля (S28) |
-| `qr` | набор обязательных маркеров и правило «требуются только до `READY`» |
-| `grasp` | `IGripSignalProvider` и fallback; `DISABLED` в network-only |
-| `commissioning_bundle.expected_hash` | локально ожидаемый bundle hash, доказываемый через `HELLO_ACK` |
+| `qualification` | **ожидаемый локальный profile**, а не источник authority: `qualification_only`, обе маски и `required_user_inputs`. Evidence относится к постоянным данным робота, а не к настройкам разработки. Authoritative значения находятся в установленном `CommissioningBundle` EV3 |
+| Активный bundle hash (runtime state) | Для network-only вычисляется из нулевого session descriptor; для движения берётся из совместимых постоянных данных робота и доказывается через `HELLO_ACK` |
 | `network` | DNS-SD identity, порт, protocol version, `control_key_id`, а также **фактические тайминги клиента**: `telemetry_max_age_ms`, `hello_retry_ms`, `hello_max_attempts`, `ping_interval_ms`, `ping_timeout_ms`, `max_missed_pongs`, `reconnect_delay_ms` |
+
+Runtime config не содержит номера версии и валидируется по единственной
+актуальной `schemas/quest/runtime.schema.json`.
+Текущий компоновщик формирует весь блок `qualification` из профиля BUILD:
+Diagnostic — `true`/`0`/`0`/`NONE`, Release — `false`/`15`/`15`/`FULL_ARM`.
+Эти значения не редактируются в исходных конфигурациях. Authoritative данные EV3
+по-прежнему проверяются отдельно; будущие аппаратные Diagnostic phases требуют
+реализованного phase-specific контракта, а не ручного изменения масок.
+
+Будущие runtime-поля: `human_mapping` (`arm_reach_min_technical_m`,
+`arm_reach_max_technical_m`, `max_mapping_scale`), `space`, `hand_tracking`,
+`body_tracking`, `qr` и `grasp`. Текущий загрузчик Stage 3 их не читает, поэтому
+в исходниках конфигурации и действующей runtime-схеме этих блоков нет.
+При реализации соответствующих этапов добавляются загрузка, схема и тесты;
+требования mapping, freshness, capability gates и QR из соответствующих разделов
+этой спецификации сохраняются. Значения измерений задаются один раз в настройках
+Quest, без отдельного реестра копий.
 
 Межполевые правила, которые проверяет `tooling/internal/configgen.py`:
 

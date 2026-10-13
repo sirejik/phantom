@@ -8,7 +8,7 @@ jobs:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
         with:
-          python-version: '3.12'
+          python-version-file: '.python-version'
       - uses: actions/setup-dotnet@v4
         with:
           global-json-file: PhantomQuest/Tests/Host/global.json
@@ -31,10 +31,6 @@ jobs:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
         with:
-          python-version: '3.12'
-      - name: Fetch the pinned image
-        run: |
-          image=$(python -c "import json; x=json.load(open('config/ev3/toolchain.json')); print(x['cross_image']+'@'+x['cross_image_digest'])")
-          docker pull "$image"
+          python-version-file: '.python-version'
       - name: Build and validate Diagnostic ARM package
         run: python tooling build --target ev3 --profile diagnostic

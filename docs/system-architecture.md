@@ -174,7 +174,7 @@ flowchart LR
 | Проверка `LOCAL_FLOOR`, Spatial Data/QR capabilities | выполняет | — | — |
 | Калибровка пользователя | выполняет | — | — |
 | `RobotLocalization` | вычисляет только по QR | — | обеспечивает жёсткие QR крепления |
-| `CommissioningBundle` (`RobotGeometry`/`DriveCalibration`/`JointSafeSet`/SafetyEnvelope) | использует и сверяет hash | хранит authoritative safety subset и сверяет общий hash | физически определяет исходные измеряемые параметры |
+| `CommissioningBundle` (`RobotGeometry`/`DriveCalibration`/`JointSafeSet`/SafetyEnvelope) | получает результат инженерного процесса вне APK и сверяет hash | хранит authoritative данные вне пакета ПО и сверяет общий hash | физически определяет исходные измеряемые параметры |
 | `DriveCalibration` | измеряет физические углы по QR и рассчитывает модель | собирает отсчёты энкодеров и хранит коэффициенты | физически определяет передачу |
 | `JointReference` текущего запуска | измеряет `q_qr` и отправляет данные привязки | связывает текущий исходный отсчёт энкодера с физическим углом | механика остаётся неподвижной во время привязки |
 | Абсолютная цель TCP и IK | вычисляет | не пересчитывает IK | задаёт доступную кинематику |

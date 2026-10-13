@@ -16,6 +16,7 @@
 #include <thread>
 
 #include "phantom/maintenance.hpp"
+#include "phantom/robot_data.hpp"
 #include "phantom/network_wire.hpp"
 namespace phantom {
 CommandResult maintenance_command(const std::vector<std::string>& args,
@@ -175,8 +176,7 @@ std::string maintenance_digest(const std::string& path, bool trim) {
 }
 void maintenance_validate_bundle(const std::string& root) {
   auto manifest = maintenance_json(root + "/build-manifest.json"),
-       config = maintenance_json(root + "/config.generated.json"),
-       bundle = maintenance_json(root + "/commissioning-bundle.generated.json");
+       config = maintenance_json(root + "/config.generated.json");
   if (maintenance_string(manifest, "component") != "EV3" ||
       maintenance_string(manifest, "build_identity_schema") !=
           "PHANTOM-BUILD-V4")
@@ -185,19 +185,32 @@ void maintenance_validate_bundle(const std::string& root) {
   if (!json_uint(manifest, "schema_version", 5, 5, schema))
     throw std::runtime_error("invalid manifest schema");
   if (maintenance_digest(root + "/config.generated.json") !=
-          maintenance_string(manifest, "config_hash") ||
-      maintenance_digest(root + "/commissioning-bundle.generated.json", true) !=
-          maintenance_string(manifest, "commissioning_bundle_hash"))
-    throw std::runtime_error("config/bundle hash mismatch");
+          maintenance_string(manifest, "config_hash"))
+    throw std::runtime_error("development config hash mismatch");
+  for (const auto& file : maintenance_files(root))
+    if (file == "commissioning-bundle.generated.json" || file.compare(0, 11, "robot-data/") == 0)
+      throw std::runtime_error("software package contains robot-owned data");
+  const auto profile = maintenance_string(config, "build_profile");
+  if (profile != "Diagnostic" && profile != "Release")
+    throw std::runtime_error("unknown development profile");
+  const std::string descriptor = network_only_descriptor_json();
+  NetworkCrypto crypto;
+  const auto digest = crypto.hash(reinterpret_cast<const unsigned char*>(descriptor.data()), descriptor.size());
+  const auto expected = profile == "Diagnostic" ? hex(digest.data(), digest.size()) : std::string(64, '0');
+  if (maintenance_string(manifest, "commissioning_bundle_hash") != expected)
+    throw std::runtime_error("bootstrap identity mismatch");
   if (maintenance_string(config, "build_profile") !=
       maintenance_string(manifest, "build_profile"))
     throw std::runtime_error("profile mismatch");
-  for (const auto& field : {"qualification_only", "actuator_scope_mask",
-                            "safety_observation_mask"}) {
-    auto a = config.find(field), b = bundle.find(field);
-    if (!a || !b || maintenance_serialize(*a) != maintenance_serialize(*b))
-      throw std::runtime_error("config/bundle scope mismatch");
-  }
+  std::uint64_t scope=0, observe=0;
+  bool qualification=false;
+  if (!json_uint(config,"actuator_scope_mask",0,15,scope) ||
+      !json_uint(config,"safety_observation_mask",0,15,observe) ||
+      !json_bool(config,"qualification_only",qualification) || (scope & ~observe) ||
+      (profile == "Diagnostic" && (!qualification || scope || observe)) ||
+      (profile == "Release" && (qualification || scope != 15 || observe != 15)))
+    throw std::runtime_error("development profile scope mismatch");
+
 }
 void maintenance_write(const std::string& path, const std::string& content) {
   const auto temp = path + ".tmp";

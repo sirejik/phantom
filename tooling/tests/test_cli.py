@@ -127,7 +127,7 @@ class PairTests(unittest.TestCase):
     def test_mismatched_identity_and_rotation_require_explicit_repair(self):
         with tempfile.TemporaryDirectory() as directory:
             pair = self.pair(directory)
-            for flags in (['--robot-id', 'other'], ['--rotate-control-secret'], ['--repin-host']):
+            for flags in (['--rotate-control-secret'], ['--repin-host']):
                 args = parser().parse_args(['install', '--target', 'ev3', '--artifact', 'ignored', *flags])
                 with self.assertRaises(ToolError):
                     pair.initialize(args)
@@ -228,15 +228,15 @@ class BuildTests(unittest.TestCase):
             cleanup = process.call_args_list[1].args[0]
             self.assertEqual(cleanup, ['docker', 'rm', '-f', launch[3]])
             self.assertTrue(launch[3].startswith('phantom-tooling-build-'))
-    def test_unqualified_release_is_blocked_for_both_platforms(self):
+    def test_release_publication_cannot_bypass_external_evidence(self):
         for target in ('ev3', 'quest'):
             args = parser().parse_args(['build', '--target', target, '--profile', 'release'])
-            metadata = {'artifact_hashes': {'commissioning_bundle': '0' * 64}}
             result = subprocess.CompletedProcess([], 0, 'test-commit', '')
             with patch.object(builds, 'internal'), patch.object(builds, 'hashes', return_value={}), \
                     patch.object(builds, 'sha', return_value='0' * 64), \
-                    patch.object(builds, 'load', return_value=metadata), patch.object(builds, 'run', return_value=result):
-                with self.assertRaisesRegex(ToolError, 'qualification evidence is absent'):
+                    patch.object(builds, 'run', return_value=result), \
+                    patch.object(builds, 'load', side_effect=AssertionError('Release must not read robot data')):
+                with self.assertRaisesRegex(ToolError, 'external qualification evidence'):
                     builds.build(args)
     def test_reproducibility_compares_independent_snapshots(self):
         with tempfile.TemporaryDirectory() as directory:

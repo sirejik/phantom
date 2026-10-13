@@ -11,7 +11,7 @@ import configgen
 
 ROOT = pathlib.Path(__file__).resolve().parents[2]
 PROTOCOL_SPEC = ROOT / "docs/protocol-specification.md"
-SCHEMA = ROOT / "config/shared/protocol/wire-schema.json"
+SCHEMA = ROOT / "schemas/shared/protocol/wire-schema.json"
 
 
 def fail(message):
@@ -31,32 +31,33 @@ def exact_utf8_lf(path):
         fail("%s is not UTF-8" % path.relative_to(ROOT))
 
 
-def check_prose_measured_contract(source_objects):
-    """Every `MEASURED` field named by normative prose must exist in canonical config.
-
-    Without this the prose can declare a safety-relevant measured parameter that
-    never reaches the registry, which would silently defeat the READY gate.
-    """
-    documented={
-        "docs/quest-specification.md":{
-            "max_mapping_scale":"quest#/human_mapping/max_mapping_scale",
-            "arm_reach_min_technical_m":"quest#/human_mapping/arm_reach_min_technical_m",
-            "arm_reach_max_technical_m":"quest#/human_mapping/arm_reach_max_technical_m",
+def check_prose_config_contract(source_objects):
+    """Current prose fields must exist even after their measurements are filled."""
+    documented = {
+        "docs/quest-specification.md": {
+            "telemetry_max_age_ms": ("quest", "network", "telemetry_max_age_ms"),
+            "required_user_inputs": ("quest", "qualification", "required_user_inputs"),
+        },
+        "docs/ev3-specification.md": {
+            "loop_safe_hold_ms": ("ev3", "safety", "loop_safe_hold_ms"),
+            "loop_fault_ms": ("ev3", "safety", "loop_fault_ms"),
         },
     }
-    flat={}
-    for name,obj in source_objects.items():
-        for path in configgen.measured_paths(name,obj): flat[path.split("#",1)[0].replace(".json","")+"#"+path.split("#",1)[1]]=path
-    for document,mapping in documented.items():
-        text=(ROOT/document).read_text(encoding="utf-8")
-        for field,expected in mapping.items():
-            if field not in text: raise ValueError("%s no longer declares %s"%(document,field))
-            if expected not in flat: raise ValueError("prose MEASURED field %s is absent from canonical config (%s)"%(field,expected))
+    for document, mapping in documented.items():
+        text = (ROOT / document).read_text(encoding="utf-8")
+        for field, path in mapping.items():
+            if field not in text:
+                raise ValueError(document + " no longer declares " + field)
+            obj = source_objects
+            for key in path:
+                if not isinstance(obj, dict) or key not in obj:
+                    raise ValueError("prose field " + field + " is absent from canonical config")
+                obj = obj[key]
 
 
 def main():
     source_objects = configgen.source_objects()
-    check_prose_measured_contract(source_objects)
+    check_prose_config_contract(source_objects)
     _, protocol_text = exact_utf8_lf(PROTOCOL_SPEC)
 
     schema = json.loads(SCHEMA.read_text(encoding="utf-8"))
@@ -86,7 +87,7 @@ def main():
             fail(label + " hash does not cover its canonical JSON")
 
     required_semantics = (
-        "config/shared/protocol/wire-schema.json",
+        "schemas/shared/protocol/wire-schema.json",
         "config/shared/protocol/semantics.json",
         "docs/protocol-wire-reference.md",
         "HELLO.capabilities_requested",

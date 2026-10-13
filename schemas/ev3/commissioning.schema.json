@@ -1,0 +1,306 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://phantom.local/schema/commissioning-bundle-v1",
+  "type": "object",
+  "required": [
+    "schema_version",
+    "revision",
+    "bundle_id",
+    "mechanical_revision",
+    "qualification_status",
+    "qualification_only",
+    "qualification_evidence_manifest_hash",
+    "actuator_scope_mask",
+    "safety_observation_mask",
+    "robot_geometry",
+    "drive_calibration",
+    "collision_model",
+    "joint_safe_sets",
+    "payload_profiles",
+    "safety_envelope"
+  ],
+  "properties": {
+    "schema_version": {
+      "const": 1
+    },
+    "revision": {
+      "type": "integer",
+      "minimum": 1
+    },
+    "bundle_id": {
+      "type": "string",
+      "minLength": 1
+    },
+    "mechanical_revision": {
+      "type": "string",
+      "minLength": 1
+    },
+    "qualification_status": {
+      "enum": [
+        "UNQUALIFIED",
+        "QUALIFIED"
+      ]
+    },
+    "qualification_only": {
+      "type": "boolean"
+    },
+    "qualification_evidence_manifest_hash": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{64}$"
+    },
+    "actuator_scope_mask": {
+      "type": "integer",
+      "minimum": 0,
+      "maximum": 15
+    },
+    "safety_observation_mask": {
+      "type": "integer",
+      "minimum": 0,
+      "maximum": 15
+    },
+    "robot_geometry": {
+      "type": "object",
+      "required": [
+        "branch_sign",
+        "l1_m",
+        "l2_m",
+        "shoulder_height_m",
+        "marker_mounts"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "branch_sign": {
+          "enum": [
+            -1,
+            1
+          ]
+        },
+        "l1_m": {
+          "type": [
+            "number",
+            "null"
+          ],
+          "minimum": 0.08,
+          "maximum": 0.4
+        },
+        "l2_m": {
+          "type": [
+            "number",
+            "null"
+          ],
+          "minimum": 0.08,
+          "maximum": 0.4
+        },
+        "shoulder_height_m": {
+          "type": [
+            "number",
+            "null"
+          ],
+          "minimum": 0.001
+        },
+        "marker_mounts": {
+          "type": [
+            "object",
+            "array",
+            "string"
+          ],
+          "minLength": 1
+        }
+      }
+    },
+    "drive_calibration": {
+      "type": "object",
+      "required": [
+        "axes",
+        "revision",
+        "status"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "axes": {
+          "type": "object",
+          "required": [
+            "A",
+            "B",
+            "C",
+            "D"
+          ],
+          "additionalProperties": false,
+          "properties": {
+            "A": {
+              "type": [
+                "object",
+                "null"
+              ]
+            },
+            "B": {
+              "type": [
+                "object",
+                "null"
+              ]
+            },
+            "C": {
+              "type": [
+                "object",
+                "null"
+              ]
+            },
+            "D": {
+              "type": [
+                "object",
+                "null"
+              ]
+            }
+          }
+        },
+        "revision": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "status": {
+          "enum": [
+            "MEASURED_REQUIRED",
+            "OUT_OF_SCOPE",
+            "QUALIFIED"
+          ]
+        }
+      }
+    },
+    "collision_model": {
+      "type": "object",
+      "required": [
+        "primitives",
+        "revision",
+        "status"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "primitives": {
+          "type": "array",
+          "items": {
+            "type": "object"
+          }
+        },
+        "revision": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "status": {
+          "enum": [
+            "MEASURED_REQUIRED",
+            "OUT_OF_SCOPE",
+            "QUALIFIED"
+          ]
+        }
+      }
+    },
+    "joint_safe_sets": {
+      "type": "object",
+      "required": [
+        "format",
+        "profiles",
+        "status"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "format": {
+          "const": "GRID3D_V1"
+        },
+        "profiles": {
+          "type": "object"
+        },
+        "status": {
+          "enum": [
+            "MEASURED_REQUIRED",
+            "OUT_OF_SCOPE",
+            "QUALIFIED"
+          ]
+        }
+      }
+    },
+    "payload_profiles": {
+      "type": "object",
+      "required": [
+        "profiles",
+        "status"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "profiles": {
+          "type": "object"
+        },
+        "status": {
+          "enum": [
+            "MEASURED_REQUIRED",
+            "OUT_OF_SCOPE",
+            "QUALIFIED"
+          ]
+        }
+      }
+    },
+    "safety_envelope": {
+      "type": "object",
+      "required": [
+        "external_power_cut_present",
+        "external_power_cut_tested",
+        "payload_cog_offset_max_m",
+        "payload_mass_max_kg",
+        "pinch_exclusion_margin_m",
+        "swept_volume_margin_m",
+        "tcp_static_moment_max_Nm"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "external_power_cut_present": {
+          "type": [
+            "boolean",
+            "null"
+          ]
+        },
+        "external_power_cut_tested": {
+          "type": [
+            "boolean",
+            "null"
+          ]
+        },
+        "payload_cog_offset_max_m": {
+          "type": [
+            "number",
+            "null"
+          ],
+          "minimum": 0
+        },
+        "payload_mass_max_kg": {
+          "type": [
+            "number",
+            "null"
+          ],
+          "minimum": 0
+        },
+        "pinch_exclusion_margin_m": {
+          "type": [
+            "number",
+            "null"
+          ],
+          "minimum": 0
+        },
+        "swept_volume_margin_m": {
+          "type": [
+            "number",
+            "null"
+          ],
+          "minimum": 0
+        },
+        "tcp_static_moment_max_Nm": {
+          "type": [
+            "number",
+            "null"
+          ],
+          "minimum": 0
+        }
+      }
+    }
+  },
+  "additionalProperties": false,
+  "description": "Persistent per-robot calibration, measured safety limits and qualification, produced by engineering processes outside source control. Not a software BUILD input; startup references are separate."
+}

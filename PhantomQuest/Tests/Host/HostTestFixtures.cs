@@ -17,6 +17,10 @@ public sealed class HostTests
 {
     static string Root => Environment.GetEnvironmentVariable("PHANTOM_REPO_ROOT") ?? FindRoot();
     static string FindRoot(){for(var p=new DirectoryInfo(AppContext.BaseDirectory);p!=null;p=p.Parent)if(File.Exists(Path.Combine(p.FullName,"ev3","CMakeLists.txt")))return p.FullName;throw new Exception("Repository root not found");}
+    [Test, Category("Unit")] public void BootstrapDescriptorMatchesNativeIdentity()
+    {
+        Assert.That(Convert.ToHexString(Phantom.Config.Stage3RuntimeConfig.NetworkOnlyDescriptorHash()).ToLowerInvariant(),Is.EqualTo(BundleHash()));
+    }
     [Test, Category("Unit")] public void Core(){Assert.That(CoreSmoke.Run(),Is.Zero);}
     [Test, Category("Unit")] public void NetworkCore(){Assert.That(Stage3CoreTests.Run(),Is.Zero);}
     [Test, Category("Unit")] public void GoldenVectors(){Assert.That(GoldenVectorInterop.Run(new[]{Path.Combine(Root,"protocol/golden_vectors/v1.json")}),Is.Zero);}
@@ -29,7 +33,7 @@ public sealed class HostTests
             Assert.That(UdpIntegration.Run(new[]{stub.Boot,stub.Port.ToString(),BundleHash(),scenario}),Is.Zero);
     }
 
-    static string BundleHash(){using var doc=JsonDocument.Parse(File.ReadAllText(Path.Combine(Root,"config/shared/generated/manifest.json")));return doc.RootElement.GetProperty("artifact_hashes").GetProperty("commissioning_bundle-network-only").GetString();}
+    static string BundleHash(){using var doc=JsonDocument.Parse(File.ReadAllText(Path.Combine(Root,"build/config/manifest.json")));return doc.RootElement.GetProperty("bootstrap_descriptor_hash").GetString();}
     static string Distro => Environment.GetEnvironmentVariable("PHANTOM_WSL_DISTRO") ?? JsonDocument.Parse(File.ReadAllText(Path.Combine(Root,"config/tooling/environment.json"))).RootElement.GetProperty("wsl").GetProperty("distribution").GetString();
     static Process Launch(params string[] args)
     {
@@ -58,7 +62,7 @@ public sealed class HostTests
             protocol_schema_hash=File.ReadAllText(Path.Combine(Root,"protocol/generated/schema.sha256")).Split()[0],
             protocol_semantics_hash=File.ReadAllText(Path.Combine(Root,"protocol/generated/semantics.sha256")).Split()[0],
             protocol_contract_hash=WireV1.ProtocolContractSha256,commissioning_bundle_hash=BundleHash()});
-        using var process=Launch(build+"/phantom-quest-interop-fixture",build+"/phantom-network",root+"/config/ev3/generated/diagnostic.json",root+"/config/shared/generated/commissioning-bundle-diagnostic.json",manifest);
+        using var process=Launch(build+"/phantom-quest-interop-fixture",build+"/phantom-network",root+"/build/config/ev3/diagnostic.json",root+"/build/config/test-fixtures/network-only-session.json",manifest);
         var errors=process.StandardError.ReadToEndAsync();
         try{
             var deadline=DateTime.UtcNow.AddSeconds(15);string port=null;

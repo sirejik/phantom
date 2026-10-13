@@ -20,7 +20,7 @@ std::uint64_t now_us(){return std::chrono::duration_cast<std::chrono::microsecon
 void status(const std::string& path,const std::string& data){std::ofstream f(path+".tmp",std::ios::trunc);f<<data;f.close();if(!f||::rename((path+".tmp").c_str(),path.c_str()))throw std::runtime_error("status write failed");}
 }
 int main(int argc,char**argv){
-  std::map<std::string,std::string> args{{"--config","/opt/phantom/current/config.generated.json"},{"--bundle","/opt/phantom/current/commissioning-bundle.generated.json"},{"--manifest","/opt/phantom/current/build-manifest.json"},{"--control-key","/var/lib/phantom/secrets/control.psk"},{"--boot-id","/run/phantom/controller/boot-id"},{"--status","/run/phantom/network/status.json"},{"--ipc-own","/run/phantom/network/controller.sock"},{"--ipc-controller","/run/phantom/controller/network.sock"},{"--bind","0.0.0.0"},{"--controller-uid",""},{"--ipc-gid",""}};
+  std::map<std::string,std::string> args{{"--config","/opt/phantom/current/config.generated.json"},{"--bundle",""},{"--manifest","/opt/phantom/current/build-manifest.json"},{"--control-key","/var/lib/phantom/secrets/control.psk"},{"--boot-id","/run/phantom/controller/boot-id"},{"--status","/run/phantom/network/status.json"},{"--ipc-own","/run/phantom/network/controller.sock"},{"--ipc-controller","/run/phantom/controller/network.sock"},{"--bind","0.0.0.0"},{"--controller-uid",""},{"--ipc-gid",""}};
   int fd=-1;
   try{
     for(int i=1;i<argc;i+=2){if(!args.count(argv[i])||i+1>=argc)throw std::runtime_error("unknown or missing network argument");args[argv[i]]=argv[i+1];}

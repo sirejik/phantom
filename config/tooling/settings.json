@@ -1,8 +1,4 @@
 {
-  "python_minimum": [
-    3,
-    12
-  ],
   "timeout_max_seconds": 3600,
   "timeouts": {
     "process": 60,
@@ -13,6 +9,26 @@
     "ev3_integration": 360,
     "quest_install": 180,
     "ev3_logs": 15,
-    "quest_logs": 60
+    "quest_logs": 60,
+    "adb": 15,
+    "ssh": 30,
+    "ssh_keyscan": 12,
+    "device_transfer": 30,
+    "bootstrap_transfer": 45,
+    "bootstrap": 60,
+    "deployment_key_install": 60,
+    "remote_cleanup": 15,
+    "ev3_install": 120,
+    "quest_start": 30,
+    "quest_start_probe": 3,
+    "quest_integration_launch": 35
+  },
+  "ssh": {
+    "connect_timeout_seconds": 8,
+    "keyscan_timeout_seconds": 8
+  },
+  "polling": {
+    "quest_start_interval_ms": 250,
+    "quest_integration_stability_ms": 2000
   }
 }

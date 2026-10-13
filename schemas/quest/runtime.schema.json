@@ -1,0 +1,143 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://phantom.local/schema/quest-runtime-config",
+  "title": "PHANTOM Quest runtime configuration",
+  "description": "Current network runtime settings for Quest. Only expected EV3 bundle identity is delivered to Quest; drive calibration remains on EV3.",
+  "type": "object",
+  "required": [
+    "robot_id",
+    "build_profile",
+    "qualification",
+    "network"
+  ],
+  "additionalProperties": false,
+  "properties": {
+    "robot_id": {
+      "type": "string",
+      "pattern": "^[A-Za-z0-9_-]{1,32}$"
+    },
+    "build_profile": {
+      "enum": [
+        "Release",
+        "Diagnostic"
+      ]
+    },
+    "qualification": {
+      "type": "object",
+      "required": [
+        "qualification_only",
+        "actuator_scope_mask",
+        "safety_observation_mask",
+        "required_user_inputs"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "qualification_only": {
+          "type": "boolean"
+        },
+        "actuator_scope_mask": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 15
+        },
+        "safety_observation_mask": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 15
+        },
+        "required_user_inputs": {
+          "enum": [
+            "FULL_ARM",
+            "GRIPPER_ONLY",
+            "NONE"
+          ]
+        }
+      }
+    },
+    "network": {
+      "type": "object",
+      "required": [
+        "discovery_service_type",
+        "discovery_domain",
+        "ip_family",
+        "default_port",
+        "protocol_version",
+        "control_key_id",
+        "commissioning_key_id",
+        "telemetry_max_age_ms",
+        "hello_retry_ms",
+        "hello_max_attempts",
+        "ping_interval_ms",
+        "ping_timeout_ms",
+        "max_missed_pongs",
+        "reconnect_delay_ms"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "discovery_service_type": {
+          "const": "_phantom-ev3._udp"
+        },
+        "discovery_domain": {
+          "const": "local."
+        },
+        "ip_family": {
+          "const": "IPV4"
+        },
+        "default_port": {
+          "type": "integer",
+          "minimum": 1024,
+          "maximum": 65535
+        },
+        "protocol_version": {
+          "const": 1
+        },
+        "control_key_id": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 64
+        },
+        "commissioning_key_id": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "telemetry_max_age_ms": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 60000
+        },
+        "hello_retry_ms": {
+          "type": "integer",
+          "minimum": 10,
+          "maximum": 60000
+        },
+        "hello_max_attempts": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 20
+        },
+        "ping_interval_ms": {
+          "type": "integer",
+          "minimum": 10,
+          "maximum": 60000
+        },
+        "ping_timeout_ms": {
+          "type": "integer",
+          "minimum": 10,
+          "maximum": 60000
+        },
+        "max_missed_pongs": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 10
+        },
+        "reconnect_delay_ms": {
+          "type": "integer",
+          "minimum": 10,
+          "maximum": 60000
+        }
+      }
+    }
+  }
+}

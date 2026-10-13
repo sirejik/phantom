@@ -51,7 +51,7 @@ int main(int argc,char**argv){
     std::cout<<"safety self-test PASS: brake path available\n";return b.nonzero_writes()?1:0;
   }
   phantom::RuntimeProfile profile;std::string error;
-  if(!phantom::load_runtime_profile("/opt/phantom/current/config.generated.json","/opt/phantom/current/commissioning-bundle.generated.json",profile,error)){std::cerr<<"runtime profile: "<<error<<"\n";return 5;}
+  if(!phantom::load_runtime_profile("/opt/phantom/current/config.generated.json","/var/lib/phantom/robot/commissioning.json",profile,error)){std::cerr<<"runtime profile: "<<error<<"\n";return 5;}
   const bool network_only=profile.network_only();
   // The supervisor pre-opens all physically present stop I/O but writes only on takeover.
   phantom::Ev3SysfsBackend backend("/sys/class/tacho-motor","/sys/class/lego-sensor",false,profile.actuator_scope_mask,!network_only,!network_only);

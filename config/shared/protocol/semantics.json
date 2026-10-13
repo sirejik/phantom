@@ -1,11 +1,12 @@
 {
-  "schema_version": 1,
-  "protocol_version": 1,
   "authentication": {
     "algorithm": "HMAC-SHA-256",
     "minimum_key_bytes": 32,
     "authenticate_before_state_change": true,
-    "role_key_slot_binding": {"CONTROL": 0, "COMMISSIONING": 1}
+    "role_key_slot_binding": {
+      "CONTROL": 0,
+      "COMMISSIONING": 1
+    }
   },
   "session": {
     "hello_session_id": "ZERO",
@@ -33,8 +34,14 @@
     "reserved_bytes": "ZERO",
     "hello_ack_reserved0": "ZERO_32_BYTES",
     "all_f32": "FINITE",
-    "command_joint_range_rad": [-6.4, 6.4],
-    "grip_intent_range": [0.0, 1.0],
+    "command_joint_range_rad": [
+      -6.4,
+      6.4
+    ],
+    "grip_intent_range": [
+      0.0,
+      1.0
+    ],
     "unknown_enum_or_bit": "REJECT",
     "invalid_context_or_transition": "REJECT"
   },
